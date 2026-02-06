@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:15
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: rocket
+      POSTGRES_USER: rocket
+      POSTGRES_PASSWORD: rocket
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

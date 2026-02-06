@@ -1,0 +1,24 @@
+# Go
+golang/server
+golang/*.exe
+
+# Node.js
+expressjs/node_modules/
+expressjs/dist/
+expressjs/.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib

@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+database:
+  host: localhost
+  port: 5433
+  user: rocket
+  password: rocket
+  name: rocket
+  pool_size: 10
