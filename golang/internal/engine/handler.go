@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
@@ -224,6 +225,16 @@ func handleWriteError(c *fiber.Ctx, err error) error {
 	if errors.As(err, &appErr) {
 		return respondError(c, appErr)
 	}
+
+	if errors.Is(err, store.ErrUniqueViolation) {
+		msg := "A record with this value already exists"
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Detail != "" {
+			msg = pgErr.Detail
+		}
+		return respondError(c, ConflictError(msg))
+	}
+
 	return err
 }
 

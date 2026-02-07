@@ -23,6 +23,8 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Validation (required fields, enums)
 - Standard error format with codes and field-level details
 
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, and data browsing.
+
 **Not yet built (future phases):**
 - Validation rules (field rules, expression rules, computed fields)
 - State machines
@@ -30,7 +32,6 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Auth (JWT + permissions)
 - Webhooks
 - Audit log
-- SolidJS admin UI
 
 ## Project Structure
 
@@ -40,6 +41,17 @@ rocket-backend/
 ├── CLAUDE.MD                    # This file — project context for AI sessions
 ├── README.md                    # Project overview + quick start
 ├── .gitignore
+├── admin/                       # SolidJS admin UI (Vite + Tailwind)
+│   ├── package.json
+│   ├── vite.config.ts / tsconfig.json / tailwind.config.js
+│   └── src/
+│       ├── App.tsx              # Router + layout
+│       ├── api/                 # API client (entities, relations, data)
+│       ├── components/          # Shared UI (DataTable, Modal, Toast, etc.)
+│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, etc.
+│       ├── stores/              # SolidJS stores (entities, notifications)
+│       ├── styles/              # Tailwind + component CSS
+│       └── types/               # TypeScript types (entity, relation, api)
 ├── docs/                        # Shared technical documentation
 │   ├── dynamic-rest-api.md      # Router, read flow, write flow design
 │   ├── metadata-schemas.md      # Entity, field, relation schemas
@@ -143,6 +155,9 @@ cd golang && go run ./cmd/server/
 
 # Express (port 8080) — stop Go first, same port
 cd expressjs && npx tsx src/index.ts
+
+# Admin UI (port 5173, proxies API to localhost:8080)
+cd admin && npm run dev
 ```
 
 ## Known Issues

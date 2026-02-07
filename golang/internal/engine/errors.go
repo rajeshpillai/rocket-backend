@@ -43,6 +43,14 @@ func UnknownEntityError(name string) *AppError {
 	}
 }
 
+func ConflictError(msg string) *AppError {
+	return &AppError{
+		Code:    "CONFLICT",
+		Status:  409,
+		Message: msg,
+	}
+}
+
 func ValidationError(details []ErrorDetail) *AppError {
 	return &AppError{
 		Code:    "VALIDATION_FAILED",

@@ -14,6 +14,20 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrUniqueViolation = errors.New("unique constraint violation")
+
+// MapPgError inspects err for known pgconn error codes and wraps them
+// in well-known sentinel errors. Returns err unchanged if no mapping applies.
+func MapPgError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return fmt.Errorf("%w: %w", ErrUniqueViolation, err)
+	}
+	return err
+}
 
 // Querier is implemented by both *pgxpool.Pool and pgx.Tx.
 type Querier interface {
@@ -60,7 +74,7 @@ func (s *Store) BeginTx(ctx context.Context) (pgx.Tx, error) {
 func QueryRows(ctx context.Context, q Querier, sql string, args ...any) ([]map[string]any, error) {
 	rows, err := q.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query: %w", err)
+		return nil, MapPgError(fmt.Errorf("query: %w", err))
 	}
 	defer rows.Close()
 
@@ -70,7 +84,7 @@ func QueryRows(ctx context.Context, q Querier, sql string, args ...any) ([]map[s
 	for rows.Next() {
 		values, err := rows.Values()
 		if err != nil {
-			return nil, fmt.Errorf("scan values: %w", err)
+			return nil, MapPgError(fmt.Errorf("scan values: %w", err))
 		}
 		row := make(map[string]any, len(fieldDescs))
 		for i, fd := range fieldDescs {
@@ -79,7 +93,7 @@ func QueryRows(ctx context.Context, q Querier, sql string, args ...any) ([]map[s
 		results = append(results, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration: %w", err)
+		return nil, MapPgError(fmt.Errorf("rows iteration: %w", err))
 	}
 	return results, nil
 }
@@ -100,7 +114,7 @@ func QueryRow(ctx context.Context, q Querier, sql string, args ...any) (map[stri
 func Exec(ctx context.Context, q Querier, sql string, args ...any) (int64, error) {
 	tag, err := q.Exec(ctx, sql, args...)
 	if err != nil {
-		return 0, fmt.Errorf("exec: %w", err)
+		return 0, MapPgError(fmt.Errorf("exec: %w", err))
 	}
 	return tag.RowsAffected(), nil
 }
