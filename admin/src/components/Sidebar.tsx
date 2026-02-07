@@ -65,7 +65,14 @@ export function Sidebar() {
 
   return (
     <aside class="sidebar">
-      <div class="sidebar-title">Rocket Admin</div>
+      <div
+        class="sidebar-title"
+        style={{ cursor: "pointer" }}
+        onClick={() => { setSelectedApp(null); navigate("/apps", { replace: true }); }}
+        title="Back to Apps"
+      >
+        Rocket Admin
+      </div>
 
       <div style={{ padding: "0 0.75rem 0.75rem" }}>
         <select
