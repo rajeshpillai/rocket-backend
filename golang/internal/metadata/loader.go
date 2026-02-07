@@ -47,8 +47,14 @@ func LoadAll(ctx context.Context, pool *pgxpool.Pool, reg *Registry) error {
 	}
 	reg.LoadPermissions(permissions)
 
-	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines, %d workflows, %d permissions into registry",
-		len(entities), len(relations), len(rules), len(machines), len(workflows), len(permissions))
+	webhooks, err := loadWebhooks(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("load webhooks: %w", err)
+	}
+	reg.LoadWebhooks(webhooks)
+
+	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines, %d workflows, %d permissions, %d webhooks into registry",
+		len(entities), len(relations), len(rules), len(machines), len(workflows), len(permissions), len(webhooks))
 	return nil
 }
 
@@ -185,6 +191,41 @@ func loadWorkflows(ctx context.Context, pool *pgxpool.Pool) ([]*Workflow, error)
 		workflows = append(workflows, &wf)
 	}
 	return workflows, rows.Err()
+}
+
+func loadWebhooks(ctx context.Context, pool *pgxpool.Pool) ([]*Webhook, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var webhooks []*Webhook
+	for rows.Next() {
+		var wh Webhook
+		var headersJSON, retryJSON []byte
+		if err := rows.Scan(&wh.ID, &wh.Entity, &wh.Hook, &wh.URL, &wh.Method, &headersJSON, &wh.Condition, &wh.Async, &retryJSON, &wh.Active); err != nil {
+			return nil, fmt.Errorf("scan webhook row: %w", err)
+		}
+		if headersJSON != nil && len(headersJSON) > 0 {
+			if err := json.Unmarshal(headersJSON, &wh.Headers); err != nil {
+				log.Printf("WARN: skipping webhook %s (invalid headers JSON): %v", wh.ID, err)
+				continue
+			}
+		}
+		if wh.Headers == nil {
+			wh.Headers = make(map[string]string)
+		}
+		if retryJSON != nil && len(retryJSON) > 0 {
+			if err := json.Unmarshal(retryJSON, &wh.Retry); err != nil {
+				log.Printf("WARN: skipping webhook %s (invalid retry JSON): %v", wh.ID, err)
+				continue
+			}
+		}
+		webhooks = append(webhooks, &wh)
+	}
+	return webhooks, rows.Err()
 }
 
 func loadPermissions(ctx context.Context, pool *pgxpool.Pool) ([]*Permission, error) {

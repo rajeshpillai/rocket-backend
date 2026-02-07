@@ -9,6 +9,7 @@ import { planWrite, executeWritePlan, fetchRecord } from "./nested-write.js";
 import { loadIncludes } from "./includes.js";
 import { handleCascadeDelete } from "./soft-delete.js";
 import { checkPermission, getReadFilters } from "../auth/permissions.js";
+import { fireAsyncWebhooks, fireSyncWebhooks } from "./webhook.js";
 
 type AsyncHandler = (
   req: Request,
@@ -120,6 +121,7 @@ export class Handler {
     }
 
     const plan = planWrite(entity, this.registry, body, null);
+    plan.user = req.user ?? null;
     const record = await executeWritePlan(this.store, this.registry, plan);
 
     res.status(201).json({ data: record });
@@ -148,6 +150,7 @@ export class Handler {
     }
 
     const plan = planWrite(entity, this.registry, body, id);
+    plan.user = req.user ?? null;
     const record = await executeWritePlan(this.store, this.registry, plan);
 
     res.json({ data: record });
@@ -189,7 +192,15 @@ export class Handler {
         throw notFoundError(entity.name, id);
       }
 
+      // Pre-commit: fire sync (before_delete) webhooks
+      const user = req.user ?? null;
+      await fireSyncWebhooks(client, this.registry, "before_delete", entity.name, "delete", currentRecord, null, user);
+
       await client.query("COMMIT");
+
+      // Post-commit: fire async (after_delete) webhooks
+      fireAsyncWebhooks(this.store, this.registry, "after_delete", entity.name, "delete", currentRecord, null, user);
+
       res.json({ data: { id } });
     } catch (err) {
       await client.query("ROLLBACK");

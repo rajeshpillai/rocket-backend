@@ -7,6 +7,7 @@ import { normalizeDefinition } from "./state-machine.js";
 import type { Workflow, WorkflowTrigger, WorkflowStep } from "./workflow.js";
 import { normalizeWorkflowSteps } from "./workflow.js";
 import type { Permission, PermissionCondition } from "./permission.js";
+import type { Webhook, WebhookRetry } from "./webhook.js";
 
 export async function loadAll(
   pool: Queryable,
@@ -28,8 +29,11 @@ export async function loadAll(
   const permissions = await loadPermissions(pool);
   registry.loadPermissions(permissions);
 
+  const webhooks = await loadWebhooks(pool);
+  registry.loadWebhooks(webhooks);
+
   console.log(
-    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines, ${workflows.length} workflows, ${permissions.length} permissions into registry`,
+    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines, ${workflows.length} workflows, ${permissions.length} permissions, ${webhooks.length} webhooks into registry`,
   );
 }
 
@@ -193,4 +197,38 @@ async function loadWorkflows(pool: Queryable): Promise<Workflow[]> {
     }
   }
   return workflows;
+}
+
+async function loadWebhooks(pool: Queryable): Promise<Webhook[]> {
+  const result = await pool.query(
+    "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook",
+  );
+  const webhooks: Webhook[] = [];
+  for (const row of result.rows) {
+    try {
+      const headers: Record<string, string> =
+        typeof row.headers === "string"
+          ? JSON.parse(row.headers)
+          : (row.headers ?? {});
+      const retry: WebhookRetry =
+        typeof row.retry === "string"
+          ? JSON.parse(row.retry)
+          : (row.retry ?? { max_attempts: 3, backoff: "exponential" });
+      webhooks.push({
+        id: row.id,
+        entity: row.entity,
+        hook: row.hook,
+        url: row.url,
+        method: row.method,
+        headers,
+        condition: row.condition ?? "",
+        async: row.async,
+        retry,
+        active: row.active,
+      });
+    } catch (err) {
+      console.warn(`WARN: skipping webhook ${row.id} (invalid JSON):`, err);
+    }
+  }
+  return webhooks;
 }

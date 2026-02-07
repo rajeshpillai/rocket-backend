@@ -55,7 +55,9 @@ func main() {
 	app := fiber.New(fiber.Config{
 		ErrorHandler: errorHandler,
 	})
-	app.Use(recover.New())
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: true,
+	}))
 	app.Use(logger.New(logger.Config{
 		Format: "${time} ${status} ${method} ${path} ${latency}\n",
 	}))
@@ -90,7 +92,12 @@ func main() {
 	scheduler.Start()
 	defer scheduler.Stop()
 
-	// 14. Start server
+	// 14. Start webhook retry scheduler
+	webhookScheduler := engine.NewWebhookScheduler(db)
+	webhookScheduler.Start()
+	defer webhookScheduler.Stop()
+
+	// 15. Start server
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Starting server on %s", addr)
 	log.Fatal(app.Listen(addr))

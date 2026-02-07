@@ -12,6 +12,8 @@ const navItems = [
   { href: "/data", label: "Data Browser", icon: "▤" },
   { href: "/users", label: "Users", icon: "👤" },
   { href: "/permissions", label: "Permissions", icon: "🔒" },
+  { href: "/webhooks", label: "Webhooks", icon: "🔗" },
+  { href: "/webhook-logs", label: "Webhook Logs", icon: "📋" },
 ];
 
 export function Sidebar() {

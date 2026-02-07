@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -65,6 +66,16 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler, middleware ...fiber.Handler
 	admin.Post("/permissions", h.CreatePermission)
 	admin.Put("/permissions/:id", h.UpdatePermission)
 	admin.Delete("/permissions/:id", h.DeletePermission)
+
+	admin.Get("/webhooks", h.ListWebhooks)
+	admin.Get("/webhooks/:id", h.GetWebhook)
+	admin.Post("/webhooks", h.CreateWebhook)
+	admin.Put("/webhooks/:id", h.UpdateWebhook)
+	admin.Delete("/webhooks/:id", h.DeleteWebhook)
+
+	admin.Get("/webhook-logs", h.ListWebhookLogs)
+	admin.Get("/webhook-logs/:id", h.GetWebhookLog)
+	admin.Post("/webhook-logs/:id/retry", h.RetryWebhookLog)
 }
 
 // --- Entity Endpoints ---
@@ -1059,6 +1070,256 @@ func (h *Handler) DeletePermission(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+// --- Webhook Endpoints ---
+
+func (h *Handler) ListWebhooks(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks ORDER BY entity, hook")
+	if err != nil {
+		return fmt.Errorf("list webhooks: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetWebhook(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateWebhook(c *fiber.Ctx) error {
+	var body map[string]any
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if errMsg := validateWebhook(body); errMsg != "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": errMsg}})
+	}
+
+	// Defaults
+	if body["hook"] == nil {
+		body["hook"] = "after_write"
+	}
+	if body["method"] == nil {
+		body["method"] = "POST"
+	}
+	if body["async"] == nil {
+		body["async"] = true
+	}
+	if body["active"] == nil {
+		body["active"] = true
+	}
+	if body["headers"] == nil {
+		body["headers"] = map[string]any{}
+	}
+	if body["condition"] == nil {
+		body["condition"] = ""
+	}
+	if body["retry"] == nil {
+		body["retry"] = map[string]any{"max_attempts": 3, "backoff": "exponential"}
+	}
+
+	headersJSON, _ := json.Marshal(body["headers"])
+	retryJSON, _ := json.Marshal(body["retry"])
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		`INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 RETURNING id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at`,
+		body["entity"], body["hook"], body["url"], body["method"],
+		string(headersJSON), body["condition"], body["async"], string(retryJSON), body["active"])
+	if err != nil {
+		return fmt.Errorf("insert webhook: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) UpdateWebhook(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _webhooks WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
+	}
+
+	var body map[string]any
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if errMsg := validateWebhook(body); errMsg != "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": errMsg}})
+	}
+
+	headersJSON, _ := json.Marshal(body["headers"])
+	retryJSON, _ := json.Marshal(body["retry"])
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		`UPDATE _webhooks SET entity = $1, hook = $2, url = $3, method = $4, headers = $5,
+		 condition = $6, async = $7, retry = $8, active = $9, updated_at = NOW() WHERE id = $10`,
+		body["entity"], body["hook"], body["url"], body["method"],
+		string(headersJSON), body["condition"], body["async"], string(retryJSON), body["active"], id)
+	if err != nil {
+		return fmt.Errorf("update webhook: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("fetch updated webhook: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) DeleteWebhook(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _webhooks WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _webhooks WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete webhook %s: %w", id, err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+// --- Webhook Log Endpoints ---
+
+func (h *Handler) ListWebhookLogs(c *fiber.Ctx) error {
+	query := "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs"
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	if v := c.Query("webhook_id"); v != "" {
+		conditions = append(conditions, fmt.Sprintf("webhook_id = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v := c.Query("status"); v != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v := c.Query("entity"); v != "" {
+		conditions = append(conditions, fmt.Sprintf("entity = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC LIMIT 200"
+
+	rows, err := store.QueryRows(c.Context(), h.store.Pool, query, args...)
+	if err != nil {
+		return fmt.Errorf("list webhook logs: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetWebhookLog(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook log not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) RetryWebhookLog(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, status, attempt, max_attempts FROM _webhook_logs WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook log not found: " + id}})
+	}
+
+	status, _ := row["status"].(string)
+	if status != "failed" && status != "retrying" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "Can only retry failed or retrying webhook logs"}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"UPDATE _webhook_logs SET status = 'retrying', next_retry_at = NOW(), updated_at = NOW() WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("retry webhook log %s: %w", id, err)
+	}
+
+	row, err = store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, webhook_id, entity, hook, url, method, status, attempt, max_attempts, next_retry_at, updated_at FROM _webhook_logs WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("fetch retried webhook log: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func validateWebhook(body map[string]any) string {
+	entity, _ := body["entity"].(string)
+	if entity == "" {
+		return "entity is required"
+	}
+
+	hook, _ := body["hook"].(string)
+	if hook != "" {
+		validHooks := map[string]bool{"after_write": true, "before_write": true, "after_delete": true, "before_delete": true}
+		if !validHooks[hook] {
+			return "hook must be after_write, before_write, after_delete, or before_delete"
+		}
+	}
+
+	url, _ := body["url"].(string)
+	if url == "" {
+		return "url is required"
+	}
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return "url must start with http:// or https://"
+	}
+
+	method, _ := body["method"].(string)
+	if method != "" {
+		validMethods := map[string]bool{"POST": true, "PUT": true, "PATCH": true, "GET": true, "DELETE": true}
+		if !validMethods[method] {
+			return "method must be POST, PUT, PATCH, GET, or DELETE"
+		}
+	}
+
+	return ""
 }
 
 func validateRelation(r *metadata.Relation, reg *metadata.Registry) error {

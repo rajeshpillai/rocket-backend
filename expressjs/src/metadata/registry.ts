@@ -3,6 +3,7 @@ import type { Rule } from "./rule.js";
 import type { StateMachine } from "./state-machine.js";
 import type { Workflow } from "./workflow.js";
 import type { Permission } from "./permission.js";
+import type { Webhook } from "./webhook.js";
 
 export class Registry {
   private entities = new Map<string, Entity>();
@@ -13,6 +14,7 @@ export class Registry {
   private workflowsByTrigger = new Map<string, Workflow[]>();
   private workflowsByName = new Map<string, Workflow>();
   private permissionsByEntityAction = new Map<string, Permission[]>();
+  private webhooksByEntityHook = new Map<string, Webhook[]>();
 
   getEntity(name: string): Entity | undefined {
     return this.entities.get(name);
@@ -121,6 +123,21 @@ export class Registry {
       const existing = this.permissionsByEntityAction.get(key) ?? [];
       existing.push(p);
       this.permissionsByEntityAction.set(key, existing);
+    }
+  }
+
+  getWebhooksForEntityHook(entity: string, hook: string): Webhook[] {
+    const key = `${entity}:${hook}`;
+    return (this.webhooksByEntityHook.get(key) ?? []).filter((wh) => wh.active);
+  }
+
+  loadWebhooks(webhooks: Webhook[]): void {
+    this.webhooksByEntityHook = new Map();
+    for (const wh of webhooks) {
+      const key = `${wh.entity}:${wh.hook}`;
+      const existing = this.webhooksByEntityHook.get(key) ?? [];
+      existing.push(wh);
+      this.webhooksByEntityHook.set(key, existing);
     }
   }
 

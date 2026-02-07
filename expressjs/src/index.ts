@@ -11,6 +11,7 @@ import { registerDynamicRoutes } from "./engine/router.js";
 import { AdminHandler, registerAdminRoutes } from "./admin/handler.js";
 import { WorkflowHandler, registerWorkflowRoutes } from "./engine/workflow-handler.js";
 import { WorkflowScheduler } from "./engine/workflow-scheduler.js";
+import { WebhookScheduler } from "./engine/webhook-scheduler.js";
 import { AuthHandler, registerAuthRoutes } from "./auth/handler.js";
 import { authMiddleware, requireAdmin } from "./auth/middleware.js";
 import { errorHandler } from "./middleware/error-handler.js";
@@ -82,7 +83,11 @@ async function main() {
   const scheduler = new WorkflowScheduler(store, registry);
   scheduler.start();
 
-  // 15. Start server
+  // 15. Start webhook retry scheduler
+  const webhookScheduler = new WebhookScheduler(store);
+  webhookScheduler.start();
+
+  // 16. Start server
   const port = cfg.server.port;
   app.listen(port, () => {
     console.log(`Starting server on :${port}`);

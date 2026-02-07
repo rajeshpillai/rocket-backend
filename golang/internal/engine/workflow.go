@@ -221,7 +221,14 @@ func executeWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Re
 	case "set_field":
 		return executeSetFieldAction(ctx, s, reg, instance, action)
 	case "webhook":
-		log.Printf("STUB: workflow webhook action %s %s (not yet implemented)", action.Method, action.URL)
+		body, _ := json.Marshal(instance.Context)
+		result := DispatchWebhookDirect(ctx, action.URL, action.Method, nil, body)
+		if result.Error != "" {
+			return fmt.Errorf("workflow webhook %s %s failed: %s", action.Method, action.URL, result.Error)
+		}
+		if result.StatusCode < 200 || result.StatusCode >= 300 {
+			return fmt.Errorf("workflow webhook %s %s returned HTTP %d", action.Method, action.URL, result.StatusCode)
+		}
 		return nil
 	case "create_record":
 		log.Printf("STUB: workflow create_record action for entity %s (not yet implemented)", action.Entity)

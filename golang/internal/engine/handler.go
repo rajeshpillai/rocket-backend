@@ -134,6 +134,7 @@ func (h *Handler) Create(c *fiber.Ctx) error {
 	if len(validationErrs) > 0 {
 		return respondError(c, ValidationError(validationErrs))
 	}
+	plan.User = user
 
 	record, err := ExecuteWritePlan(c.Context(), h.store, h.registry, plan)
 	if err != nil {
@@ -175,6 +176,7 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	if len(validationErrs) > 0 {
 		return respondError(c, ValidationError(validationErrs))
 	}
+	plan.User = user
 
 	record, err := ExecuteWritePlan(c.Context(), h.store, h.registry, plan)
 	if err != nil {
@@ -239,9 +241,17 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		return respondError(c, NotFoundError(entity.Name, id))
 	}
 
+	// Pre-commit: fire sync (before_delete) webhooks
+	if err := FireSyncWebhooks(c.Context(), tx, h.registry, "before_delete", entity.Name, "delete", currentRecord, nil, user); err != nil {
+		return fmt.Errorf("sync webhook: %w", err)
+	}
+
 	if err := tx.Commit(c.Context()); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
+
+	// Post-commit: fire async (after_delete) webhooks
+	FireAsyncWebhooks(c.Context(), h.store, h.registry, "after_delete", entity.Name, "delete", currentRecord, nil, user)
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"id": id}})
 }

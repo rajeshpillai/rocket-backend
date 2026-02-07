@@ -64,6 +64,23 @@
 - [x] Auth routes wired before middleware in main.go
 - [x] Integration tests (11 new: login/refresh/logout, invalid credentials, middleware rejection, admin bypass, permission grants/denies, row-level filtering, write conditions, user CRUD, permission CRUD, disabled user)
 
-## Phase 5: Webhooks
-- [ ] Webhook registration and dispatch
-- [ ] Retry logic with backoff
+## Phase 5: Webhooks [DONE]
+- [x] `_webhooks` + `_webhook_logs` system tables + bootstrap DDL
+- [x] Webhook metadata types (Webhook, WebhookRetry)
+- [x] Registry integration (webhooksByEntityHook, GetWebhooksForEntityHook, LoadWebhooks)
+- [x] Loader (loadWebhooks from _webhooks table, JSONB headers/retry parsing)
+- [x] Admin API for webhook CRUD (`/api/_admin/webhooks`) with validation
+- [x] Admin API for webhook logs (`/api/_admin/webhook-logs`) with filters (?webhook_id, ?status, ?entity)
+- [x] Manual retry endpoint (`POST /api/_admin/webhook-logs/:id/retry`)
+- [x] Webhook dispatch engine (buildPayload, computeChanges, resolveHeaders, evaluateCondition, dispatch)
+- [x] Async webhooks: fire after commit in goroutine, log to `_webhook_logs`, retry on failure
+- [x] Sync webhooks: fire inside transaction before commit, non-2xx causes rollback
+- [x] Header template resolution (`{{env.VAR_NAME}}` → os env values)
+- [x] Condition expressions (expr-lang/expr, same env as rules: record, old, changes, action, entity, user)
+- [x] Webhook payload (event, entity, action, record, old, changes, user, timestamp, idempotency_key)
+- [x] Integration into write flow: `before_write` sync + `after_write` async in ExecuteWritePlan
+- [x] Integration into delete flow: `before_delete` sync + `after_delete` async in Delete handler
+- [x] User context passed through WritePlan for webhook payloads
+- [x] Background retry scheduler (30s goroutine ticker, exponential backoff: 30s × 2^attempt)
+- [x] State machine webhook stub replaced with real DispatchWebhookDirect (fire-and-forget)
+- [x] Workflow webhook stub replaced with real DispatchWebhookDirect (synchronous, step waits)

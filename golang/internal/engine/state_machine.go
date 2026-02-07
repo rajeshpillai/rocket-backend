@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -156,7 +158,15 @@ func ExecuteActions(transition *metadata.Transition, fields map[string]any) {
 			fields[action.Field] = val
 
 		case "webhook":
-			log.Printf("STUB: webhook action %s %s (not yet implemented)", action.Method, action.URL)
+			go func(a metadata.TransitionAction) {
+				body, _ := json.Marshal(fields)
+				result := DispatchWebhookDirect(context.Background(), a.URL, a.Method, nil, body)
+				if result.Error != "" {
+					log.Printf("WARN: state machine webhook %s %s failed: %s", a.Method, a.URL, result.Error)
+				} else if result.StatusCode < 200 || result.StatusCode >= 300 {
+					log.Printf("WARN: state machine webhook %s %s returned HTTP %d", a.Method, a.URL, result.StatusCode)
+				}
+			}(action)
 
 		case "create_record":
 			log.Printf("STUB: create_record action for entity %s (not yet implemented)", action.Entity)

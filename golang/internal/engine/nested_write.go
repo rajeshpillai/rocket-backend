@@ -15,6 +15,7 @@ type WritePlan struct {
 	Fields    map[string]any
 	ID        any // nil for create, set for update
 	ChildOps  []*RelationWrite
+	User      *metadata.UserContext
 }
 
 // PlanWrite builds a WritePlan from the request body without executing any SQL.
@@ -113,6 +114,15 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		}
 	}
 
+	// Pre-commit: fire sync (before_write) webhooks
+	action := "update"
+	if plan.IsCreate {
+		action = "create"
+	}
+	if err := FireSyncWebhooks(ctx, tx, reg, "before_write", plan.Entity.Name, action, plan.Fields, old, plan.User); err != nil {
+		return nil, fmt.Errorf("sync webhook: %w", err)
+	}
+
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -138,6 +148,9 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 			TriggerWorkflows(ctx, s, reg, plan.Entity.Name, sm.Field, newState, record, parentID)
 		}
 	}
+
+	// Post-commit: fire async (after_write) webhooks
+	FireAsyncWebhooks(ctx, s, reg, "after_write", plan.Entity.Name, action, record, old, plan.User)
 
 	return record, nil
 }

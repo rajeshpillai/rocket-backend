@@ -101,6 +101,44 @@ CREATE TABLE IF NOT EXISTS _permissions (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS _webhooks (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity     TEXT NOT NULL,
+    hook       TEXT NOT NULL DEFAULT 'after_write',
+    url        TEXT NOT NULL,
+    method     TEXT NOT NULL DEFAULT 'POST',
+    headers    JSONB DEFAULT '{}',
+    condition  TEXT DEFAULT '',
+    async      BOOLEAN NOT NULL DEFAULT true,
+    retry      JSONB DEFAULT '{"max_attempts": 3, "backoff": "exponential"}',
+    active     BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS _webhook_logs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    webhook_id      UUID NOT NULL REFERENCES _webhooks(id) ON DELETE CASCADE,
+    entity          TEXT NOT NULL,
+    hook            TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    method          TEXT NOT NULL,
+    request_headers JSONB DEFAULT '{}',
+    request_body    JSONB DEFAULT '{}',
+    response_status INT,
+    response_body   TEXT DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    attempt         INT NOT NULL DEFAULT 0,
+    max_attempts    INT NOT NULL DEFAULT 3,
+    next_retry_at   TIMESTAMPTZ,
+    error           TEXT DEFAULT '',
+    idempotency_key TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_logs_status ON _webhook_logs(status);
+CREATE INDEX IF NOT EXISTS idx_webhook_logs_retry ON _webhook_logs(next_retry_at) WHERE status = 'retrying';
 `
 
 func (s *Store) Bootstrap(ctx context.Context) error {

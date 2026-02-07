@@ -15,6 +15,7 @@ type Registry struct {
 	workflowsByTrigger        map[string][]*Workflow       // keyed by "entity:field:toState"
 	workflowsByName           map[string]*Workflow         // keyed by workflow name
 	permissionsByEntityAction map[string][]*Permission     // keyed by "entity:action"
+	webhooksByEntityHook     map[string][]*Webhook        // keyed by "entity:hook"
 }
 
 func NewRegistry() *Registry {
@@ -27,6 +28,7 @@ func NewRegistry() *Registry {
 		workflowsByTrigger:        make(map[string][]*Workflow),
 		workflowsByName:           make(map[string]*Workflow),
 		permissionsByEntityAction: make(map[string][]*Permission),
+		webhooksByEntityHook:     make(map[string][]*Webhook),
 	}
 }
 
@@ -207,6 +209,33 @@ func (r *Registry) LoadPermissions(permissions []*Permission) {
 	for _, p := range permissions {
 		key := p.Entity + ":" + p.Action
 		r.permissionsByEntityAction[key] = append(r.permissionsByEntityAction[key], p)
+	}
+}
+
+// GetWebhooksForEntityHook returns active webhooks for an entity + hook combination.
+func (r *Registry) GetWebhooksForEntityHook(entity, hook string) []*Webhook {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	key := entity + ":" + hook
+	all := r.webhooksByEntityHook[key]
+	var result []*Webhook
+	for _, wh := range all {
+		if wh.Active {
+			result = append(result, wh)
+		}
+	}
+	return result
+}
+
+// LoadWebhooks replaces all webhooks in the registry.
+func (r *Registry) LoadWebhooks(webhooks []*Webhook) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.webhooksByEntityHook = make(map[string][]*Webhook)
+	for _, wh := range webhooks {
+		key := wh.Entity + ":" + wh.Hook
+		r.webhooksByEntityHook[key] = append(r.webhooksByEntityHook[key], wh)
 	}
 }
 

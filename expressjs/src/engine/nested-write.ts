@@ -16,6 +16,7 @@ import { executeChildWrite } from "./diff.js";
 import { evaluateRules } from "./rules.js";
 import { evaluateStateMachines } from "./state-machine.js";
 import { triggerWorkflows } from "./workflow.js";
+import { fireAsyncWebhooks, fireSyncWebhooks } from "./webhook.js";
 
 export interface WritePlan {
   isCreate: boolean;
@@ -23,6 +24,7 @@ export interface WritePlan {
   fields: Record<string, any>;
   id: any;
   childOps: RelationWrite[];
+  user: { id: string; roles: string[] } | null;
 }
 
 export function planWrite(
@@ -60,6 +62,7 @@ export function planWrite(
     fields,
     id: existingID,
     childOps: Array.from(relWrites.values()),
+    user: null,
   };
 
   return plan;
@@ -124,6 +127,10 @@ export async function executeWritePlan(
       await executeChildWrite(client, registry, parentID, childOp);
     }
 
+    // Pre-commit: fire sync (before_write) webhooks
+    const action = plan.isCreate ? "create" : "update";
+    await fireSyncWebhooks(client, registry, "before_write", plan.entity.name, action, plan.fields, old, plan.user);
+
     await client.query("COMMIT");
 
     // Fetch the full record
@@ -140,6 +147,9 @@ export async function executeWritePlan(
         });
       }
     }
+
+    // Post-commit: fire async (after_write) webhooks
+    fireAsyncWebhooks(store, registry, "after_write", plan.entity.name, action, result, old, plan.user);
 
     return result;
   } catch (err) {

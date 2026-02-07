@@ -65,6 +65,23 @@
 - [x] Route registration functions accept variadic middleware (`...middleware: RequestHandler[]`)
 - [x] Integration tests (11 new: login/refresh/logout, invalid credentials, middleware rejection, admin bypass, permission grants/denies, row-level filtering, write conditions, user CRUD, permission CRUD, disabled user)
 
-## Phase 5: Webhooks
-- [ ] Webhook registration and dispatch
-- [ ] Retry logic with backoff
+## Phase 5: Webhooks [DONE]
+- [x] `_webhooks` + `_webhook_logs` system tables + bootstrap DDL
+- [x] Webhook metadata types (Webhook, WebhookRetry interfaces)
+- [x] Registry integration (webhooksByEntityHook, getWebhooksForEntityHook, loadWebhooks)
+- [x] Loader (loadWebhooks from _webhooks table)
+- [x] Admin API for webhook CRUD (`/api/_admin/webhooks`) with validation
+- [x] Admin API for webhook logs (`/api/_admin/webhook-logs`) with filters (?webhook_id, ?status, ?entity)
+- [x] Manual retry endpoint (`POST /api/_admin/webhook-logs/:id/retry`)
+- [x] Webhook dispatch engine (buildPayload, computeChanges, resolveHeaders, evaluateCondition, dispatch)
+- [x] Async webhooks: fire after commit in background, log to `_webhook_logs`, retry on failure
+- [x] Sync webhooks: fire inside transaction before commit, non-2xx throws error for rollback
+- [x] Header template resolution (`{{env.VAR_NAME}}` → process.env values)
+- [x] Condition expressions (Function constructor with `with(env)`, same env as rules)
+- [x] Webhook payload (event, entity, action, record, old, changes, user, timestamp, idempotency_key)
+- [x] Integration into write flow: `before_write` sync + `after_write` async in executeWritePlan
+- [x] Integration into delete flow: `before_delete` sync + `after_delete` async in delete handler
+- [x] User context passed through WritePlan for webhook payloads
+- [x] Background retry scheduler (30s setInterval, exponential backoff: 30s × 2^attempt)
+- [x] State machine webhook stub replaced with real dispatchWebhookDirect (fire-and-forget)
+- [x] Workflow webhook stub replaced with real dispatchWebhookDirect (synchronous, step waits)

@@ -12,6 +12,8 @@ import { WorkflowMonitor } from "./pages/WorkflowMonitor";
 import { DataBrowser } from "./pages/DataBrowser";
 import { UsersList } from "./pages/UsersList";
 import { PermissionsList } from "./pages/PermissionsList";
+import { WebhooksList } from "./pages/WebhooksList";
+import { WebhookLogs } from "./pages/WebhookLogs";
 import { isAuthenticated } from "./stores/auth";
 import { ToastContainer } from "./components/Toast";
 
@@ -59,6 +61,8 @@ export function App() {
       <Route path="/data/:entity" component={DataBrowser} />
       <Route path="/users" component={UsersList} />
       <Route path="/permissions" component={PermissionsList} />
+      <Route path="/webhooks" component={WebhooksList} />
+      <Route path="/webhook-logs" component={WebhookLogs} />
     </Router>
   );
 }

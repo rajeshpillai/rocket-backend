@@ -9,6 +9,7 @@ import type {
   WorkflowHistoryEntry,
 } from "../metadata/workflow.js";
 import { findStep } from "../metadata/workflow.js";
+import { dispatchWebhookDirect } from "./webhook.js";
 
 /**
  * TriggerWorkflows checks if any active workflows should be started based on
@@ -222,9 +223,16 @@ async function executeWorkflowAction(
     case "set_field":
       await executeSetFieldAction(store, registry, instance, action);
       break;
-    case "webhook":
-      console.log(`STUB: workflow webhook action ${action.method} ${action.url} (not yet implemented)`);
+    case "webhook": {
+      const result = await dispatchWebhookDirect(action.url!, action.method ?? "POST", null, JSON.stringify(instance.context));
+      if (result.error) {
+        throw new Error(`workflow webhook ${action.method} ${action.url} failed: ${result.error}`);
+      }
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        throw new Error(`workflow webhook ${action.method} ${action.url} returned HTTP ${result.statusCode}`);
+      }
       break;
+    }
     case "create_record":
       console.log(`STUB: workflow create_record action for entity ${action.entity} (not yet implemented)`);
       break;

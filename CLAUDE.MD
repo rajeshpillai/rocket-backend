@@ -6,12 +6,12 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 ## Current Status
 
-**Phase 0–4 are complete** in two languages. Both share the same Postgres database.
+**Phase 0–5 are complete** in two languages. Both share the same Postgres database.
 
 | Implementation | Directory | Framework | Driver | Status |
 |----------------|-----------|-----------|--------|--------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Phase 4 done |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 4 done |
+| Go | `golang/` | Fiber v2 | pgx v5 | Phase 5 done |
+| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 5 done |
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -34,10 +34,20 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - User + permission admin CRUD
 - bcrypt password hashing (never returned in responses)
 
-**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, login/logout, and auth-protected routes.
+**What Phase 5 delivers:**
+- Metadata-driven webhooks (`_webhooks` table) — HTTP callouts triggered by entity writes
+- Four hook types: `after_write`, `before_write`, `after_delete`, `before_delete`
+- Async webhooks (default): fire after commit in background, log to `_webhook_logs`, retry on failure
+- Sync webhooks: fire inside transaction before commit, non-2xx causes rollback
+- Condition expressions (same engine as rules), header templates (`{{env.VAR_NAME}}`)
+- Webhook delivery logs (`_webhook_logs`) with status tracking (pending/delivered/retrying/failed)
+- Background retry scheduler (30s interval, exponential backoff: 30s x 2^attempt)
+- Admin API for webhook + log CRUD, manual retry endpoint
+- State machine + workflow webhook stubs replaced with real HTTP dispatch
+
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, webhook management, webhook log viewer, login/logout, and auth-protected routes.
 
 **Not yet built (future phases):**
-- Webhooks
 - Audit log
 
 ## Project Structure
@@ -53,12 +63,12 @@ rocket-backend/
 │   ├── vite.config.ts / tsconfig.json / tailwind.config.js
 │   └── src/
 │       ├── App.tsx              # Router + layout
-│       ├── api/                 # API client (entities, relations, data, users, permissions)
+│       ├── api/                 # API client (entities, relations, data, users, permissions, webhooks)
 │       ├── components/          # Shared UI (DataTable, Modal, Toast, Sidebar, etc.)
-│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, Login, UsersList, PermissionsList, etc.
+│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, Login, UsersList, PermissionsList, WebhooksList, WebhookLogs, etc.
 │       ├── stores/              # SolidJS stores (entities, notifications, auth)
 │       ├── styles/              # Tailwind + component CSS
-│       └── types/               # TypeScript types (entity, relation, api, user, permission)
+│       └── types/               # TypeScript types (entity, relation, api, user, permission, webhook)
 ├── docs/                        # Shared technical documentation
 │   ├── dynamic-rest-api.md      # Router, read flow, write flow design
 │   ├── metadata-schemas.md      # Entity, field, relation schemas
@@ -74,9 +84,9 @@ rocket-backend/
 │   ├── cmd/server/main.go
 │   └── internal/
 │       ├── config/config.go
-│       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow,permission,user_context}.go
+│       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow,permission,user_context,webhook}.go
 │       ├── store/{postgres,bootstrap,migrator}.go
-│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions}.go
+│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions,webhook,webhook_scheduler}.go
 │       ├── auth/{auth,handler,middleware}.go
 │       └── admin/handler.go
 └── expressjs/                   # Express.js implementation
@@ -86,9 +96,9 @@ rocket-backend/
     └── src/
         ├── index.ts
         ├── config/index.ts
-        ├── metadata/{types,registry,loader,rule,state-machine,workflow,permission}.ts
+        ├── metadata/{types,registry,loader,rule,state-machine,workflow,permission,webhook}.ts
         ├── store/{postgres,bootstrap,migrator,schema}.ts
-        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler}.ts
+        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler,webhook,webhook-scheduler}.ts
         ├── auth/{auth,handler,middleware,permissions}.ts
         ├── admin/handler.ts
         └── middleware/error-handler.ts
@@ -110,6 +120,8 @@ _workflow_instances — id (UUID PK), workflow_id (FK), workflow_name, status, c
 _users              — id (UUID PK), email (UNIQUE), password_hash, roles (TEXT[]), active, created_at, updated_at
 _refresh_tokens     — id (UUID PK), user_id (FK→_users), token (UUID UNIQUE), expires_at, created_at
 _permissions        — id (UUID PK), entity, action, roles (TEXT[]), conditions (JSONB), created_at, updated_at
+_webhooks           — id (UUID PK), entity, hook, url, method, headers (JSONB), condition, async, retry (JSONB), active, created_at, updated_at
+_webhook_logs       — id (UUID PK), webhook_id (FK→_webhooks), entity, hook, url, method, request_headers (JSONB), request_body (JSONB), response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -129,6 +141,7 @@ Three entities exist: `customer`, `invoice`, `invoice_item`. One relation: `item
 - **JWT auth (Phase 4)** — HS256, 15min access, 7-day refresh with rotation, bcrypt passwords
 - **Whitelist permissions** — no `_permissions` row = denied; admin role always bypasses
 - **Auth routes before middleware** — `/api/auth/*` registered first, naturally unprotected
+- **Webhooks (Phase 5)** — async by default (fire-and-forget after commit), sync optional (fire pre-commit, non-2xx rolls back). No new HTTP dependencies (Go: net/http, Express: fetch). Retry via background scheduler with exponential backoff.
 
 ## API Quick Reference
 
@@ -155,6 +168,11 @@ GET/POST       /api/_admin/users
 GET/PUT/DELETE /api/_admin/users/:id
 GET/POST       /api/_admin/permissions
 GET/PUT/DELETE /api/_admin/permissions/:id
+GET/POST       /api/_admin/webhooks
+GET/PUT/DELETE /api/_admin/webhooks/:id
+GET            /api/_admin/webhook-logs          # ?webhook_id, ?status, ?entity filters
+GET            /api/_admin/webhook-logs/:id
+POST           /api/_admin/webhook-logs/:id/retry
 ```
 
 ### Workflow Runtime

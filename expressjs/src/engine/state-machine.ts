@@ -1,6 +1,7 @@
 import type { Registry } from "../metadata/registry.js";
 import type { StateMachine, Transition } from "../metadata/state-machine.js";
 import type { ErrorDetail } from "./errors.js";
+import { dispatchWebhookDirect } from "./webhook.js";
 
 /**
  * Evaluates all active state machines for the entity.
@@ -144,9 +145,14 @@ export function executeActions(
         break;
       }
       case "webhook":
-        console.log(
-          `STUB: webhook action ${action.method} ${action.url} (not yet implemented)`,
-        );
+        // Fire-and-forget webhook dispatch
+        dispatchWebhookDirect(action.url!, action.method ?? "POST", null, JSON.stringify(fields)).then((result) => {
+          if (result.error) {
+            console.warn(`WARN: state machine webhook ${action.method} ${action.url} failed: ${result.error}`);
+          } else if (result.statusCode < 200 || result.statusCode >= 300) {
+            console.warn(`WARN: state machine webhook ${action.method} ${action.url} returned HTTP ${result.statusCode}`);
+          }
+        });
         break;
       case "create_record":
         console.log(

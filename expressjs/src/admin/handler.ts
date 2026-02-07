@@ -11,6 +11,7 @@ import { normalizeDefinition } from "../metadata/state-machine.js";
 import type { Workflow } from "../metadata/workflow.js";
 import { normalizeWorkflowSteps } from "../metadata/workflow.js";
 import type { Permission } from "../metadata/permission.js";
+import type { Webhook } from "../metadata/webhook.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
 import { hashPassword } from "../auth/auth.js";
@@ -787,6 +788,191 @@ export class AdminHandler {
 
     res.json({ data: { id, deleted: true } });
   });
+
+  // --- Webhook Endpoints ---
+
+  listWebhooks = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks ORDER BY entity, hook",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getWebhook = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Webhook not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createWebhook = asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as Record<string, any>;
+    if (!body || typeof body !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const err = validateWebhook(body);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    // Defaults
+    const hook = body.hook ?? "after_write";
+    const method = body.method ?? "POST";
+    const isAsync = body.async ?? true;
+    const active = body.active ?? true;
+    const headers = body.headers ?? {};
+    const condition = body.condition ?? "";
+    const retry = body.retry ?? { max_attempts: 3, backoff: "exponential" };
+
+    const row = await queryRow(
+      this.store.pool,
+      `INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at`,
+      [body.entity, hook, body.url, method, JSON.stringify(headers), condition, isAsync, JSON.stringify(retry), active],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    res.status(201).json({ data: row });
+  });
+
+  updateWebhook = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _webhooks WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Webhook not found: ${id}`);
+    }
+
+    const body = req.body as Record<string, any>;
+    if (!body || typeof body !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const err = validateWebhook(body);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    await exec(
+      this.store.pool,
+      `UPDATE _webhooks SET entity = $1, hook = $2, url = $3, method = $4, headers = $5,
+       condition = $6, async = $7, retry = $8, active = $9, updated_at = NOW() WHERE id = $10`,
+      [body.entity, body.hook, body.url, body.method, JSON.stringify(body.headers ?? {}),
+       body.condition ?? "", body.async, JSON.stringify(body.retry ?? {}), body.active, id],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    const row = await queryRow(
+      this.store.pool,
+      "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1",
+      [id],
+    );
+    res.json({ data: row });
+  });
+
+  deleteWebhook = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _webhooks WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Webhook not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _webhooks WHERE id = $1", [id]);
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: { id, deleted: true } });
+  });
+
+  // --- Webhook Log Endpoints ---
+
+  listWebhookLogs = asyncHandler(async (req: Request, res: Response) => {
+    let query = "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs";
+    const conditions: string[] = [];
+    const args: any[] = [];
+    let argIdx = 1;
+
+    if (req.query.webhook_id) {
+      conditions.push(`webhook_id = $${argIdx++}`);
+      args.push(req.query.webhook_id);
+    }
+    if (req.query.status) {
+      conditions.push(`status = $${argIdx++}`);
+      args.push(req.query.status);
+    }
+    if (req.query.entity) {
+      conditions.push(`entity = $${argIdx++}`);
+      args.push(req.query.entity);
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+    query += " ORDER BY created_at DESC LIMIT 200";
+
+    const rows = await queryRows(this.store.pool, query, args);
+    res.json({ data: rows ?? [] });
+  });
+
+  getWebhookLog = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Webhook log not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  retryWebhookLog = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, status, attempt, max_attempts FROM _webhook_logs WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Webhook log not found: ${id}`);
+    }
+
+    if (row.status !== "failed" && row.status !== "retrying") {
+      throw new AppError("VALIDATION_FAILED", 422, "Can only retry failed or retrying webhook logs");
+    }
+
+    await exec(
+      this.store.pool,
+      "UPDATE _webhook_logs SET status = 'retrying', next_retry_at = NOW(), updated_at = NOW() WHERE id = $1",
+      [id],
+    );
+
+    const updated = await queryRow(
+      this.store.pool,
+      "SELECT id, webhook_id, entity, hook, url, method, status, attempt, max_attempts, next_retry_at, updated_at FROM _webhook_logs WHERE id = $1",
+      [id],
+    );
+    res.json({ data: updated });
+  });
 }
 
 export function registerAdminRoutes(
@@ -837,6 +1023,16 @@ export function registerAdminRoutes(
   admin.post("/permissions", handler.createPermission);
   admin.put("/permissions/:id", handler.updatePermission);
   admin.delete("/permissions/:id", handler.deletePermission);
+
+  admin.get("/webhooks", handler.listWebhooks);
+  admin.get("/webhooks/:id", handler.getWebhook);
+  admin.post("/webhooks", handler.createWebhook);
+  admin.put("/webhooks/:id", handler.updateWebhook);
+  admin.delete("/webhooks/:id", handler.deleteWebhook);
+
+  admin.get("/webhook-logs", handler.listWebhookLogs);
+  admin.get("/webhook-logs/:id", handler.getWebhookLog);
+  admin.post("/webhook-logs/:id/retry", handler.retryWebhookLog);
 
   app.use("/api/_admin", ...middleware, admin);
 }
@@ -909,6 +1105,31 @@ function validateWorkflow(wf: Workflow): string | null {
       if (target && target !== "end" && !stepIDs.has(target)) {
         return `goto target '${target}' references unknown step`;
       }
+    }
+  }
+
+  return null;
+}
+
+function validateWebhook(body: Record<string, any>): string | null {
+  if (!body.entity) return "entity is required";
+
+  if (body.hook) {
+    const validHooks = ["after_write", "before_write", "after_delete", "before_delete"];
+    if (!validHooks.includes(body.hook)) {
+      return "hook must be after_write, before_write, after_delete, or before_delete";
+    }
+  }
+
+  if (!body.url) return "url is required";
+  if (!body.url.startsWith("http://") && !body.url.startsWith("https://")) {
+    return "url must start with http:// or https://";
+  }
+
+  if (body.method) {
+    const validMethods = ["POST", "PUT", "PATCH", "GET", "DELETE"];
+    if (!validMethods.includes(body.method)) {
+      return "method must be POST, PUT, PATCH, GET, or DELETE";
     }
   }
 
