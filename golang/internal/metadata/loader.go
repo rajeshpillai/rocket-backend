@@ -41,8 +41,14 @@ func LoadAll(ctx context.Context, pool *pgxpool.Pool, reg *Registry) error {
 	}
 	reg.LoadWorkflows(workflows)
 
-	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines, %d workflows into registry",
-		len(entities), len(relations), len(rules), len(machines), len(workflows))
+	permissions, err := loadPermissions(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("load permissions: %w", err)
+	}
+	reg.LoadPermissions(permissions)
+
+	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines, %d workflows, %d permissions into registry",
+		len(entities), len(relations), len(rules), len(machines), len(workflows), len(permissions))
 	return nil
 }
 
@@ -179,4 +185,30 @@ func loadWorkflows(ctx context.Context, pool *pgxpool.Pool) ([]*Workflow, error)
 		workflows = append(workflows, &wf)
 	}
 	return workflows, rows.Err()
+}
+
+func loadPermissions(ctx context.Context, pool *pgxpool.Pool) ([]*Permission, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var permissions []*Permission
+	for rows.Next() {
+		var p Permission
+		var condJSON []byte
+		if err := rows.Scan(&p.ID, &p.Entity, &p.Action, &p.Roles, &condJSON); err != nil {
+			return nil, fmt.Errorf("scan permission row: %w", err)
+		}
+		if condJSON != nil && len(condJSON) > 0 {
+			if err := json.Unmarshal(condJSON, &p.Conditions); err != nil {
+				log.Printf("WARN: skipping permission %s (invalid conditions JSON): %v", p.ID, err)
+				continue
+			}
+		}
+		permissions = append(permissions, &p)
+	}
+	return permissions, rows.Err()
 }

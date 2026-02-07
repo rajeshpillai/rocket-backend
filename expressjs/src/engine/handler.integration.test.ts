@@ -1,6 +1,6 @@
 import { describe, it, after, before } from "node:test";
 import assert from "node:assert/strict";
-import express from "express";
+import express, { type Request, type Response, type NextFunction } from "express";
 import { Store, exec } from "../store/postgres.js";
 import { bootstrap } from "../store/bootstrap.js";
 import { Migrator } from "../store/migrator.js";
@@ -10,13 +10,23 @@ import { Handler } from "./handler.js";
 import { registerDynamicRoutes } from "./router.js";
 import { AdminHandler, registerAdminRoutes } from "../admin/handler.js";
 import { WorkflowHandler, registerWorkflowRoutes } from "./workflow-handler.js";
+import { AuthHandler, registerAuthRoutes } from "../auth/handler.js";
+import { authMiddleware, requireAdmin } from "../auth/middleware.js";
 import { errorHandler } from "../middleware/error-handler.js";
 
 const ENTITY_NAME = "_test_unique_users";
+const TEST_JWT_SECRET = "test-secret-for-integration-tests";
 
+/** Builds app WITHOUT auth middleware — injects fake admin user for existing tests */
 function buildApp(store: Store, registry: Registry): express.Express {
   const app = express();
   app.use(express.json());
+
+  // Inject fake admin user so permission checks pass
+  app.use((_req: Request, _res: Response, next: NextFunction) => {
+    _req.user = { id: "test-admin", roles: ["admin"] };
+    next();
+  });
 
   const migrator = new Migrator(store);
   const adminHandler = new AdminHandler(store, registry, migrator);
@@ -27,6 +37,32 @@ function buildApp(store: Store, registry: Registry): express.Express {
 
   const engineHandler = new Handler(store, registry);
   registerDynamicRoutes(app, engineHandler);
+
+  app.use(errorHandler);
+  return app;
+}
+
+/** Builds app WITH real auth middleware — mirrors index.ts wiring */
+function buildAppWithAuth(store: Store, registry: Registry): express.Express {
+  const app = express();
+  app.use(express.json());
+
+  // Auth routes (no middleware)
+  const authHandler = new AuthHandler(store, TEST_JWT_SECRET);
+  registerAuthRoutes(app, authHandler);
+
+  const authMW = authMiddleware(TEST_JWT_SECRET);
+  const adminMW = requireAdmin();
+
+  const migrator = new Migrator(store);
+  const adminHandler = new AdminHandler(store, registry, migrator);
+  registerAdminRoutes(app, adminHandler, authMW, adminMW);
+
+  const workflowHandler = new WorkflowHandler(store, registry);
+  registerWorkflowRoutes(app, workflowHandler, authMW);
+
+  const engineHandler = new Handler(store, registry);
+  registerDynamicRoutes(app, engineHandler, authMW);
 
   app.use(errorHandler);
   return app;
@@ -1159,5 +1195,773 @@ describe("workflow condition branching", () => {
       (i: any) => i.workflow_name === "_test_wf_condition" && i.current_step === "manual_approval",
     );
     assert.ok(pending.length > 0, "expected pending approval for large amount");
+  });
+});
+
+// --- Auth Test Helpers ---
+
+async function authRequest(
+  app: express.Express,
+  method: string,
+  path: string,
+  token?: string,
+  body?: any,
+): Promise<{ status: number; body: any }> {
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return request(app, method, path, body, headers);
+}
+
+async function loginAs(
+  app: express.Express,
+  email: string,
+  password: string,
+): Promise<string> {
+  const resp = await request(app, "POST", "/api/auth/login", { email, password });
+  if (resp.status !== 200) {
+    throw new Error(`login failed (${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  return resp.body.data.access_token;
+}
+
+async function loginAsWithRefresh(
+  app: express.Express,
+  email: string,
+  password: string,
+): Promise<{ access_token: string; refresh_token: string }> {
+  const resp = await request(app, "POST", "/api/auth/login", { email, password });
+  if (resp.status !== 200) {
+    throw new Error(`login failed (${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  return resp.body.data;
+}
+
+async function createTestUser(
+  app: express.Express,
+  adminToken: string,
+  email: string,
+  password: string,
+  roles: string[],
+): Promise<string> {
+  const resp = await authRequest(app, "POST", "/api/_admin/users", adminToken, {
+    email,
+    password,
+    roles,
+    active: true,
+  });
+  if (resp.status !== 201) {
+    throw new Error(`create user failed (${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  return resp.body.data.id;
+}
+
+// --- Auth Integration Tests ---
+
+describe("auth login/refresh/logout flow", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+  });
+
+  after(async () => {
+    await store.close();
+  });
+
+  it("login with seed admin, refresh, and logout", async () => {
+    // Login
+    const tokens = await loginAsWithRefresh(app, "admin@localhost", "changeme");
+    assert.ok(tokens.access_token, "expected access token");
+    assert.ok(tokens.refresh_token, "expected refresh token");
+
+    // Refresh
+    const refreshResp = await request(app, "POST", "/api/auth/refresh", {
+      refresh_token: tokens.refresh_token,
+    });
+    assert.equal(refreshResp.status, 200, `refresh failed: ${JSON.stringify(refreshResp.body)}`);
+    const newTokens = refreshResp.body.data;
+    assert.ok(newTokens.access_token, "expected new access token");
+    assert.ok(newTokens.refresh_token, "expected new refresh token");
+
+    // Old refresh token should be invalid (rotation)
+    const oldRefreshResp = await request(app, "POST", "/api/auth/refresh", {
+      refresh_token: tokens.refresh_token,
+    });
+    assert.equal(oldRefreshResp.status, 401, "old refresh token should be rejected");
+
+    // Logout
+    const logoutResp = await request(app, "POST", "/api/auth/logout", {
+      refresh_token: newTokens.refresh_token,
+    });
+    assert.equal(logoutResp.status, 200);
+
+    // Refresh after logout should fail
+    const postLogoutResp = await request(app, "POST", "/api/auth/refresh", {
+      refresh_token: newTokens.refresh_token,
+    });
+    assert.equal(postLogoutResp.status, 401);
+  });
+});
+
+describe("auth login invalid credentials", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+  });
+
+  after(async () => {
+    await store.close();
+  });
+
+  it("rejects wrong password", async () => {
+    const resp = await request(app, "POST", "/api/auth/login", {
+      email: "admin@localhost",
+      password: "wrongpassword",
+    });
+    assert.equal(resp.status, 401);
+  });
+
+  it("rejects non-existent email", async () => {
+    const resp = await request(app, "POST", "/api/auth/login", {
+      email: "nobody@example.com",
+      password: "anything",
+    });
+    assert.equal(resp.status, 401);
+  });
+
+  it("rejects missing fields", async () => {
+    const resp1 = await request(app, "POST", "/api/auth/login", { email: "admin@localhost" });
+    assert.equal(resp1.status, 401);
+
+    const resp2 = await request(app, "POST", "/api/auth/login", { password: "changeme" });
+    assert.equal(resp2.status, 401);
+  });
+});
+
+describe("middleware rejects missing/invalid token", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+  });
+
+  after(async () => {
+    await store.close();
+  });
+
+  it("returns 401 for missing token on protected route", async () => {
+    const resp = await request(app, "GET", "/api/_test_entity");
+    assert.equal(resp.status, 401);
+  });
+
+  it("returns 401 for invalid token on protected route", async () => {
+    const resp = await authRequest(app, "GET", "/api/_test_entity", "invalid-token");
+    assert.equal(resp.status, 401);
+  });
+
+  it("auth routes are accessible without token", async () => {
+    const resp = await request(app, "POST", "/api/auth/login", {
+      email: "admin@localhost",
+      password: "changeme",
+    });
+    assert.equal(resp.status, 200);
+  });
+});
+
+describe("admin role bypass", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_auth_admin_bypass";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+
+    // Login as admin and create test entity
+    const token = await loginAs(app, "admin@localhost", "changeme");
+    const resp = await authRequest(app, "POST", "/api/_admin/entities", token, {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("admin can CRUD without any permission rows", async () => {
+    const token = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create
+    const createResp = await authRequest(app, "POST", `/api/${entityName}`, token, {
+      name: "Admin Test",
+    });
+    assert.equal(createResp.status, 201, `create failed: ${JSON.stringify(createResp.body)}`);
+    const id = createResp.body.data.id;
+
+    // Read
+    const getResp = await authRequest(app, "GET", `/api/${entityName}/${id}`, token);
+    assert.equal(getResp.status, 200);
+
+    // List
+    const listResp = await authRequest(app, "GET", `/api/${entityName}`, token);
+    assert.equal(listResp.status, 200);
+
+    // Update
+    const updateResp = await authRequest(app, "PUT", `/api/${entityName}/${id}`, token, {
+      name: "Updated",
+    });
+    assert.equal(updateResp.status, 200);
+
+    // Delete
+    const deleteResp = await authRequest(app, "DELETE", `/api/${entityName}/${id}`, token);
+    assert.equal(deleteResp.status, 200);
+  });
+});
+
+describe("permission grants and denies access", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_auth_perms";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create entity
+    const entityResp = await authRequest(app, "POST", "/api/_admin/entities", adminToken, {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(entityResp.status, 201);
+
+    // Create viewer user
+    await createTestUser(app, adminToken, "viewer@test.com", "viewerpass", ["viewer"]);
+
+    // Grant viewer read + create on this entity
+    await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: entityName,
+      action: "read",
+      roles: ["viewer"],
+    });
+    await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: entityName,
+      action: "create",
+      roles: ["viewer"],
+    });
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _permissions WHERE entity = $1`, [entityName]);
+    await exec(store.pool, "DELETE FROM _users WHERE email = 'viewer@test.com'");
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("viewer can read and create but not update or delete", async () => {
+    const viewerToken = await loginAs(app, "viewer@test.com", "viewerpass");
+
+    // Create (allowed)
+    const createResp = await authRequest(app, "POST", `/api/${entityName}`, viewerToken, {
+      name: "Viewer Created",
+    });
+    assert.equal(createResp.status, 201, `create should be allowed: ${JSON.stringify(createResp.body)}`);
+    const id = createResp.body.data.id;
+
+    // Read (allowed)
+    const getResp = await authRequest(app, "GET", `/api/${entityName}/${id}`, viewerToken);
+    assert.equal(getResp.status, 200);
+
+    // List (allowed)
+    const listResp = await authRequest(app, "GET", `/api/${entityName}`, viewerToken);
+    assert.equal(listResp.status, 200);
+
+    // Update (denied — no update permission)
+    const updateResp = await authRequest(app, "PUT", `/api/${entityName}/${id}`, viewerToken, {
+      name: "Modified",
+    });
+    assert.equal(updateResp.status, 403, `update should be denied: ${JSON.stringify(updateResp.body)}`);
+
+    // Delete (denied — no delete permission)
+    const deleteResp = await authRequest(app, "DELETE", `/api/${entityName}/${id}`, viewerToken);
+    assert.equal(deleteResp.status, 403, `delete should be denied: ${JSON.stringify(deleteResp.body)}`);
+  });
+
+  it("non-admin cannot access admin routes", async () => {
+    const viewerToken = await loginAs(app, "viewer@test.com", "viewerpass");
+
+    const resp = await authRequest(app, "GET", "/api/_admin/entities", viewerToken);
+    assert.equal(resp.status, 403, `non-admin should be denied admin routes: ${JSON.stringify(resp.body)}`);
+  });
+});
+
+describe("row-level filtering", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_auth_row_filter";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create entity with department field
+    await authRequest(app, "POST", "/api/_admin/entities", adminToken, {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "name", type: "string", required: true },
+        { name: "department", type: "string" },
+      ],
+    });
+
+    // Create sales_rep user
+    await createTestUser(app, adminToken, "salesrep@test.com", "salespass", ["sales_rep"]);
+
+    // Grant sales_rep read on this entity with condition: department = 'sales'
+    await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: entityName,
+      action: "read",
+      roles: ["sales_rep"],
+      conditions: [{ field: "department", operator: "eq", value: "sales" }],
+    });
+
+    // Create records as admin
+    await authRequest(app, "POST", `/api/${entityName}`, adminToken, {
+      name: "Sales Deal",
+      department: "sales",
+    });
+    await authRequest(app, "POST", `/api/${entityName}`, adminToken, {
+      name: "Engineering Task",
+      department: "engineering",
+    });
+    await authRequest(app, "POST", `/api/${entityName}`, adminToken, {
+      name: "Another Sales Deal",
+      department: "sales",
+    });
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _permissions WHERE entity = $1`, [entityName]);
+    await exec(store.pool, "DELETE FROM _users WHERE email = 'salesrep@test.com'");
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("sales_rep only sees sales department records", async () => {
+    const salesToken = await loginAs(app, "salesrep@test.com", "salespass");
+
+    const listResp = await authRequest(app, "GET", `/api/${entityName}`, salesToken);
+    assert.equal(listResp.status, 200, `list failed: ${JSON.stringify(listResp.body)}`);
+
+    const records = listResp.body.data;
+    assert.ok(records.length >= 2, `expected at least 2 sales records, got ${records.length}`);
+
+    // All returned records should be from sales department
+    for (const r of records) {
+      assert.equal(r.department, "sales", `expected sales department, got ${r.department}`);
+    }
+  });
+});
+
+describe("write permission with conditions", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_auth_write_cond";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create entity with status field
+    await authRequest(app, "POST", "/api/_admin/entities", adminToken, {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "title", type: "string", required: true },
+        { name: "status", type: "string" },
+      ],
+    });
+
+    // Create editor user
+    await createTestUser(app, adminToken, "editor@test.com", "editorpass", ["editor"]);
+
+    // Grant editor read (unconditional)
+    await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: entityName,
+      action: "read",
+      roles: ["editor"],
+    });
+
+    // Grant editor update only when status = 'draft'
+    await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: entityName,
+      action: "update",
+      roles: ["editor"],
+      conditions: [{ field: "status", operator: "eq", value: "draft" }],
+    });
+
+    // Create records as admin
+    await authRequest(app, "POST", `/api/${entityName}`, adminToken, {
+      title: "Draft Article",
+      status: "draft",
+    });
+    await authRequest(app, "POST", `/api/${entityName}`, adminToken, {
+      title: "Published Article",
+      status: "published",
+    });
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _permissions WHERE entity = $1`, [entityName]);
+    await exec(store.pool, "DELETE FROM _users WHERE email = 'editor@test.com'");
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("editor can update draft but not published", async () => {
+    const editorToken = await loginAs(app, "editor@test.com", "editorpass");
+
+    // List all records to find IDs
+    const listResp = await authRequest(app, "GET", `/api/${entityName}`, editorToken);
+    assert.equal(listResp.status, 200);
+    const records = listResp.body.data;
+
+    const draftRecord = records.find((r: any) => r.status === "draft");
+    const publishedRecord = records.find((r: any) => r.status === "published");
+    assert.ok(draftRecord, "expected draft record");
+    assert.ok(publishedRecord, "expected published record");
+
+    // Update draft (allowed)
+    const updateDraftResp = await authRequest(
+      app, "PUT", `/api/${entityName}/${draftRecord.id}`, editorToken,
+      { title: "Updated Draft" },
+    );
+    assert.equal(updateDraftResp.status, 200, `update draft should be allowed: ${JSON.stringify(updateDraftResp.body)}`);
+
+    // Update published (denied)
+    const updatePubResp = await authRequest(
+      app, "PUT", `/api/${entityName}/${publishedRecord.id}`, editorToken,
+      { title: "Updated Published" },
+    );
+    assert.equal(updatePubResp.status, 403, `update published should be denied: ${JSON.stringify(updatePubResp.body)}`);
+  });
+});
+
+describe("user CRUD", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  let testUserID: string;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+  });
+
+  after(async () => {
+    await exec(store.pool, "DELETE FROM _users WHERE email IN ('newuser@test.com', 'updated@test.com')");
+    await store.close();
+  });
+
+  it("creates, lists, gets, updates, and deletes a user", async () => {
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create
+    const createResp = await authRequest(app, "POST", "/api/_admin/users", adminToken, {
+      email: "newuser@test.com",
+      password: "newpass",
+      roles: ["viewer"],
+      active: true,
+    });
+    assert.equal(createResp.status, 201, `create user failed: ${JSON.stringify(createResp.body)}`);
+    testUserID = createResp.body.data.id;
+    assert.ok(testUserID, "expected user ID");
+
+    // Password hash should never be returned
+    assert.equal(createResp.body.data.password_hash, undefined, "password_hash should not be returned");
+
+    // List
+    const listResp = await authRequest(app, "GET", "/api/_admin/users", adminToken);
+    assert.equal(listResp.status, 200);
+    assert.ok(listResp.body.data.length >= 2, "expected at least 2 users");
+
+    // Get
+    const getResp = await authRequest(app, "GET", `/api/_admin/users/${testUserID}`, adminToken);
+    assert.equal(getResp.status, 200);
+    assert.equal(getResp.body.data.email, "newuser@test.com");
+    assert.equal(getResp.body.data.password_hash, undefined, "password_hash should not be returned");
+
+    // Login with new user
+    const token = await loginAs(app, "newuser@test.com", "newpass");
+    assert.ok(token, "expected token for new user");
+
+    // Update email
+    const updateResp = await authRequest(app, "PUT", `/api/_admin/users/${testUserID}`, adminToken, {
+      email: "updated@test.com",
+      roles: ["viewer", "editor"],
+      active: true,
+    });
+    assert.equal(updateResp.status, 200, `update user failed: ${JSON.stringify(updateResp.body)}`);
+
+    // Login with updated email (same password)
+    const token2 = await loginAs(app, "updated@test.com", "newpass");
+    assert.ok(token2, "expected token after email update");
+
+    // Update password
+    const passResp = await authRequest(app, "PUT", `/api/_admin/users/${testUserID}`, adminToken, {
+      email: "updated@test.com",
+      password: "brandnewpass",
+      roles: ["viewer", "editor"],
+      active: true,
+    });
+    assert.equal(passResp.status, 200, `update password failed: ${JSON.stringify(passResp.body)}`);
+
+    // Login with new password
+    const token3 = await loginAs(app, "updated@test.com", "brandnewpass");
+    assert.ok(token3, "expected token after password update");
+
+    // Delete
+    const deleteResp = await authRequest(app, "DELETE", `/api/_admin/users/${testUserID}`, adminToken);
+    assert.equal(deleteResp.status, 200);
+
+    // Get deleted user — 404
+    const getDeletedResp = await authRequest(app, "GET", `/api/_admin/users/${testUserID}`, adminToken);
+    assert.equal(getDeletedResp.status, 404);
+  });
+});
+
+describe("permission CRUD", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  let permID: string;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+  });
+
+  after(async () => {
+    await exec(store.pool, "DELETE FROM _permissions WHERE entity = '_test_perm_crud_entity'");
+    await store.close();
+  });
+
+  it("creates, lists, gets, updates, and deletes a permission", async () => {
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create
+    const createResp = await authRequest(app, "POST", "/api/_admin/permissions", adminToken, {
+      entity: "_test_perm_crud_entity",
+      action: "read",
+      roles: ["viewer"],
+      conditions: [{ field: "status", operator: "eq", value: "active" }],
+    });
+    assert.equal(createResp.status, 201, `create permission failed: ${JSON.stringify(createResp.body)}`);
+    permID = createResp.body.data.id;
+    assert.ok(permID, "expected permission ID");
+
+    // List
+    const listResp = await authRequest(app, "GET", "/api/_admin/permissions", adminToken);
+    assert.equal(listResp.status, 200);
+
+    // Get
+    const getResp = await authRequest(app, "GET", `/api/_admin/permissions/${permID}`, adminToken);
+    assert.equal(getResp.status, 200);
+
+    // Update
+    const updateResp = await authRequest(app, "PUT", `/api/_admin/permissions/${permID}`, adminToken, {
+      entity: "_test_perm_crud_entity",
+      action: "create",
+      roles: ["viewer", "editor"],
+    });
+    assert.equal(updateResp.status, 200, `update permission failed: ${JSON.stringify(updateResp.body)}`);
+
+    // Delete
+    const deleteResp = await authRequest(app, "DELETE", `/api/_admin/permissions/${permID}`, adminToken);
+    assert.equal(deleteResp.status, 200);
+
+    // Get deleted — 404
+    const getDeletedResp = await authRequest(app, "GET", `/api/_admin/permissions/${permID}`, adminToken);
+    assert.equal(getDeletedResp.status, 404);
+  });
+});
+
+describe("disabled user cannot login", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildAppWithAuth(store, registry);
+
+    const adminToken = await loginAs(app, "admin@localhost", "changeme");
+
+    // Create user then disable
+    const userID = await createTestUser(app, adminToken, "disabled@test.com", "disabledpass", ["viewer"]);
+    await authRequest(app, "PUT", `/api/_admin/users/${userID}`, adminToken, {
+      email: "disabled@test.com",
+      roles: ["viewer"],
+      active: false,
+    });
+  });
+
+  after(async () => {
+    await exec(store.pool, "DELETE FROM _users WHERE email = 'disabled@test.com'");
+    await store.close();
+  });
+
+  it("returns 401 for disabled user", async () => {
+    const resp = await request(app, "POST", "/api/auth/login", {
+      email: "disabled@test.com",
+      password: "disabledpass",
+    });
+    assert.equal(resp.status, 401, `expected 401 for disabled user, got ${resp.status}: ${JSON.stringify(resp.body)}`);
   });
 });

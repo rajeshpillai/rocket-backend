@@ -1,4 +1,6 @@
-import { A, useLocation } from "@solidjs/router";
+import { A, useLocation, useNavigate } from "@solidjs/router";
+import { clearAuth, getRefreshToken, parseTokenPayload } from "../stores/auth";
+import { post } from "../api/client";
 
 const navItems = [
   { href: "/entities", label: "Entities", icon: "□" },
@@ -8,12 +10,31 @@ const navItems = [
   { href: "/workflows", label: "Workflows", icon: "⟳" },
   { href: "/workflow-monitor", label: "Workflow Monitor", icon: "▶" },
   { href: "/data", label: "Data Browser", icon: "▤" },
+  { href: "/users", label: "Users", icon: "👤" },
+  { href: "/permissions", label: "Permissions", icon: "🔒" },
 ];
 
 export function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isActive = (href: string) => location.pathname.startsWith(`/admin${href}`);
+
+  const payload = () => parseTokenPayload();
+  const userEmail = () => payload()?.sub ?? "";
+
+  const handleLogout = async () => {
+    const refresh = getRefreshToken();
+    if (refresh) {
+      try {
+        await post("/auth/logout", { refresh_token: refresh });
+      } catch {
+        // Ignore errors on logout
+      }
+    }
+    clearAuth();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <aside class="sidebar">
@@ -29,6 +50,14 @@ export function Sidebar() {
           </A>
         ))}
       </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user" title={userEmail()}>
+          {userEmail()}
+        </div>
+        <button class="btn-secondary btn-sm sidebar-logout" onClick={handleLogout}>
+          Logout
+        </button>
+      </div>
     </aside>
   );
 }

@@ -27,9 +27,19 @@ func (h *Handler) List(c *fiber.Ctx) error {
 		return err
 	}
 
+	user := getUser(c)
+	if err := CheckPermission(user, entity.Name, "read", h.registry, nil); err != nil {
+		return err
+	}
+
 	plan, err := ParseQueryParams(c, entity, h.registry)
 	if err != nil {
 		return err
+	}
+
+	// Inject row-level security filters
+	if filters := GetReadFilters(user, entity.Name, h.registry); len(filters) > 0 {
+		plan.Filters = append(plan.Filters, filters...)
 	}
 
 	// Execute data query
@@ -76,6 +86,11 @@ func (h *Handler) GetByID(c *fiber.Ctx) error {
 		return err
 	}
 
+	user := getUser(c)
+	if err := CheckPermission(user, entity.Name, "read", h.registry, nil); err != nil {
+		return err
+	}
+
 	id := c.Params("id")
 	row, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
 	if err != nil {
@@ -102,6 +117,11 @@ func (h *Handler) GetByID(c *fiber.Ctx) error {
 func (h *Handler) Create(c *fiber.Ctx) error {
 	entity, err := h.resolveEntity(c)
 	if err != nil {
+		return err
+	}
+
+	user := getUser(c)
+	if err := CheckPermission(user, entity.Name, "create", h.registry, nil); err != nil {
 		return err
 	}
 
@@ -132,13 +152,18 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 
 	id := c.Params("id")
 
-	// Verify record exists
-	_, err = fetchRecord(c.Context(), h.store.Pool, entity, id)
+	// Verify record exists and check permissions against current state
+	currentRecord, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return respondError(c, NotFoundError(entity.Name, id))
 		}
 		return fmt.Errorf("fetch %s/%s: %w", entity.Name, id, err)
+	}
+
+	user := getUser(c)
+	if err := CheckPermission(user, entity.Name, "update", h.registry, currentRecord); err != nil {
+		return err
 	}
 
 	var body map[string]any
@@ -167,6 +192,20 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	}
 
 	id := c.Params("id")
+
+	// Check permissions against current record
+	currentRecord, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return respondError(c, NotFoundError(entity.Name, id))
+		}
+		return fmt.Errorf("fetch %s/%s: %w", entity.Name, id, err)
+	}
+
+	user := getUser(c)
+	if err := CheckPermission(user, entity.Name, "delete", h.registry, currentRecord); err != nil {
+		return err
+	}
 
 	tx, err := h.store.BeginTx(c.Context())
 	if err != nil {
@@ -214,6 +253,11 @@ func (h *Handler) resolveEntity(c *fiber.Ctx) (*metadata.Entity, error) {
 		return nil, respondError(c, UnknownEntityError(name))
 	}
 	return entity, nil
+}
+
+func getUser(c *fiber.Ctx) *metadata.UserContext {
+	user, _ := c.Locals("user").(*metadata.UserContext)
+	return user
 }
 
 func respondError(c *fiber.Ctx, appErr *AppError) error {

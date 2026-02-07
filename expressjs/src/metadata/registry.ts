@@ -2,6 +2,7 @@ import type { Entity, Relation } from "./types.js";
 import type { Rule } from "./rule.js";
 import type { StateMachine } from "./state-machine.js";
 import type { Workflow } from "./workflow.js";
+import type { Permission } from "./permission.js";
 
 export class Registry {
   private entities = new Map<string, Entity>();
@@ -11,6 +12,7 @@ export class Registry {
   private stateMachinesByEntity = new Map<string, StateMachine[]>();
   private workflowsByTrigger = new Map<string, Workflow[]>();
   private workflowsByName = new Map<string, Workflow>();
+  private permissionsByEntityAction = new Map<string, Permission[]>();
 
   getEntity(name: string): Entity | undefined {
     return this.entities.get(name);
@@ -105,6 +107,20 @@ export class Registry {
     // Sort each entity's rules by priority
     for (const entityRules of this.rulesByEntity.values()) {
       entityRules.sort((a, b) => a.priority - b.priority);
+    }
+  }
+
+  getPermissions(entity: string, action: string): Permission[] {
+    return this.permissionsByEntityAction.get(`${entity}:${action}`) ?? [];
+  }
+
+  loadPermissions(permissions: Permission[]): void {
+    this.permissionsByEntityAction = new Map();
+    for (const p of permissions) {
+      const key = `${p.entity}:${p.action}`;
+      const existing = this.permissionsByEntityAction.get(key) ?? [];
+      existing.push(p);
+      this.permissionsByEntityAction.set(key, existing);
     }
   }
 

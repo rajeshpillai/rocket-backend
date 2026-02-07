@@ -1,13 +1,30 @@
+import { getToken, clearAuth } from "../stores/auth";
+
 const BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string>),
+  };
+
+  // Attach auth token if available
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
     ...options,
+    headers,
   });
+
+  // On 401, clear auth state and redirect to login
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    clearAuth();
+    window.location.href = "/admin/login";
+    throw new Error("Session expired");
+  }
 
   const body = await res.json();
 

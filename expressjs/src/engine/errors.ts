@@ -41,3 +41,11 @@ export function conflictError(msg: string): AppError {
 export function validationError(details: ErrorDetail[]): AppError {
   return new AppError("VALIDATION_FAILED", 422, "Validation failed", details);
 }
+
+export function unauthorizedError(msg: string): AppError {
+  return new AppError("UNAUTHORIZED", 401, msg);
+}
+
+export function forbiddenError(msg: string): AppError {
+  return new AppError("FORBIDDEN", 403, msg);
+}

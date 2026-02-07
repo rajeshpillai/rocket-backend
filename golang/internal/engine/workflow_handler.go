@@ -19,8 +19,8 @@ func NewWorkflowHandler(s *store.Store, reg *metadata.Registry) *WorkflowHandler
 
 // RegisterWorkflowRoutes adds workflow runtime routes.
 // Must be registered AFTER admin routes but BEFORE dynamic entity routes.
-func RegisterWorkflowRoutes(app *fiber.App, h *WorkflowHandler) {
-	wf := app.Group("/api/_workflows")
+func RegisterWorkflowRoutes(app *fiber.App, h *WorkflowHandler, middleware ...fiber.Handler) {
+	wf := app.Group("/api/_workflows", middleware...)
 	wf.Get("/pending", h.ListPending)
 	wf.Get("/:id", h.GetInstance)
 	wf.Post("/:id/approve", h.Approve)

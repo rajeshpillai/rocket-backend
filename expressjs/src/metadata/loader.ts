@@ -6,6 +6,7 @@ import type { StateMachine, StateMachineDefinition } from "./state-machine.js";
 import { normalizeDefinition } from "./state-machine.js";
 import type { Workflow, WorkflowTrigger, WorkflowStep } from "./workflow.js";
 import { normalizeWorkflowSteps } from "./workflow.js";
+import type { Permission, PermissionCondition } from "./permission.js";
 
 export async function loadAll(
   pool: Queryable,
@@ -24,8 +25,11 @@ export async function loadAll(
   const workflows = await loadWorkflows(pool);
   registry.loadWorkflows(workflows);
 
+  const permissions = await loadPermissions(pool);
+  registry.loadPermissions(permissions);
+
   console.log(
-    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines, ${workflows.length} workflows into registry`,
+    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines, ${workflows.length} workflows, ${permissions.length} permissions into registry`,
   );
 }
 
@@ -130,6 +134,31 @@ async function loadStateMachines(pool: Queryable): Promise<StateMachine[]> {
     }
   }
   return machines;
+}
+
+async function loadPermissions(pool: Queryable): Promise<Permission[]> {
+  const result = await pool.query(
+    "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action",
+  );
+  const permissions: Permission[] = [];
+  for (const row of result.rows) {
+    try {
+      const conditions: PermissionCondition[] =
+        typeof row.conditions === "string"
+          ? JSON.parse(row.conditions)
+          : (row.conditions ?? []);
+      permissions.push({
+        id: row.id,
+        entity: row.entity,
+        action: row.action,
+        roles: row.roles ?? [],
+        conditions,
+      });
+    } catch (err) {
+      console.warn(`WARN: skipping permission ${row.id} (invalid JSON):`, err);
+    }
+  }
+  return permissions;
 }
 
 async function loadWorkflows(pool: Queryable): Promise<Workflow[]> {

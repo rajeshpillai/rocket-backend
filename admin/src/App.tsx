@@ -1,5 +1,7 @@
-import { Router, Route, Navigate } from "@solidjs/router";
+import { type ParentProps } from "solid-js";
+import { Router, Route, Navigate, useLocation, useNavigate } from "@solidjs/router";
 import { Layout } from "./components/Layout";
+import { Login } from "./pages/Login";
 import { EntitiesList } from "./pages/EntitiesList";
 import { EntityDetail } from "./pages/EntityDetail";
 import { RelationsList } from "./pages/RelationsList";
@@ -8,10 +10,42 @@ import { StateMachinesList } from "./pages/StateMachinesList";
 import { WorkflowsList } from "./pages/WorkflowsList";
 import { WorkflowMonitor } from "./pages/WorkflowMonitor";
 import { DataBrowser } from "./pages/DataBrowser";
+import { UsersList } from "./pages/UsersList";
+import { PermissionsList } from "./pages/PermissionsList";
+import { isAuthenticated } from "./stores/auth";
+import { ToastContainer } from "./components/Toast";
+
+function AppRoot(props: ParentProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Login page renders without layout
+  if (location.pathname === "/admin/login") {
+    if (isAuthenticated()) {
+      navigate("/entities", { replace: true });
+      return null;
+    }
+    return (
+      <>
+        {props.children}
+        <ToastContainer />
+      </>
+    );
+  }
+
+  // Protected routes: redirect to login if not authenticated
+  if (!isAuthenticated()) {
+    navigate("/login", { replace: true });
+    return null;
+  }
+
+  return <Layout>{props.children}</Layout>;
+}
 
 export function App() {
   return (
-    <Router base="/admin" root={Layout}>
+    <Router base="/admin" root={AppRoot}>
+      <Route path="/login" component={Login} />
       <Route path="/" component={() => <Navigate href="/admin/entities" />} />
       <Route path="/entities" component={EntitiesList} />
       <Route path="/entities/new" component={EntityDetail} />
@@ -23,6 +57,8 @@ export function App() {
       <Route path="/workflow-monitor" component={WorkflowMonitor} />
       <Route path="/data" component={DataBrowser} />
       <Route path="/data/:entity" component={DataBrowser} />
+      <Route path="/users" component={UsersList} />
+      <Route path="/permissions" component={PermissionsList} />
     </Router>
   );
 }

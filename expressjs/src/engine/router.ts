@@ -1,7 +1,11 @@
-import { Router, type Express } from "express";
+import { Router, type Express, type RequestHandler } from "express";
 import type { Handler } from "./handler.js";
 
-export function registerDynamicRoutes(app: Express, handler: Handler): void {
+export function registerDynamicRoutes(
+  app: Express,
+  handler: Handler,
+  ...middleware: RequestHandler[]
+): void {
   const api = Router();
 
   api.get("/:entity", handler.list);
@@ -10,5 +14,5 @@ export function registerDynamicRoutes(app: Express, handler: Handler): void {
   api.put("/:entity/:id", handler.update);
   api.delete("/:entity/:id", handler.delete);
 
-  app.use("/api", api);
+  app.use("/api", ...middleware, api);
 }

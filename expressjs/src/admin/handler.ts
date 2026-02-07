@@ -1,4 +1,4 @@
-import { Router, type Express, type Request, type Response, type NextFunction } from "express";
+import { Router, type Express, type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import type { Store } from "../store/postgres.js";
 import { queryRows, queryRow, exec } from "../store/postgres.js";
 import type { Registry } from "../metadata/registry.js";
@@ -10,8 +10,10 @@ import type { StateMachine } from "../metadata/state-machine.js";
 import { normalizeDefinition } from "../metadata/state-machine.js";
 import type { Workflow } from "../metadata/workflow.js";
 import { normalizeWorkflowSteps } from "../metadata/workflow.js";
+import type { Permission } from "../metadata/permission.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
+import { hashPassword } from "../auth/auth.js";
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
@@ -580,11 +582,217 @@ export class AdminHandler {
 
     res.json({ data: { id, deleted: true } });
   });
+
+  // --- User Endpoints ---
+
+  listUsers = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, email, roles, active, created_at, updated_at FROM _users ORDER BY email",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getUser = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `User not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createUser = asyncHandler(async (req: Request, res: Response) => {
+    const { email, password, roles, active } = req.body ?? {};
+    if (!email) {
+      throw new AppError("VALIDATION_FAILED", 422, "email is required");
+    }
+    if (!password) {
+      throw new AppError("VALIDATION_FAILED", 422, "password is required");
+    }
+
+    const hash = await hashPassword(password);
+    const userActive = active !== undefined ? active : true;
+    const userRoles = roles ?? [];
+
+    const row = await queryRow(
+      this.store.pool,
+      "INSERT INTO _users (email, password_hash, roles, active) VALUES ($1, $2, $3, $4) RETURNING id, email, roles, active, created_at, updated_at",
+      [email, hash, userRoles, userActive],
+    );
+
+    res.status(201).json({ data: row });
+  });
+
+  updateUser = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _users WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `User not found: ${id}`);
+    }
+
+    const { email, password, roles, active } = req.body ?? {};
+    if (!email) {
+      throw new AppError("VALIDATION_FAILED", 422, "email is required");
+    }
+
+    const userRoles = roles ?? [];
+
+    if (password) {
+      const hash = await hashPassword(password);
+      await exec(
+        this.store.pool,
+        "UPDATE _users SET email = $1, password_hash = $2, roles = $3, active = $4, updated_at = NOW() WHERE id = $5",
+        [email, hash, userRoles, active, id],
+      );
+    } else {
+      await exec(
+        this.store.pool,
+        "UPDATE _users SET email = $1, roles = $2, active = $3, updated_at = NOW() WHERE id = $4",
+        [email, userRoles, active, id],
+      );
+    }
+
+    const row = await queryRow(
+      this.store.pool,
+      "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1",
+      [id],
+    );
+
+    res.json({ data: row });
+  });
+
+  deleteUser = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _users WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `User not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _users WHERE id = $1", [id]);
+
+    res.json({ data: { id, deleted: true } });
+  });
+
+  // --- Permission Endpoints ---
+
+  listPermissions = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions ORDER BY entity, action",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getPermission = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Permission not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createPermission = asyncHandler(async (req: Request, res: Response) => {
+    const perm = req.body as Permission;
+    if (!perm || typeof perm !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    if (!perm.entity) {
+      throw new AppError("VALIDATION_FAILED", 422, "entity is required");
+    }
+    if (!perm.action) {
+      throw new AppError("VALIDATION_FAILED", 422, "action is required");
+    }
+    const validActions = ["read", "create", "update", "delete"];
+    if (!validActions.includes(perm.action)) {
+      throw new AppError("VALIDATION_FAILED", 422, "action must be read, create, update, or delete");
+    }
+    if (!perm.roles) {
+      perm.roles = [];
+    }
+
+    const row = await queryRow(
+      this.store.pool,
+      "INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4) RETURNING id",
+      [perm.entity, perm.action, perm.roles, JSON.stringify(perm.conditions ?? [])],
+    );
+    perm.id = row.id;
+
+    await reload(this.store.pool, this.registry);
+
+    res.status(201).json({ data: perm });
+  });
+
+  updatePermission = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _permissions WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Permission not found: ${id}`);
+    }
+
+    const perm = req.body as Permission;
+    if (!perm || typeof perm !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    perm.id = id;
+
+    if (!perm.entity) {
+      throw new AppError("VALIDATION_FAILED", 422, "entity is required");
+    }
+    if (!perm.action) {
+      throw new AppError("VALIDATION_FAILED", 422, "action is required");
+    }
+    if (!perm.roles) {
+      perm.roles = [];
+    }
+
+    await exec(
+      this.store.pool,
+      "UPDATE _permissions SET entity = $1, action = $2, roles = $3, conditions = $4, updated_at = NOW() WHERE id = $5",
+      [perm.entity, perm.action, perm.roles, JSON.stringify(perm.conditions ?? []), id],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: perm });
+  });
+
+  deletePermission = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _permissions WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Permission not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _permissions WHERE id = $1", [id]);
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: { id, deleted: true } });
+  });
 }
 
 export function registerAdminRoutes(
   app: Express,
   handler: AdminHandler,
+  ...middleware: RequestHandler[]
 ): void {
   const admin = Router();
 
@@ -618,7 +826,19 @@ export function registerAdminRoutes(
   admin.put("/workflows/:id", handler.updateWorkflow);
   admin.delete("/workflows/:id", handler.deleteWorkflow);
 
-  app.use("/api/_admin", admin);
+  admin.get("/users", handler.listUsers);
+  admin.get("/users/:id", handler.getUser);
+  admin.post("/users", handler.createUser);
+  admin.put("/users/:id", handler.updateUser);
+  admin.delete("/users/:id", handler.deleteUser);
+
+  admin.get("/permissions", handler.listPermissions);
+  admin.get("/permissions/:id", handler.getPermission);
+  admin.post("/permissions", handler.createPermission);
+  admin.put("/permissions/:id", handler.updatePermission);
+  admin.delete("/permissions/:id", handler.deletePermission);
+
+  app.use("/api/_admin", ...middleware, admin);
 }
 
 // --- Validation ---

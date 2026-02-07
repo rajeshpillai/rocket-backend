@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"rocket-backend/internal/admin"
+	"rocket-backend/internal/auth"
 	"rocket-backend/internal/config"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/metadata"
@@ -55,14 +57,123 @@ func testApp(t *testing.T, s *store.Store, reg *metadata.Registry) *fiber.App {
 			})
 		},
 	})
+	// Inject admin user for all requests (non-auth tests don't test auth)
+	fakeAdmin := func(c *fiber.Ctx) error {
+		c.Locals("user", &metadata.UserContext{ID: "test-admin", Roles: []string{"admin"}})
+		return c.Next()
+	}
 	migrator := store.NewMigrator(s)
 	adminH := admin.NewHandler(s, reg, migrator)
-	admin.RegisterAdminRoutes(app, adminH)
+	admin.RegisterAdminRoutes(app, adminH, fakeAdmin)
 	wfH := engine.NewWorkflowHandler(s, reg)
-	engine.RegisterWorkflowRoutes(app, wfH)
+	engine.RegisterWorkflowRoutes(app, wfH, fakeAdmin)
 	engineH := engine.NewHandler(s, reg)
-	engine.RegisterDynamicRoutes(app, engineH)
+	engine.RegisterDynamicRoutes(app, engineH, fakeAdmin)
 	return app
+}
+
+const testJWTSecret = "test-secret"
+
+func testAppWithAuth(t *testing.T, s *store.Store, reg *metadata.Registry) *fiber.App {
+	t.Helper()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			var appErr *engine.AppError
+			if errors.As(err, &appErr) {
+				return c.Status(appErr.Status).JSON(engine.ErrorResponse{Error: appErr})
+			}
+			log.Printf("ERROR: %v", err)
+			return c.Status(500).JSON(engine.ErrorResponse{
+				Error: &engine.AppError{Code: "INTERNAL_ERROR", Message: "Internal server error"},
+			})
+		},
+	})
+
+	// Auth routes — no middleware
+	authHandler := auth.NewAuthHandler(s, testJWTSecret)
+	auth.RegisterAuthRoutes(app, authHandler)
+
+	authMW := auth.AuthMiddleware(testJWTSecret)
+	adminMW := auth.RequireAdmin()
+
+	migrator := store.NewMigrator(s)
+	adminH := admin.NewHandler(s, reg, migrator)
+	admin.RegisterAdminRoutes(app, adminH, authMW, adminMW)
+
+	wfH := engine.NewWorkflowHandler(s, reg)
+	engine.RegisterWorkflowRoutes(app, wfH, authMW)
+
+	engineH := engine.NewHandler(s, reg)
+	engine.RegisterDynamicRoutes(app, engineH, authMW)
+
+	return app
+}
+
+func doAuthRequest(t *testing.T, app *fiber.App, method, path, token string, body any) *http.Response {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		reader = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, path, reader)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("execute request: %v", err)
+	}
+	return resp
+}
+
+func loginAs(t *testing.T, app *fiber.App, email, password string) string {
+	t.Helper()
+	resp := doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    email,
+		"password": password,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("login as %s: expected 200, got %d: %s", email, resp.StatusCode, readBody(t, resp))
+	}
+	var result map[string]any
+	json.Unmarshal(readBody(t, resp), &result)
+	data := result["data"].(map[string]any)
+	return data["access_token"].(string)
+}
+
+func loginAsWithRefresh(t *testing.T, app *fiber.App, email, password string) (string, string) {
+	t.Helper()
+	resp := doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    email,
+		"password": password,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("login as %s: expected 200, got %d: %s", email, resp.StatusCode, readBody(t, resp))
+	}
+	var result map[string]any
+	json.Unmarshal(readBody(t, resp), &result)
+	data := result["data"].(map[string]any)
+	return data["access_token"].(string), data["refresh_token"].(string)
+}
+
+func createTestUser(t *testing.T, app *fiber.App, token, email, password string, roles []string) string {
+	t.Helper()
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/users", token, map[string]any{
+		"email":    email,
+		"password": password,
+		"roles":    roles,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create user %s: expected 201, got %d: %s", email, resp.StatusCode, readBody(t, resp))
+	}
+	var result map[string]any
+	json.Unmarshal(readBody(t, resp), &result)
+	return result["data"].(map[string]any)["id"].(string)
 }
 
 func doRequest(t *testing.T, app *fiber.App, method, path string, body any) *http.Response {
@@ -1323,5 +1434,842 @@ func TestWorkflowConditionBranching(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected a pending instance at needs_approval step")
+	}
+}
+
+// ==================== Auth & Permissions Tests ====================
+
+func TestAuthLoginRefreshLogout(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// Cleanup test users (keep seed admin)
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+	}()
+
+	// 1. Login with seed admin
+	resp := doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "admin@localhost",
+		"password": "changeme",
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("login: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var loginResp map[string]any
+	json.Unmarshal(body, &loginResp)
+	data := loginResp["data"].(map[string]any)
+	accessToken := data["access_token"].(string)
+	refreshToken := data["refresh_token"].(string)
+	if accessToken == "" || refreshToken == "" {
+		t.Fatal("expected non-empty access_token and refresh_token")
+	}
+
+	// 2. Use access token to access protected endpoint
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/entities", accessToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin entities with token: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 3. Refresh token
+	resp = doRequest(t, app, "POST", "/api/auth/refresh", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("refresh: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var refreshResp map[string]any
+	json.Unmarshal(body, &refreshResp)
+	newData := refreshResp["data"].(map[string]any)
+	newAccessToken := newData["access_token"].(string)
+	newRefreshToken := newData["refresh_token"].(string)
+	if newAccessToken == "" || newRefreshToken == "" {
+		t.Fatal("expected non-empty tokens from refresh")
+	}
+
+	// 4. Old refresh token should be invalidated (rotation)
+	resp = doRequest(t, app, "POST", "/api/auth/refresh", map[string]any{
+		"refresh_token": refreshToken,
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("reuse old refresh token: expected 401, got %d", resp.StatusCode)
+	}
+
+	// 5. New access token works
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/entities", newAccessToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin with new token: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 6. Logout
+	resp = doRequest(t, app, "POST", "/api/auth/logout", map[string]any{
+		"refresh_token": newRefreshToken,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("logout: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 7. Refresh with logged-out token fails
+	resp = doRequest(t, app, "POST", "/api/auth/refresh", map[string]any{
+		"refresh_token": newRefreshToken,
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("refresh after logout: expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestAuthLoginInvalidCredentials(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// 1. Wrong password
+	resp := doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "admin@localhost",
+		"password": "wrongpassword",
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("wrong password: expected 401, got %d", resp.StatusCode)
+	}
+
+	// 2. Non-existent email
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "nobody@example.com",
+		"password": "changeme",
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("non-existent email: expected 401, got %d", resp.StatusCode)
+	}
+
+	// 3. Missing fields
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email": "admin@localhost",
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("missing password: expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestMiddlewareRejectsMissingToken(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// 1. No Authorization header
+	resp := doAuthRequest(t, app, "GET", "/api/_admin/entities", "", nil)
+	body := readBody(t, resp)
+	if resp.StatusCode != 401 {
+		t.Fatalf("no token: expected 401, got %d: %s", resp.StatusCode, body)
+	}
+
+	var errResp engine.ErrorResponse
+	json.Unmarshal(body, &errResp)
+	if errResp.Error.Code != "UNAUTHORIZED" {
+		t.Fatalf("expected UNAUTHORIZED, got %s", errResp.Error.Code)
+	}
+
+	// 2. Invalid token
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/entities", "invalid-token-value", nil)
+	if resp.StatusCode != 401 {
+		t.Fatalf("invalid token: expected 401, got %d", resp.StatusCode)
+	}
+
+	// 3. Auth endpoints still accessible without token
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "admin@localhost",
+		"password": "changeme",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("login without token: expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestAdminRoleBypass(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	const entityName = "_test_auth_admin_bypass"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// Login as admin
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create test entity (admin can access admin routes)
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/entities", adminToken, map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Admin can CRUD without any permissions defined
+	resp = doAuthRequest(t, app, "POST", "/api/"+entityName, adminToken, map[string]any{
+		"name": "Admin Created",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("admin create: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	var cr map[string]any
+	json.Unmarshal(readBody(t, resp), &cr)
+	recordID := cr["data"].(map[string]any)["id"].(string)
+
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin list: expected 200, got %d", resp.StatusCode)
+	}
+
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName+"/"+recordID, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin get: expected 200, got %d", resp.StatusCode)
+	}
+
+	resp = doAuthRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, adminToken, map[string]any{
+		"name": "Updated",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin update: expected 200, got %d", resp.StatusCode)
+	}
+
+	resp = doAuthRequest(t, app, "DELETE", "/api/"+entityName+"/"+recordID, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("admin delete: expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestPermissionGrantsAccess(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	const entityName = "_test_auth_perm_grant"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create entity
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/entities", adminToken, map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Create viewer user with "viewer" role
+	createTestUser(t, app, adminToken, "viewer@test.com", "password123", []string{"viewer"})
+
+	// Create permissions for viewer role: read + create
+	for _, action := range []string{"read", "create"} {
+		resp = doAuthRequest(t, app, "POST", "/api/_admin/permissions", adminToken, map[string]any{
+			"entity": entityName,
+			"action": action,
+			"roles":  []string{"viewer"},
+		})
+		if resp.StatusCode != 201 {
+			t.Fatalf("create %s permission: expected 201, got %d: %s", action, resp.StatusCode, readBody(t, resp))
+		}
+	}
+
+	// Login as viewer
+	viewerToken := loginAs(t, app, "viewer@test.com", "password123")
+
+	// Viewer can create (has permission)
+	resp = doAuthRequest(t, app, "POST", "/api/"+entityName, viewerToken, map[string]any{
+		"name": "Viewer Created",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("viewer create: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Viewer can read (has permission)
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName, viewerToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("viewer list: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestPermissionDeniesAccess(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	const entityName = "_test_auth_perm_deny"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create entity
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/entities", adminToken, map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Create user with "viewer" role but NO permissions for this entity
+	createTestUser(t, app, adminToken, "noperm@test.com", "password123", []string{"viewer"})
+
+	viewerToken := loginAs(t, app, "noperm@test.com", "password123")
+
+	// Should be denied (no permission = denied)
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName, viewerToken, nil)
+	body := readBody(t, resp)
+	if resp.StatusCode != 403 {
+		t.Fatalf("no permission list: expected 403, got %d: %s", resp.StatusCode, body)
+	}
+	var errResp engine.ErrorResponse
+	json.Unmarshal(body, &errResp)
+	if errResp.Error.Code != "FORBIDDEN" {
+		t.Fatalf("expected FORBIDDEN, got %s", errResp.Error.Code)
+	}
+
+	resp = doAuthRequest(t, app, "POST", "/api/"+entityName, viewerToken, map[string]any{
+		"name": "Should Fail",
+	})
+	if resp.StatusCode != 403 {
+		t.Fatalf("no permission create: expected 403, got %d", resp.StatusCode)
+	}
+
+	// Non-admin user can't access admin routes
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/entities", viewerToken, nil)
+	if resp.StatusCode != 403 {
+		t.Fatalf("non-admin accessing admin: expected 403, got %d", resp.StatusCode)
+	}
+}
+
+func TestRowLevelFiltering(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	const entityName = "_test_auth_row_filter"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create entity with department field
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/entities", adminToken, map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+			map[string]any{"name": "department", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Insert records as admin: 3 in "sales", 2 in "engineering"
+	for i := 0; i < 3; i++ {
+		doAuthRequest(t, app, "POST", "/api/"+entityName, adminToken, map[string]any{
+			"name": fmt.Sprintf("Sales Person %d", i+1), "department": "sales",
+		})
+	}
+	for i := 0; i < 2; i++ {
+		doAuthRequest(t, app, "POST", "/api/"+entityName, adminToken, map[string]any{
+			"name": fmt.Sprintf("Engineer %d", i+1), "department": "engineering",
+		})
+	}
+
+	// Create sales_rep user
+	createTestUser(t, app, adminToken, "salesrep@test.com", "password123", []string{"sales_rep"})
+
+	// Create read permission with condition: department = "sales"
+	resp = doAuthRequest(t, app, "POST", "/api/_admin/permissions", adminToken, map[string]any{
+		"entity": entityName,
+		"action": "read",
+		"roles":  []string{"sales_rep"},
+		"conditions": []map[string]any{
+			{"field": "department", "operator": "eq", "value": "sales"},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create permission: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Login as sales_rep
+	salesToken := loginAs(t, app, "salesrep@test.com", "password123")
+
+	// List should return only sales records
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName, salesToken, nil)
+	body := readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("sales list: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var listResp map[string]any
+	json.Unmarshal(body, &listResp)
+	rows := listResp["data"].([]any)
+	meta := listResp["meta"].(map[string]any)
+
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 sales records, got %d", len(rows))
+	}
+
+	// Verify total in meta matches filtered count
+	total := meta["total"]
+	// total could be float64 from JSON
+	switch v := total.(type) {
+	case float64:
+		if int(v) != 3 {
+			t.Fatalf("expected total=3, got %v", total)
+		}
+	default:
+		t.Fatalf("unexpected total type: %T = %v", total, total)
+	}
+
+	// Verify all records have department=sales
+	for _, r := range rows {
+		row := r.(map[string]any)
+		if row["department"] != "sales" {
+			t.Fatalf("expected department=sales, got %v", row["department"])
+		}
+	}
+
+	// Admin should see all 5 records
+	resp = doAuthRequest(t, app, "GET", "/api/"+entityName, adminToken, nil)
+	body = readBody(t, resp)
+	json.Unmarshal(body, &listResp)
+	adminRows := listResp["data"].([]any)
+	if len(adminRows) != 5 {
+		t.Fatalf("admin expected 5 records, got %d", len(adminRows))
+	}
+}
+
+func TestWritePermissionWithConditions(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	const entityName = "_test_auth_write_cond"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create entity with status field
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/entities", adminToken, map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+			map[string]any{"name": "status", "type": "string"},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Create editor user
+	createTestUser(t, app, adminToken, "editor@test.com", "password123", []string{"editor"})
+
+	// Create permissions: editor can read (all), create, and update only when status=draft
+	for _, action := range []string{"read", "create"} {
+		doAuthRequest(t, app, "POST", "/api/_admin/permissions", adminToken, map[string]any{
+			"entity": entityName, "action": action, "roles": []string{"editor"},
+		})
+	}
+	resp = doAuthRequest(t, app, "POST", "/api/_admin/permissions", adminToken, map[string]any{
+		"entity": entityName,
+		"action": "update",
+		"roles":  []string{"editor"},
+		"conditions": []map[string]any{
+			{"field": "status", "operator": "eq", "value": "draft"},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create update permission: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Insert records as admin: one draft, one published
+	resp = doAuthRequest(t, app, "POST", "/api/"+entityName, adminToken, map[string]any{
+		"name": "Draft Doc", "status": "draft",
+	})
+	body := readBody(t, resp)
+	var cr map[string]any
+	json.Unmarshal(body, &cr)
+	draftID := cr["data"].(map[string]any)["id"].(string)
+
+	resp = doAuthRequest(t, app, "POST", "/api/"+entityName, adminToken, map[string]any{
+		"name": "Published Doc", "status": "published",
+	})
+	body = readBody(t, resp)
+	json.Unmarshal(body, &cr)
+	publishedID := cr["data"].(map[string]any)["id"].(string)
+
+	// Login as editor
+	editorToken := loginAs(t, app, "editor@test.com", "password123")
+
+	// Editor can update draft record
+	resp = doAuthRequest(t, app, "PUT", "/api/"+entityName+"/"+draftID, editorToken, map[string]any{
+		"name": "Updated Draft",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("editor update draft: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Editor cannot update published record (condition fails)
+	resp = doAuthRequest(t, app, "PUT", "/api/"+entityName+"/"+publishedID, editorToken, map[string]any{
+		"name": "Should Fail",
+	})
+	if resp.StatusCode != 403 {
+		t.Fatalf("editor update published: expected 403, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestUserCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// 1. Create user
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/users", adminToken, map[string]any{
+		"email":    "newuser@test.com",
+		"password": "securepass",
+		"roles":    []string{"editor", "viewer"},
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create user: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var cr map[string]any
+	json.Unmarshal(body, &cr)
+	userData := cr["data"].(map[string]any)
+	userID := userData["id"].(string)
+	if userID == "" {
+		t.Fatal("expected user ID in response")
+	}
+
+	// Verify password_hash is never returned
+	if _, hasHash := userData["password_hash"]; hasHash {
+		t.Fatal("password_hash should never be returned in response")
+	}
+
+	// 2. List users
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/users", adminToken, nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list users: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	var lr map[string]any
+	json.Unmarshal(body, &lr)
+	users := lr["data"].([]any)
+	if len(users) < 2 {
+		t.Fatalf("expected at least 2 users (admin + new), got %d", len(users))
+	}
+	// Verify no user has password_hash
+	for _, u := range users {
+		user := u.(map[string]any)
+		if _, hasHash := user["password_hash"]; hasHash {
+			t.Fatal("password_hash should never appear in list response")
+		}
+	}
+
+	// 3. Get user by ID
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/users/"+userID, adminToken, nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get user: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	json.Unmarshal(body, &cr)
+	if _, hasHash := cr["data"].(map[string]any)["password_hash"]; hasHash {
+		t.Fatal("password_hash should never appear in get response")
+	}
+
+	// 4. Update user
+	resp = doAuthRequest(t, app, "PUT", "/api/_admin/users/"+userID, adminToken, map[string]any{
+		"email":  "updated@test.com",
+		"roles":  []string{"admin"},
+		"active": true,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("update user: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify the new user can login with existing password (not changed)
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "updated@test.com",
+		"password": "securepass",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("login with updated email: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 5. Update user with new password
+	resp = doAuthRequest(t, app, "PUT", "/api/_admin/users/"+userID, adminToken, map[string]any{
+		"email":    "updated@test.com",
+		"password": "newpassword",
+		"roles":    []string{"admin"},
+		"active":   true,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("update user password: expected 200, got %d", resp.StatusCode)
+	}
+
+	// Old password fails
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "updated@test.com",
+		"password": "securepass",
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("old password: expected 401, got %d", resp.StatusCode)
+	}
+
+	// New password works
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email":    "updated@test.com",
+		"password": "newpassword",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("new password: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 6. Delete user
+	resp = doAuthRequest(t, app, "DELETE", "/api/_admin/users/"+userID, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("delete user: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 7. Verify deleted
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/users/"+userID, adminToken, nil)
+	if resp.StatusCode != 404 {
+		t.Fatalf("get deleted user: expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestPermissionCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = '_test_perm_crud'")
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// 1. Create permission
+	resp := doAuthRequest(t, app, "POST", "/api/_admin/permissions", adminToken, map[string]any{
+		"entity": "_test_perm_crud",
+		"action": "read",
+		"roles":  []string{"viewer"},
+		"conditions": []map[string]any{
+			{"field": "status", "operator": "eq", "value": "active"},
+		},
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create permission: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var cr map[string]any
+	json.Unmarshal(body, &cr)
+	permData := cr["data"].(map[string]any)
+	permID := permData["id"].(string)
+	if permID == "" {
+		t.Fatal("expected permission ID in response")
+	}
+
+	// 2. List permissions
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/permissions", adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list permissions: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 3. Get permission by ID
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/permissions/"+permID, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get permission: expected 200, got %d", resp.StatusCode)
+	}
+
+	// 4. Update permission
+	resp = doAuthRequest(t, app, "PUT", "/api/_admin/permissions/"+permID, adminToken, map[string]any{
+		"entity": "_test_perm_crud",
+		"action": "update",
+		"roles":  []string{"editor", "viewer"},
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("update permission: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 5. Delete permission
+	resp = doAuthRequest(t, app, "DELETE", "/api/_admin/permissions/"+permID, adminToken, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("delete permission: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 6. Verify deleted
+	resp = doAuthRequest(t, app, "GET", "/api/_admin/permissions/"+permID, adminToken, nil)
+	if resp.StatusCode != 404 {
+		t.Fatalf("get deleted permission: expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestDisabledUserCannotLogin(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testAppWithAuth(t, s, reg)
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+	}()
+
+	adminToken := loginAs(t, app, "admin@localhost", "changeme")
+
+	// Create user
+	userID := createTestUser(t, app, adminToken, "disabled@test.com", "password123", []string{"viewer"})
+
+	// User can login
+	resp := doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email": "disabled@test.com", "password": "password123",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("active user login: expected 200, got %d", resp.StatusCode)
+	}
+
+	// Disable user
+	active := false
+	resp = doAuthRequest(t, app, "PUT", "/api/_admin/users/"+userID, adminToken, map[string]any{
+		"email":  "disabled@test.com",
+		"roles":  []string{"viewer"},
+		"active": &active,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("disable user: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Disabled user cannot login
+	resp = doRequest(t, app, "POST", "/api/auth/login", map[string]any{
+		"email": "disabled@test.com", "password": "password123",
+	})
+	if resp.StatusCode != 401 {
+		t.Fatalf("disabled user login: expected 401, got %d", resp.StatusCode)
 	}
 }

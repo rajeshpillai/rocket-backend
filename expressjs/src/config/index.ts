@@ -18,6 +18,7 @@ export interface DatabaseConfig {
 export interface Config {
   server: ServerConfig;
   database: DatabaseConfig;
+  jwt_secret: string;
 }
 
 export function connString(db: DatabaseConfig): string {
@@ -45,6 +46,7 @@ export function loadConfig(): Config {
     server: {
       port: server.port ?? 8080,
     },
+    jwt_secret: (raw.jwt_secret as string) ?? "changeme-secret",
     database: {
       host: database.host ?? "localhost",
       port: database.port ?? 5432,

@@ -59,3 +59,19 @@ func ValidationError(details []ErrorDetail) *AppError {
 		Details: details,
 	}
 }
+
+func UnauthorizedError(msg string) *AppError {
+	return &AppError{
+		Code:    "UNAUTHORIZED",
+		Status:  401,
+		Message: msg,
+	}
+}
+
+func ForbiddenError(msg string) *AppError {
+	return &AppError{
+		Code:    "FORBIDDEN",
+		Status:  403,
+		Message: msg,
+	}
+}

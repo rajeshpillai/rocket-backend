@@ -12,8 +12,9 @@ type Registry struct {
 	relationsByName         map[string]*Relation         // keyed by relation name
 	rulesByEntity           map[string][]*Rule           // keyed by entity name, sorted by priority
 	stateMachinesByEntity   map[string][]*StateMachine   // keyed by entity name
-	workflowsByTrigger      map[string][]*Workflow       // keyed by "entity:field:toState"
-	workflowsByName         map[string]*Workflow         // keyed by workflow name
+	workflowsByTrigger        map[string][]*Workflow       // keyed by "entity:field:toState"
+	workflowsByName           map[string]*Workflow         // keyed by workflow name
+	permissionsByEntityAction map[string][]*Permission     // keyed by "entity:action"
 }
 
 func NewRegistry() *Registry {
@@ -23,8 +24,9 @@ func NewRegistry() *Registry {
 		relationsByName:       make(map[string]*Relation),
 		rulesByEntity:         make(map[string][]*Rule),
 		stateMachinesByEntity: make(map[string][]*StateMachine),
-		workflowsByTrigger:    make(map[string][]*Workflow),
-		workflowsByName:       make(map[string]*Workflow),
+		workflowsByTrigger:        make(map[string][]*Workflow),
+		workflowsByName:           make(map[string]*Workflow),
+		permissionsByEntityAction: make(map[string][]*Permission),
 	}
 }
 
@@ -185,6 +187,26 @@ func (r *Registry) LoadWorkflows(workflows []*Workflow) {
 			key := wf.Trigger.Entity + ":" + wf.Trigger.Field + ":" + wf.Trigger.To
 			r.workflowsByTrigger[key] = append(r.workflowsByTrigger[key], wf)
 		}
+	}
+}
+
+// GetPermissions returns all permissions for an entity + action pair.
+func (r *Registry) GetPermissions(entity, action string) []*Permission {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	key := entity + ":" + action
+	return r.permissionsByEntityAction[key]
+}
+
+// LoadPermissions replaces all permissions in the registry.
+func (r *Registry) LoadPermissions(permissions []*Permission) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.permissionsByEntityAction = make(map[string][]*Permission)
+	for _, p := range permissions {
+		key := p.Entity + ":" + p.Action
+		r.permissionsByEntityAction[key] = append(r.permissionsByEntityAction[key], p)
 	}
 }
 

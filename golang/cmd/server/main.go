@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 
 	"rocket-backend/internal/admin"
+	"rocket-backend/internal/auth"
 	"rocket-backend/internal/config"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/metadata"
@@ -64,24 +65,32 @@ func main() {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
-	// 8. Register admin routes FIRST (before dynamic routes)
+	// 8. Auth routes (before middleware — no auth required)
+	authHandler := auth.NewAuthHandler(db, cfg.JWTSecret)
+	auth.RegisterAuthRoutes(app, authHandler)
+
+	// 9. Auth middleware for all protected routes
+	authMW := auth.AuthMiddleware(cfg.JWTSecret)
+	adminMW := auth.RequireAdmin()
+
+	// 10. Register admin routes (auth + admin required)
 	adminHandler := admin.NewHandler(db, reg, migrator)
-	admin.RegisterAdminRoutes(app, adminHandler)
+	admin.RegisterAdminRoutes(app, adminHandler, authMW, adminMW)
 
-	// 9. Register workflow runtime routes (before dynamic routes)
+	// 11. Register workflow runtime routes (auth required)
 	workflowHandler := engine.NewWorkflowHandler(db, reg)
-	engine.RegisterWorkflowRoutes(app, workflowHandler)
+	engine.RegisterWorkflowRoutes(app, workflowHandler, authMW)
 
-	// 10. Register dynamic entity routes
+	// 12. Register dynamic entity routes (auth required)
 	engineHandler := engine.NewHandler(db, reg)
-	engine.RegisterDynamicRoutes(app, engineHandler)
+	engine.RegisterDynamicRoutes(app, engineHandler, authMW)
 
-	// 11. Start workflow scheduler
+	// 13. Start workflow scheduler
 	scheduler := engine.NewWorkflowScheduler(db, reg)
 	scheduler.Start()
 	defer scheduler.Stop()
 
-	// 12. Start server
+	// 14. Start server
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Starting server on %s", addr)
 	log.Fatal(app.Listen(addr))

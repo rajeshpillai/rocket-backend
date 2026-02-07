@@ -6,12 +6,12 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 ## Current Status
 
-**Phase 0–3 are complete** in two languages. Both share the same Postgres database.
+**Phase 0–4 are complete** in two languages. Both share the same Postgres database.
 
 | Implementation | Directory | Framework | Driver | Status |
 |----------------|-----------|-----------|--------|--------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Phase 3 done |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 3 done |
+| Go | `golang/` | Fiber v2 | pgx v5 | Phase 4 done |
+| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 4 done |
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -23,10 +23,20 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Validation (required fields, enums)
 - Standard error format with codes and field-level details
 
-**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, and data browsing.
+**What Phase 4 delivers:**
+- JWT authentication (HS256, 15min access tokens, 7-day refresh tokens with rotation)
+- Auth middleware on all routes (except `/api/auth/*` and `/health`)
+- Metadata-driven permission policies (`_permissions` table, whitelist model)
+- Row-level security (read conditions injected as WHERE clauses)
+- Write permission conditions (current record checked before update/delete)
+- Admin role bypasses all permission checks
+- Seed admin user on first boot (`admin@localhost` / `changeme`)
+- User + permission admin CRUD
+- bcrypt password hashing (never returned in responses)
+
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, login/logout, and auth-protected routes.
 
 **Not yet built (future phases):**
-- Auth (JWT + permissions)
 - Webhooks
 - Audit log
 
@@ -43,12 +53,12 @@ rocket-backend/
 │   ├── vite.config.ts / tsconfig.json / tailwind.config.js
 │   └── src/
 │       ├── App.tsx              # Router + layout
-│       ├── api/                 # API client (entities, relations, data)
-│       ├── components/          # Shared UI (DataTable, Modal, Toast, etc.)
-│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, etc.
-│       ├── stores/              # SolidJS stores (entities, notifications)
+│       ├── api/                 # API client (entities, relations, data, users, permissions)
+│       ├── components/          # Shared UI (DataTable, Modal, Toast, Sidebar, etc.)
+│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, Login, UsersList, PermissionsList, etc.
+│       ├── stores/              # SolidJS stores (entities, notifications, auth)
 │       ├── styles/              # Tailwind + component CSS
-│       └── types/               # TypeScript types (entity, relation, api)
+│       └── types/               # TypeScript types (entity, relation, api, user, permission)
 ├── docs/                        # Shared technical documentation
 │   ├── dynamic-rest-api.md      # Router, read flow, write flow design
 │   ├── metadata-schemas.md      # Entity, field, relation schemas
@@ -64,9 +74,10 @@ rocket-backend/
 │   ├── cmd/server/main.go
 │   └── internal/
 │       ├── config/config.go
-│       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow}.go
+│       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow,permission,user_context}.go
 │       ├── store/{postgres,bootstrap,migrator}.go
-│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler}.go
+│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions}.go
+│       ├── auth/{auth,handler,middleware}.go
 │       └── admin/handler.go
 └── expressjs/                   # Express.js implementation
     ├── app.yaml                 # Config (port 8080, db on 5433)
@@ -75,9 +86,10 @@ rocket-backend/
     └── src/
         ├── index.ts
         ├── config/index.ts
-        ├── metadata/{types,registry,loader,rule,state-machine,workflow}.ts
+        ├── metadata/{types,registry,loader,rule,state-machine,workflow,permission}.ts
         ├── store/{postgres,bootstrap,migrator,schema}.ts
         ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler}.ts
+        ├── auth/{auth,handler,middleware,permissions}.ts
         ├── admin/handler.ts
         └── middleware/error-handler.ts
 ```
@@ -89,12 +101,15 @@ Shared Postgres 15 via Docker Compose. Port **5433** on host (remapped from defa
 ### System Tables
 
 ```
-_entities    — name (PK), table_name, definition (JSONB), created_at, updated_at
-_relations   — name (PK), source (FK), target (FK), definition (JSONB), created_at, updated_at
-_rules            — id (UUID PK), entity (FK), hook, type, definition (JSONB), priority, active, created_at, updated_at
-_state_machines   — id (UUID PK), entity (FK), field, definition (JSONB), active, created_at, updated_at
-_workflows        — id (UUID PK), name (UNIQUE), trigger (JSONB), context (JSONB), steps (JSONB), active, created_at, updated_at
+_entities           — name (PK), table_name, definition (JSONB), created_at, updated_at
+_relations          — name (PK), source (FK), target (FK), definition (JSONB), created_at, updated_at
+_rules              — id (UUID PK), entity (FK), hook, type, definition (JSONB), priority, active, created_at, updated_at
+_state_machines     — id (UUID PK), entity (FK), field, definition (JSONB), active, created_at, updated_at
+_workflows          — id (UUID PK), name (UNIQUE), trigger (JSONB), context (JSONB), steps (JSONB), active, created_at, updated_at
 _workflow_instances — id (UUID PK), workflow_id (FK), workflow_name, status, current_step, current_step_deadline, context (JSONB), history (JSONB), created_at, updated_at
+_users              — id (UUID PK), email (UNIQUE), password_hash, roles (TEXT[]), active, created_at, updated_at
+_refresh_tokens     — id (UUID PK), user_id (FK→_users), token (UUID UNIQUE), expires_at, created_at
+_permissions        — id (UUID PK), entity, action, roles (TEXT[]), conditions (JSONB), created_at, updated_at
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -111,11 +126,20 @@ Three entities exist: `customer`, `invoice`, `invoice_item`. One relation: `item
 - **Includes use separate queries, not JOINs** — avoids cartesian explosions
 - **Admin routes registered before dynamic routes** — prevents `/api/_admin/entities` matching `/:entity`
 - **Auto-migration never drops columns** — removing a field hides it from the API, data stays
-- **No auth in Phase 0** — all endpoints are open
+- **JWT auth (Phase 4)** — HS256, 15min access, 7-day refresh with rotation, bcrypt passwords
+- **Whitelist permissions** — no `_permissions` row = denied; admin role always bypasses
+- **Auth routes before middleware** — `/api/auth/*` registered first, naturally unprotected
 
 ## API Quick Reference
 
-### Admin
+### Auth (no token required)
+```
+POST /api/auth/login              # Returns {access_token, refresh_token}
+POST /api/auth/refresh            # Rotates refresh token
+POST /api/auth/logout             # Invalidates refresh token
+```
+
+### Admin (requires auth + admin role)
 ```
 GET/POST       /api/_admin/entities
 GET/PUT/DELETE /api/_admin/entities/:name
@@ -127,6 +151,10 @@ GET/POST       /api/_admin/state-machines
 GET/PUT/DELETE /api/_admin/state-machines/:id
 GET/POST       /api/_admin/workflows
 GET/PUT/DELETE /api/_admin/workflows/:id
+GET/POST       /api/_admin/users
+GET/PUT/DELETE /api/_admin/users/:id
+GET/POST       /api/_admin/permissions
+GET/PUT/DELETE /api/_admin/permissions/:id
 ```
 
 ### Workflow Runtime
@@ -157,7 +185,7 @@ DELETE /api/:entity/:id                # Soft or hard delete
 {"error": {"code": "VALIDATION_FAILED", "message": "...", "details": [{"field": "x", "rule": "required", "message": "..."}]}}
 ```
 
-Codes: `UNKNOWN_ENTITY` (404), `NOT_FOUND` (404), `VALIDATION_FAILED` (422), `UNKNOWN_FIELD` (400), `INVALID_PAYLOAD` (400), `CONFLICT` (409), `INTERNAL_ERROR` (500)
+Codes: `UNKNOWN_ENTITY` (404), `NOT_FOUND` (404), `VALIDATION_FAILED` (422), `UNKNOWN_FIELD` (400), `INVALID_PAYLOAD` (400), `CONFLICT` (409), `UNAUTHORIZED` (401), `FORBIDDEN` (403), `INTERNAL_ERROR` (500)
 
 ## Running
 

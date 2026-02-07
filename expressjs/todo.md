@@ -46,10 +46,24 @@
 - [x] Background timeout scheduler (60s setInterval)
 - [x] Integration tests (7 new workflow tests: CRUD, trigger, approval, rejection, condition branching)
 
-## Phase 4: Auth & Permissions
-- [ ] JWT login/refresh flow
-- [ ] Auth middleware
-- [ ] Permission policies with row-level filtering
+## Phase 4: Auth & Permissions [DONE]
+- [x] `_users`, `_refresh_tokens`, `_permissions` system tables + bootstrap DDL
+- [x] JWT secret in config (`jwt_secret` field in app.yaml)
+- [x] Auth types (UserContext, TokenPair, Claims) + JWT helpers (jsonwebtoken) + bcrypt (bcryptjs)
+- [x] Seed admin user on first boot (`admin@localhost` / `changeme` with `["admin"]` role)
+- [x] Auth handler (login, refresh with rotation, logout) at `/api/auth/*`
+- [x] Auth middleware (JWT validation, sets `req.user` via Express Request type augmentation)
+- [x] Admin-only middleware (checks `req.user.roles` contains `"admin"`)
+- [x] Permission types (Permission, PermissionCondition) + registry + loader
+- [x] Permission engine (checkPermission, getReadFilters) — whitelist model, admin bypass
+- [x] Permission checks in all 5 CRUD handlers (list, getById, create, update, delete)
+- [x] Row-level read filtering (permission conditions injected as WHERE clauses)
+- [x] Write permission conditions (fetch current record, check against conditions)
+- [x] User admin CRUD (`/api/_admin/users`) — password hashed, never returned
+- [x] Permission admin CRUD (`/api/_admin/permissions`)
+- [x] Auth routes wired before middleware in index.ts
+- [x] Route registration functions accept variadic middleware (`...middleware: RequestHandler[]`)
+- [x] Integration tests (11 new: login/refresh/logout, invalid credentials, middleware rejection, admin bypass, permission grants/denies, row-level filtering, write conditions, user CRUD, permission CRUD, disabled user)
 
 ## Phase 5: Webhooks
 - [ ] Webhook registration and dispatch

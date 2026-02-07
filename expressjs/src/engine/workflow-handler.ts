@@ -1,4 +1,4 @@
-import { Router, type Express, type Request, type Response, type NextFunction } from "express";
+import { Router, type Express, type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import type { Store } from "../store/postgres.js";
 import type { Registry } from "../metadata/registry.js";
 import { AppError } from "./errors.js";
@@ -87,7 +87,11 @@ export class WorkflowHandler {
   });
 }
 
-export function registerWorkflowRoutes(app: Express, handler: WorkflowHandler): void {
+export function registerWorkflowRoutes(
+  app: Express,
+  handler: WorkflowHandler,
+  ...middleware: RequestHandler[]
+): void {
   const router = Router();
 
   router.get("/pending", handler.getPendingInstances);
@@ -95,5 +99,5 @@ export function registerWorkflowRoutes(app: Express, handler: WorkflowHandler): 
   router.post("/:id/approve", handler.approveInstance);
   router.post("/:id/reject", handler.rejectInstance);
 
-  app.use("/api/_workflows", router);
+  app.use("/api/_workflows", ...middleware, router);
 }

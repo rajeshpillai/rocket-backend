@@ -8,6 +8,7 @@ import { buildSoftDeleteSQL, buildHardDeleteSQL } from "./writer.js";
 import { planWrite, executeWritePlan, fetchRecord } from "./nested-write.js";
 import { loadIncludes } from "./includes.js";
 import { handleCascadeDelete } from "./soft-delete.js";
+import { checkPermission, getReadFilters } from "../auth/permissions.js";
 
 type AsyncHandler = (
   req: Request,
@@ -33,7 +34,13 @@ export class Handler {
   list = asyncHandler(async (req: Request, res: Response) => {
     const entity = this.resolveEntity(req);
 
+    checkPermission(req.user, entity.name, "read", this.registry, null);
+
     const plan = parseQueryParams(req, entity, this.registry);
+
+    // Inject row-level security filters
+    const filters = getReadFilters(req.user, entity.name, this.registry);
+    plan.filters.push(...filters);
 
     // Execute data query
     const qr = buildSelectSQL(plan);
@@ -69,6 +76,9 @@ export class Handler {
 
   getById = asyncHandler(async (req: Request, res: Response) => {
     const entity = this.resolveEntity(req);
+
+    checkPermission(req.user, entity.name, "read", this.registry, null);
+
     const id = req.params.id;
 
     let row: Record<string, any>;
@@ -100,6 +110,9 @@ export class Handler {
 
   create = asyncHandler(async (req: Request, res: Response) => {
     const entity = this.resolveEntity(req);
+
+    checkPermission(req.user, entity.name, "create", this.registry, null);
+
     const body = req.body;
 
     if (!body || typeof body !== "object") {
@@ -116,15 +129,18 @@ export class Handler {
     const entity = this.resolveEntity(req);
     const id = req.params.id;
 
-    // Verify record exists
+    // Verify record exists and check permissions against current state
+    let currentRecord: Record<string, any>;
     try {
-      await fetchRecord(this.store.pool, entity, id);
+      currentRecord = await fetchRecord(this.store.pool, entity, id);
     } catch (err) {
       if (err === ErrNotFound) {
         throw notFoundError(entity.name, id);
       }
       throw err;
     }
+
+    checkPermission(req.user, entity.name, "update", this.registry, currentRecord);
 
     const body = req.body;
     if (!body || typeof body !== "object") {
@@ -140,6 +156,19 @@ export class Handler {
   delete = asyncHandler(async (req: Request, res: Response) => {
     const entity = this.resolveEntity(req);
     const id = req.params.id;
+
+    // Check permissions against current record
+    let currentRecord: Record<string, any>;
+    try {
+      currentRecord = await fetchRecord(this.store.pool, entity, id);
+    } catch (err) {
+      if (err === ErrNotFound) {
+        throw notFoundError(entity.name, id);
+      }
+      throw err;
+    }
+
+    checkPermission(req.user, entity.name, "delete", this.registry, currentRecord);
 
     const client = await this.store.beginTx();
     try {

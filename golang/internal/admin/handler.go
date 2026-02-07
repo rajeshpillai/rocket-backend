@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"rocket-backend/internal/auth"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
@@ -20,8 +21,8 @@ func NewHandler(s *store.Store, reg *metadata.Registry, mig *store.Migrator) *Ha
 	return &Handler{store: s, registry: reg, migrator: mig}
 }
 
-func RegisterAdminRoutes(app *fiber.App, h *Handler) {
-	admin := app.Group("/api/_admin")
+func RegisterAdminRoutes(app *fiber.App, h *Handler, middleware ...fiber.Handler) {
+	admin := app.Group("/api/_admin", middleware...)
 
 	admin.Get("/entities", h.ListEntities)
 	admin.Get("/entities/:name", h.GetEntity)
@@ -52,6 +53,18 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler) {
 	admin.Post("/workflows", h.CreateWorkflow)
 	admin.Put("/workflows/:id", h.UpdateWorkflow)
 	admin.Delete("/workflows/:id", h.DeleteWorkflow)
+
+	admin.Get("/users", h.ListUsers)
+	admin.Get("/users/:id", h.GetUser)
+	admin.Post("/users", h.CreateUser)
+	admin.Put("/users/:id", h.UpdateUser)
+	admin.Delete("/users/:id", h.DeleteUser)
+
+	admin.Get("/permissions", h.ListPermissions)
+	admin.Get("/permissions/:id", h.GetPermission)
+	admin.Post("/permissions", h.CreatePermission)
+	admin.Put("/permissions/:id", h.UpdatePermission)
+	admin.Delete("/permissions/:id", h.DeletePermission)
 }
 
 // --- Entity Endpoints ---
@@ -780,6 +793,272 @@ func validateWorkflow(wf *metadata.Workflow, reg *metadata.Registry) error {
 	}
 
 	return nil
+}
+
+// --- User Endpoints ---
+
+func (h *Handler) ListUsers(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, email, roles, active, created_at, updated_at FROM _users ORDER BY email")
+	if err != nil {
+		return fmt.Errorf("list users: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetUser(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateUser(c *fiber.Ctx) error {
+	var body struct {
+		Email    string   `json:"email"`
+		Password string   `json:"password"`
+		Roles    []string `json:"roles"`
+		Active   *bool    `json:"active"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if body.Email == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "email is required"}})
+	}
+	if body.Password == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "password is required"}})
+	}
+
+	hash, err := auth.HashPassword(body.Password)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	active := true
+	if body.Active != nil {
+		active = *body.Active
+	}
+	if body.Roles == nil {
+		body.Roles = []string{}
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _users (email, password_hash, roles, active) VALUES ($1, $2, $3, $4) RETURNING id, email, roles, active, created_at, updated_at",
+		body.Email, hash, body.Roles, active)
+	if err != nil {
+		return fmt.Errorf("insert user: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) UpdateUser(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _users WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
+	}
+
+	var body struct {
+		Email    string   `json:"email"`
+		Password string   `json:"password"`
+		Roles    []string `json:"roles"`
+		Active   *bool    `json:"active"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if body.Email == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "email is required"}})
+	}
+
+	if body.Roles == nil {
+		body.Roles = []string{}
+	}
+
+	// If password provided, update hash; otherwise keep existing
+	if body.Password != "" {
+		hash, err := auth.HashPassword(body.Password)
+		if err != nil {
+			return fmt.Errorf("hash password: %w", err)
+		}
+		_, err = store.Exec(c.Context(), h.store.Pool,
+			"UPDATE _users SET email = $1, password_hash = $2, roles = $3, active = $4, updated_at = NOW() WHERE id = $5",
+			body.Email, hash, body.Roles, body.Active, id)
+		if err != nil {
+			return fmt.Errorf("update user: %w", err)
+		}
+	} else {
+		_, err = store.Exec(c.Context(), h.store.Pool,
+			"UPDATE _users SET email = $1, roles = $2, active = $3, updated_at = NOW() WHERE id = $4",
+			body.Email, body.Roles, body.Active, id)
+		if err != nil {
+			return fmt.Errorf("update user: %w", err)
+		}
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("fetch updated user: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) DeleteUser(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _users WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _users WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete user %s: %w", id, err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+// --- Permission Endpoints ---
+
+func (h *Handler) ListPermissions(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions ORDER BY entity, action")
+	if err != nil {
+		return fmt.Errorf("list permissions: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetPermission(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreatePermission(c *fiber.Ctx) error {
+	var perm metadata.Permission
+	if err := c.BodyParser(&perm); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if perm.Entity == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity is required"}})
+	}
+	if perm.Action == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "action is required"}})
+	}
+	validActions := map[string]bool{"read": true, "create": true, "update": true, "delete": true}
+	if !validActions[perm.Action] {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "action must be read, create, update, or delete"}})
+	}
+	if perm.Roles == nil {
+		perm.Roles = []string{}
+	}
+
+	condJSON, err := json.Marshal(perm.Conditions)
+	if err != nil {
+		return fmt.Errorf("marshal conditions: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4) RETURNING id",
+		perm.Entity, perm.Action, perm.Roles, condJSON)
+	if err != nil {
+		return fmt.Errorf("insert permission: %w", err)
+	}
+	perm.ID = fmt.Sprintf("%v", row["id"])
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": perm})
+}
+
+func (h *Handler) UpdatePermission(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _permissions WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
+	}
+
+	var perm metadata.Permission
+	if err := c.BodyParser(&perm); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+	perm.ID = id
+
+	if perm.Entity == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity is required"}})
+	}
+	if perm.Action == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "action is required"}})
+	}
+	if perm.Roles == nil {
+		perm.Roles = []string{}
+	}
+
+	condJSON, err := json.Marshal(perm.Conditions)
+	if err != nil {
+		return fmt.Errorf("marshal conditions: %w", err)
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"UPDATE _permissions SET entity = $1, action = $2, roles = $3, conditions = $4, updated_at = NOW() WHERE id = $5",
+		perm.Entity, perm.Action, perm.Roles, condJSON, id)
+	if err != nil {
+		return fmt.Errorf("update permission: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": perm})
+}
+
+func (h *Handler) DeletePermission(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _permissions WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _permissions WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete permission %s: %w", id, err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
 }
 
 func validateRelation(r *metadata.Relation, reg *metadata.Registry) error {
