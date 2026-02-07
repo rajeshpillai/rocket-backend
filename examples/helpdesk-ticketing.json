@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "exported_at": "2026-02-08T00:00:00Z",
+  "entities": [
+    {
+      "name": "customer",
+      "table": "customers",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "phone", "type": "string" },
+        { "name": "company", "type": "string" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "agent",
+      "table": "agents",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "department", "type": "string", "enum": ["support", "billing", "technical", "sales"] },
+        { "name": "active", "type": "boolean", "default": true },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "ticket",
+      "table": "tickets",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "description", "type": "text", "required": true },
+        { "name": "status", "type": "string", "default": "open" },
+        { "name": "priority", "type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium" },
+        { "name": "category", "type": "string", "enum": ["bug", "feature", "question", "billing", "other"], "default": "question" },
+        { "name": "customer_id", "type": "uuid", "required": true },
+        { "name": "agent_id", "type": "uuid" },
+        { "name": "resolved_at", "type": "timestamp" },
+        { "name": "closed_at", "type": "timestamp" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "response",
+      "table": "responses",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "ticket_id", "type": "uuid", "required": true },
+        { "name": "author_type", "type": "string", "required": true, "enum": ["customer", "agent"] },
+        { "name": "author_id", "type": "uuid", "required": true },
+        { "name": "body", "type": "text", "required": true },
+        { "name": "internal_note", "type": "boolean", "default": false },
+        { "name": "attachment", "type": "file" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "ticket_customer",
+      "type": "one_to_many",
+      "source": "customer",
+      "target": "ticket",
+      "source_key": "id",
+      "target_key": "customer_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "ticket_agent",
+      "type": "one_to_many",
+      "source": "agent",
+      "target": "ticket",
+      "source_key": "id",
+      "target_key": "agent_id",
+      "ownership": "none",
+      "on_delete": "set_null"
+    },
+    {
+      "name": "ticket_responses",
+      "type": "one_to_many",
+      "source": "ticket",
+      "target": "response",
+      "source_key": "id",
+      "target_key": "ticket_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    }
+  ],
+  "rules": [
+    {
+      "entity": "ticket",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "title",
+        "operator": "min_length",
+        "value": 5,
+        "message": "Title must be at least 5 characters"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "response",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "body",
+        "operator": "min_length",
+        "value": 1,
+        "message": "Response body cannot be empty"
+      },
+      "priority": 0,
+      "active": true
+    }
+  ],
+  "state_machines": [
+    {
+      "entity": "ticket",
+      "field": "status",
+      "definition": {
+        "initial": "open",
+        "transitions": [
+          { "from": "open", "to": "assigned", "actions": [] },
+          { "from": "assigned", "to": "in_progress", "actions": [] },
+          { "from": ["open", "assigned", "in_progress"], "to": "on_hold", "actions": [] },
+          { "from": "on_hold", "to": "in_progress", "actions": [] },
+          {
+            "from": "in_progress",
+            "to": "resolved",
+            "actions": [
+              { "type": "set_field", "field": "resolved_at", "value": "now" }
+            ]
+          },
+          {
+            "from": ["resolved", "on_hold"],
+            "to": "closed",
+            "actions": [
+              { "type": "set_field", "field": "closed_at", "value": "now" }
+            ]
+          },
+          { "from": ["resolved", "closed"], "to": "open", "actions": [] }
+        ]
+      },
+      "active": true
+    }
+  ],
+  "workflows": [
+    {
+      "name": "critical_ticket_escalation",
+      "trigger": {
+        "type": "state_change",
+        "entity": "ticket",
+        "field": "priority",
+        "to": "critical"
+      },
+      "context": {
+        "record_id": "record.id",
+        "title": "record.title"
+      },
+      "steps": [
+        {
+          "id": "notify_lead",
+          "type": "approval",
+          "assignee": { "type": "role", "role": "team_lead" },
+          "timeout": "4h",
+          "on_approve": { "goto": "assign_senior" },
+          "on_reject": { "goto": "end" },
+          "on_timeout": { "goto": "assign_senior" }
+        },
+        {
+          "id": "assign_senior",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "ticket",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "assigned"
+            }
+          ],
+          "then": { "goto": "end" }
+        }
+      ],
+      "active": true
+    }
+  ],
+  "permissions": [
+    {
+      "entity": "ticket",
+      "action": "read",
+      "roles": ["agent", "customer"],
+      "conditions": []
+    },
+    {
+      "entity": "ticket",
+      "action": "create",
+      "roles": ["agent", "customer"],
+      "conditions": []
+    },
+    {
+      "entity": "ticket",
+      "action": "update",
+      "roles": ["agent"],
+      "conditions": []
+    },
+    {
+      "entity": "response",
+      "action": "read",
+      "roles": ["agent", "customer"],
+      "conditions": []
+    },
+    {
+      "entity": "response",
+      "action": "create",
+      "roles": ["agent", "customer"],
+      "conditions": []
+    },
+    {
+      "entity": "customer",
+      "action": "read",
+      "roles": ["agent"],
+      "conditions": []
+    },
+    {
+      "entity": "agent",
+      "action": "read",
+      "roles": ["agent"],
+      "conditions": []
+    }
+  ],
+  "webhooks": [
+    {
+      "entity": "ticket",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/ticket-created",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-helpdesk" },
+      "condition": "action === 'create'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "ticket",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/ticket-resolved",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-helpdesk" },
+      "condition": "record.status === 'resolved'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    }
+  ],
+  "sample_data": {
+    "customer": [
+      { "id": "10000000-0000-0000-0000-000000000001", "name": "Jane Smith", "email": "jane@acme.com", "phone": "+1-555-0101", "company": "Acme Corp" },
+      { "id": "10000000-0000-0000-0000-000000000002", "name": "Bob Johnson", "email": "bob@techstart.io", "phone": "+1-555-0102", "company": "TechStart Inc" },
+      { "id": "10000000-0000-0000-0000-000000000003", "name": "Maria Garcia", "email": "maria@designlab.co", "phone": "+1-555-0103", "company": "DesignLab" },
+      { "id": "10000000-0000-0000-0000-000000000004", "name": "Chen Wei", "email": "chen@globalfin.com", "company": "Global Finance" },
+      { "id": "10000000-0000-0000-0000-000000000005", "name": "Priya Sharma", "email": "priya@retailhub.in", "phone": "+91-555-0105", "company": "RetailHub" }
+    ],
+    "agent": [
+      { "id": "20000000-0000-0000-0000-000000000001", "name": "Sarah Chen", "email": "sarah@support.helpdesk.com", "department": "support", "active": true },
+      { "id": "20000000-0000-0000-0000-000000000002", "name": "Mike Peters", "email": "mike@support.helpdesk.com", "department": "technical", "active": true },
+      { "id": "20000000-0000-0000-0000-000000000003", "name": "Lisa Wong", "email": "lisa@support.helpdesk.com", "department": "billing", "active": true },
+      { "id": "20000000-0000-0000-0000-000000000004", "name": "David Brown", "email": "david@support.helpdesk.com", "department": "sales", "active": true }
+    ],
+    "ticket": [
+      {
+        "id": "30000000-0000-0000-0000-000000000001",
+        "title": "Cannot login to dashboard after password reset",
+        "description": "I reset my password yesterday and now I keep getting 'Invalid credentials' when trying to log in. I've tried clearing cookies and using incognito mode.",
+        "status": "in_progress",
+        "priority": "high",
+        "category": "bug",
+        "customer_id": "10000000-0000-0000-0000-000000000001",
+        "agent_id": "20000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000002",
+        "title": "Incorrect charge on last invoice",
+        "description": "My February invoice shows $299 but my plan is $199/month. I was charged for an upgrade I didn't request. Please review and issue a refund for the difference.",
+        "status": "assigned",
+        "priority": "medium",
+        "category": "billing",
+        "customer_id": "10000000-0000-0000-0000-000000000002",
+        "agent_id": "20000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000003",
+        "title": "API returns 500 on batch import endpoint",
+        "description": "When sending more than 100 records to POST /api/batch-import, the server returns HTTP 500 with no error body. Works fine with smaller payloads. Started happening after the v2.3 update.",
+        "status": "resolved",
+        "priority": "critical",
+        "category": "bug",
+        "customer_id": "10000000-0000-0000-0000-000000000001",
+        "agent_id": "20000000-0000-0000-0000-000000000002",
+        "resolved_at": "2026-02-05T14:30:00Z"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000004",
+        "title": "Feature request: dark mode for admin panel",
+        "description": "Would love to have a dark mode option in the admin panel. The current white theme is hard on the eyes during late-night monitoring sessions.",
+        "status": "open",
+        "priority": "low",
+        "category": "feature",
+        "customer_id": "10000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000005",
+        "title": "Password reset emails not arriving",
+        "description": "Two of our team members tried resetting passwords but never received the reset emails. Checked spam folders too. Our domain is globalfin.com.",
+        "status": "assigned",
+        "priority": "high",
+        "category": "bug",
+        "customer_id": "10000000-0000-0000-0000-000000000004",
+        "agent_id": "20000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000006",
+        "title": "How to set up SSO with Okta?",
+        "description": "We're migrating to Okta for SSO and need help configuring the SAML integration. Is there a setup guide available?",
+        "status": "in_progress",
+        "priority": "medium",
+        "category": "question",
+        "customer_id": "10000000-0000-0000-0000-000000000005",
+        "agent_id": "20000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000007",
+        "title": "Webhook delivery failures since Monday",
+        "description": "Our webhook endpoint at hooks.retailhub.in/events has been returning timeouts from your side since Monday. Our server is healthy — confirmed with direct curl tests.",
+        "status": "open",
+        "priority": "high",
+        "category": "bug",
+        "customer_id": "10000000-0000-0000-0000-000000000005"
+      }
+    ],
+    "response": [
+      {
+        "id": "40000000-0000-0000-0000-000000000001",
+        "ticket_id": "30000000-0000-0000-0000-000000000001",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000001",
+        "body": "Hi Jane, sorry about the login trouble. Can you try clearing your browser cache and cookies, then attempt logging in again? Also, make sure you're using the new password (not the temporary one from the reset email).",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000002",
+        "ticket_id": "30000000-0000-0000-0000-000000000001",
+        "author_type": "customer",
+        "author_id": "10000000-0000-0000-0000-000000000001",
+        "body": "I cleared everything and tried again — same error. I'm using Chrome 120 on macOS. The reset email only had one password link, which I used to set a new password.",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000003",
+        "ticket_id": "30000000-0000-0000-0000-000000000001",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000001",
+        "body": "Checked the auth logs — her account is in a locked state after 5 failed attempts. Unlocking now and resetting the lockout counter.",
+        "internal_note": true
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000004",
+        "ticket_id": "30000000-0000-0000-0000-000000000003",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000002",
+        "body": "Reproduced the issue. The batch import endpoint has a payload size limit of 5MB which is hit with 100+ records containing large text fields. Deploying a fix to increase the limit and add proper error messaging.",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000005",
+        "ticket_id": "30000000-0000-0000-0000-000000000003",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000002",
+        "body": "Fix deployed in v2.3.1. The batch limit is now 50MB and returns a clear 413 error if exceeded. Jane, can you verify on your end?",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000006",
+        "ticket_id": "30000000-0000-0000-0000-000000000003",
+        "author_type": "customer",
+        "author_id": "10000000-0000-0000-0000-000000000001",
+        "body": "Confirmed working! Batch import of 500 records completed successfully. Thanks for the quick turnaround.",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000007",
+        "ticket_id": "30000000-0000-0000-0000-000000000002",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000003",
+        "body": "Hi Bob, I can see the charge discrepancy. It looks like a promo code expiry triggered an automatic plan adjustment. I'm processing a $100 refund now — should appear in 3-5 business days.",
+        "internal_note": false
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000008",
+        "ticket_id": "30000000-0000-0000-0000-000000000006",
+        "author_type": "agent",
+        "author_id": "20000000-0000-0000-0000-000000000002",
+        "body": "Hi Priya, here's our Okta SSO setup guide: 1) In your Okta admin, create a new SAML 2.0 app. 2) Use our ACS URL: https://app.example.com/auth/saml/callback. 3) Set the Entity ID to your app name. I'll send the metadata XML separately.",
+        "internal_note": false
+      }
+    ]
+  }
+}

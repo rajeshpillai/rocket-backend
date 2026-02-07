@@ -1,4 +1,4 @@
-import { type ParentProps } from "solid-js";
+import { type ParentProps, Show, createEffect } from "solid-js";
 import { Router, Route, Navigate, useLocation, useNavigate } from "@solidjs/router";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
@@ -25,33 +25,33 @@ function AppRoot(props: ParentProps) {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Login page renders without layout
-  if (location.pathname === "/admin/login") {
-    if (isAuthenticated()) {
-      navigate("/apps", { replace: true });
-      return null;
+  // Reactive redirects — re-evaluate whenever path, auth, or app changes
+  createEffect(() => {
+    const path = location.pathname;
+    if (path === "/admin/login") {
+      if (isAuthenticated()) navigate("/apps", { replace: true });
+      return;
     }
-    return (
-      <>
-        {props.children}
-        <ToastContainer />
-      </>
-    );
-  }
+    if (!isAuthenticated()) {
+      navigate("/login", { replace: true });
+      return;
+    }
+    if (!selectedApp() && !APP_FREE_PATHS.includes(path)) {
+      navigate("/apps", { replace: true });
+    }
+  });
 
-  // Protected routes: redirect to login if not authenticated
-  if (!isAuthenticated()) {
-    navigate("/login", { replace: true });
-    return null;
-  }
-
-  // App-scoped routes: redirect to /apps if no app is selected
-  if (!selectedApp() && !APP_FREE_PATHS.includes(location.pathname)) {
-    navigate("/apps", { replace: true });
-    return null;
-  }
-
-  return <Layout>{props.children}</Layout>;
+  // Reactive rendering — Show components re-evaluate when signals change
+  return (
+    <Show
+      when={location.pathname !== "/admin/login"}
+      fallback={<>{props.children}<ToastContainer /></>}
+    >
+      <Show when={isAuthenticated()} fallback={null}>
+        <Layout>{props.children}</Layout>
+      </Show>
+    </Show>
+  );
 }
 
 export function App() {

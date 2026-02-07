@@ -1295,6 +1295,90 @@ export class AdminHandler {
     // Final reload
     await reload(this.store.pool, this.registry);
 
+    // Step 8: Sample data (insert records into business tables)
+    const sampleData = body.sample_data ?? {};
+    let recordCount = 0;
+
+    // Process entity records in definition order
+    for (const ent of entities) {
+      const entity = this.registry.getEntity(ent.name);
+      if (!entity) continue;
+      const records = sampleData[ent.name];
+      if (!Array.isArray(records) || records.length === 0) continue;
+
+      const fieldSet = new Set(entity.fields.map((f) => f.name));
+      for (const record of records) {
+        const cols: string[] = [];
+        const placeholders: string[] = [];
+        const values: any[] = [];
+        let idx = 1;
+        for (const [key, val] of Object.entries(record)) {
+          if (!fieldSet.has(key)) continue;
+          cols.push(`"${key}"`);
+          placeholders.push(`$${idx}`);
+          values.push(val);
+          idx++;
+        }
+        if (cols.length === 0) continue;
+        try {
+          await exec(
+            this.store.pool,
+            `INSERT INTO "${entity.table}" (${cols.join(", ")}) VALUES (${placeholders.join(", ")}) ON CONFLICT DO NOTHING`,
+            values,
+          );
+          recordCount++;
+        } catch (e: any) {
+          errors.push(`record ${ent.name}: ${e.message}`);
+        }
+      }
+    }
+
+    // Process join table data (keys that don't match entity names)
+    for (const key of Object.keys(sampleData)) {
+      if (this.registry.getEntity(key)) continue;
+      const records = sampleData[key];
+      if (!Array.isArray(records) || records.length === 0) continue;
+
+      let tableName = "";
+      const validCols = new Set<string>();
+      for (const rel of relations) {
+        if (rel.join_table === key) {
+          tableName = key;
+          if (rel.source_join_key) validCols.add(rel.source_join_key);
+          if (rel.target_join_key) validCols.add(rel.target_join_key);
+          break;
+        }
+      }
+      if (!tableName) continue;
+
+      for (const record of records) {
+        const cols: string[] = [];
+        const placeholders: string[] = [];
+        const values: any[] = [];
+        let idx = 1;
+        for (const [k, v] of Object.entries(record)) {
+          if (!validCols.has(k)) continue;
+          cols.push(`"${k}"`);
+          placeholders.push(`$${idx}`);
+          values.push(v);
+          idx++;
+        }
+        if (cols.length === 0) continue;
+        try {
+          await exec(
+            this.store.pool,
+            `INSERT INTO "${tableName}" (${cols.join(", ")}) VALUES (${placeholders.join(", ")}) ON CONFLICT DO NOTHING`,
+            values,
+          );
+          recordCount++;
+        } catch (e: any) {
+          errors.push(`record ${key}: ${e.message}`);
+        }
+      }
+    }
+
+    summary.records = recordCount;
+
     const result: Record<string, any> = {
       message: "Import completed",
       summary,

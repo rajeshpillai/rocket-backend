@@ -1,0 +1,525 @@
+{
+  "version": 1,
+  "exported_at": "2026-02-08T00:00:00Z",
+  "entities": [
+    {
+      "name": "author",
+      "table": "authors",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "bio", "type": "text" },
+        { "name": "avatar", "type": "file" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "category",
+      "table": "categories",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true, "unique": true },
+        { "name": "slug", "type": "string", "required": true, "unique": true },
+        { "name": "description", "type": "text" },
+        { "name": "sort_order", "type": "integer", "default": 0 },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    },
+    {
+      "name": "tag",
+      "table": "tags",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true, "unique": true },
+        { "name": "slug", "type": "string", "required": true, "unique": true },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    },
+    {
+      "name": "post",
+      "table": "posts",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "slug", "type": "string", "required": true, "unique": true },
+        { "name": "excerpt", "type": "text" },
+        { "name": "body", "type": "text", "required": true },
+        { "name": "status", "type": "string", "default": "draft" },
+        { "name": "featured_image", "type": "file" },
+        { "name": "author_id", "type": "uuid", "required": true },
+        { "name": "category_id", "type": "uuid" },
+        { "name": "published_at", "type": "timestamp" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "comment",
+      "table": "comments",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "post_id", "type": "uuid", "required": true },
+        { "name": "author_name", "type": "string", "required": true },
+        { "name": "author_email", "type": "string", "required": true },
+        { "name": "body", "type": "text", "required": true },
+        { "name": "status", "type": "string", "enum": ["pending", "approved", "spam"], "default": "pending" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "media",
+      "table": "media",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "alt_text", "type": "string" },
+        { "name": "file", "type": "file", "required": true },
+        { "name": "uploaded_by", "type": "uuid" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "post_author",
+      "type": "one_to_many",
+      "source": "author",
+      "target": "post",
+      "source_key": "id",
+      "target_key": "author_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "post_category",
+      "type": "one_to_many",
+      "source": "category",
+      "target": "post",
+      "source_key": "id",
+      "target_key": "category_id",
+      "ownership": "none",
+      "on_delete": "set_null"
+    },
+    {
+      "name": "post_tags",
+      "type": "many_to_many",
+      "source": "post",
+      "target": "tag",
+      "source_key": "id",
+      "target_key": "id",
+      "join_table": "post_tags",
+      "source_join_key": "post_id",
+      "target_join_key": "tag_id",
+      "ownership": "source",
+      "on_delete": "detach"
+    },
+    {
+      "name": "post_comments",
+      "type": "one_to_many",
+      "source": "post",
+      "target": "comment",
+      "source_key": "id",
+      "target_key": "post_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    }
+  ],
+  "rules": [
+    {
+      "entity": "post",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "title",
+        "operator": "min_length",
+        "value": 3,
+        "message": "Title must be at least 3 characters"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "post",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "slug",
+        "operator": "pattern",
+        "value": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "message": "Slug must be lowercase with hyphens only (e.g. my-post-title)"
+      },
+      "priority": 1,
+      "active": true
+    },
+    {
+      "entity": "category",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "slug",
+        "operator": "pattern",
+        "value": "^[a-z0-9]+(-[a-z0-9]+)*$",
+        "message": "Slug must be lowercase with hyphens only"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "comment",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "body",
+        "operator": "min_length",
+        "value": 2,
+        "message": "Comment cannot be empty"
+      },
+      "priority": 0,
+      "active": true
+    }
+  ],
+  "state_machines": [
+    {
+      "entity": "post",
+      "field": "status",
+      "definition": {
+        "initial": "draft",
+        "transitions": [
+          { "from": "draft", "to": "review", "actions": [] },
+          { "from": "review", "to": "draft", "actions": [] },
+          {
+            "from": "review",
+            "to": "published",
+            "roles": ["editor", "admin"],
+            "actions": [
+              { "type": "set_field", "field": "published_at", "value": "now" }
+            ]
+          },
+          { "from": "published", "to": "archived", "actions": [] },
+          { "from": "archived", "to": "draft", "actions": [] }
+        ]
+      },
+      "active": true
+    }
+  ],
+  "workflows": [
+    {
+      "name": "post_review_approval",
+      "trigger": {
+        "type": "state_change",
+        "entity": "post",
+        "field": "status",
+        "to": "review"
+      },
+      "context": {
+        "record_id": "record.id",
+        "title": "record.title",
+        "author_id": "record.author_id"
+      },
+      "steps": [
+        {
+          "id": "editor_review",
+          "type": "approval",
+          "assignee": { "type": "role", "role": "editor" },
+          "timeout": "72h",
+          "on_approve": { "goto": "publish" },
+          "on_reject": { "goto": "back_to_draft" },
+          "on_timeout": { "goto": "back_to_draft" }
+        },
+        {
+          "id": "publish",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "post",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "published"
+            }
+          ],
+          "then": { "goto": "end" }
+        },
+        {
+          "id": "back_to_draft",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "post",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "draft"
+            }
+          ],
+          "then": { "goto": "end" }
+        }
+      ],
+      "active": true
+    }
+  ],
+  "permissions": [
+    {
+      "entity": "post",
+      "action": "read",
+      "roles": ["author", "editor", "viewer"],
+      "conditions": []
+    },
+    {
+      "entity": "post",
+      "action": "create",
+      "roles": ["author", "editor"],
+      "conditions": []
+    },
+    {
+      "entity": "post",
+      "action": "update",
+      "roles": ["author", "editor"],
+      "conditions": []
+    },
+    {
+      "entity": "post",
+      "action": "delete",
+      "roles": ["editor"],
+      "conditions": []
+    },
+    {
+      "entity": "category",
+      "action": "read",
+      "roles": ["author", "editor", "viewer"],
+      "conditions": []
+    },
+    {
+      "entity": "category",
+      "action": "create",
+      "roles": ["editor"],
+      "conditions": []
+    },
+    {
+      "entity": "tag",
+      "action": "read",
+      "roles": ["author", "editor", "viewer"],
+      "conditions": []
+    },
+    {
+      "entity": "tag",
+      "action": "create",
+      "roles": ["author", "editor"],
+      "conditions": []
+    },
+    {
+      "entity": "comment",
+      "action": "read",
+      "roles": ["author", "editor", "viewer"],
+      "conditions": []
+    },
+    {
+      "entity": "comment",
+      "action": "create",
+      "roles": ["viewer"],
+      "conditions": []
+    },
+    {
+      "entity": "comment",
+      "action": "delete",
+      "roles": ["editor"],
+      "conditions": []
+    },
+    {
+      "entity": "media",
+      "action": "read",
+      "roles": ["author", "editor"],
+      "conditions": []
+    },
+    {
+      "entity": "media",
+      "action": "create",
+      "roles": ["author", "editor"],
+      "conditions": []
+    }
+  ],
+  "webhooks": [
+    {
+      "entity": "post",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/rebuild-site",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-cms" },
+      "condition": "record.status === 'published'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "comment",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/new-comment",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-cms" },
+      "condition": "action === 'create'",
+      "async": true,
+      "retry": { "max_attempts": 2, "backoff": "exponential" },
+      "active": true
+    }
+  ],
+  "sample_data": {
+    "author": [
+      { "id": "10000000-0000-0000-0000-000000000001", "name": "Emily Zhang", "email": "emily@techblog.com", "bio": "Senior frontend developer and technical writer. Passionate about React, TypeScript, and developer experience." },
+      { "id": "10000000-0000-0000-0000-000000000002", "name": "David Kim", "email": "david@techblog.com", "bio": "Full-stack engineer and startup founder. Writes about web architecture, CSS, and building products." },
+      { "id": "10000000-0000-0000-0000-000000000003", "name": "Sophie Martin", "email": "sophie@techblog.com", "bio": "DevOps engineer and open-source contributor. Covers CI/CD, cloud infrastructure, and developer tools." }
+    ],
+    "category": [
+      { "id": "20000000-0000-0000-0000-000000000001", "name": "Frontend", "slug": "frontend", "description": "React, Vue, CSS, and everything browser-side", "sort_order": 1 },
+      { "id": "20000000-0000-0000-0000-000000000002", "name": "Backend", "slug": "backend", "description": "APIs, databases, server architecture, and performance", "sort_order": 2 },
+      { "id": "20000000-0000-0000-0000-000000000003", "name": "DevOps", "slug": "devops", "description": "CI/CD, containers, cloud, and infrastructure", "sort_order": 3 },
+      { "id": "20000000-0000-0000-0000-000000000004", "name": "Career", "slug": "career", "description": "Tech career advice, interviews, and professional growth", "sort_order": 4 }
+    ],
+    "tag": [
+      { "id": "30000000-0000-0000-0000-000000000001", "name": "React", "slug": "react" },
+      { "id": "30000000-0000-0000-0000-000000000002", "name": "TypeScript", "slug": "typescript" },
+      { "id": "30000000-0000-0000-0000-000000000003", "name": "CSS", "slug": "css" },
+      { "id": "30000000-0000-0000-0000-000000000004", "name": "Node.js", "slug": "nodejs" },
+      { "id": "30000000-0000-0000-0000-000000000005", "name": "PostgreSQL", "slug": "postgresql" },
+      { "id": "30000000-0000-0000-0000-000000000006", "name": "Docker", "slug": "docker" },
+      { "id": "30000000-0000-0000-0000-000000000007", "name": "Tutorial", "slug": "tutorial" },
+      { "id": "30000000-0000-0000-0000-000000000008", "name": "Performance", "slug": "performance" }
+    ],
+    "post": [
+      {
+        "id": "40000000-0000-0000-0000-000000000001",
+        "title": "Getting Started with React Server Components",
+        "slug": "getting-started-with-react-server-components",
+        "excerpt": "A practical guide to React Server Components — what they are, when to use them, and how to migrate your existing app.",
+        "body": "React Server Components (RSC) represent a fundamental shift in how we build React applications. Unlike traditional client components, RSCs run exclusively on the server, allowing direct database access, smaller bundle sizes, and improved performance.\n\n## What Are Server Components?\n\nServer Components are React components that render on the server and send their output as a serialized tree to the client. They never ship JavaScript to the browser.\n\n## When to Use Them\n\n- **Data fetching**: Components that need to query a database or API\n- **Heavy dependencies**: Components that use large npm packages (markdown parsers, syntax highlighters)\n- **Static content**: Components whose output doesn't depend on user interaction\n\n## Migration Strategy\n\nStart by identifying your leaf components that only display data. These are the easiest candidates for conversion. Mark them with no 'use client' directive and move any interactive elements into child client components.\n\n## Performance Results\n\nIn our tests, converting a dashboard from fully client-rendered to a hybrid RSC approach reduced the JavaScript bundle by 42% and improved Time to First Byte by 180ms.",
+        "status": "published",
+        "author_id": "10000000-0000-0000-0000-000000000001",
+        "category_id": "20000000-0000-0000-0000-000000000001",
+        "published_at": "2026-01-15T09:00:00Z"
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000002",
+        "title": "Modern CSS Layout Patterns You Should Know",
+        "slug": "modern-css-layout-patterns",
+        "excerpt": "Stop fighting with layouts. These CSS Grid and Flexbox patterns solve the most common UI challenges elegantly.",
+        "body": "CSS has come a long way from float-based layouts. Modern CSS gives us powerful tools that make complex layouts straightforward.\n\n## The Holy Grail Layout\n\n```css\n.layout {\n  display: grid;\n  grid-template: auto 1fr auto / auto 1fr auto;\n  min-height: 100vh;\n}\n```\n\n## Responsive Card Grid\n\n```css\n.cards {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));\n  gap: 1.5rem;\n}\n```\n\nThis single rule creates a responsive grid that automatically adjusts the number of columns based on available space.\n\n## Sticky Sidebar\n\n```css\n.sidebar {\n  position: sticky;\n  top: 2rem;\n  align-self: start;\n}\n```\n\n## Container Queries\n\nThe newest addition to our toolkit, container queries let components respond to their parent's size rather than the viewport.\n\n```css\n@container (min-width: 400px) {\n  .card { flex-direction: row; }\n}\n```",
+        "status": "published",
+        "author_id": "10000000-0000-0000-0000-000000000002",
+        "category_id": "20000000-0000-0000-0000-000000000001",
+        "published_at": "2026-01-22T10:30:00Z"
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000003",
+        "title": "Building a REST API with TypeScript and PostgreSQL",
+        "slug": "building-rest-api-typescript-postgresql",
+        "excerpt": "A step-by-step guide to building a production-ready REST API using TypeScript, Express, and PostgreSQL with proper error handling and validation.",
+        "body": "In this tutorial, we'll build a complete REST API from scratch. By the end, you'll have a working API with authentication, input validation, and proper error handling.\n\n## Project Setup\n\nStart with a clean TypeScript project:\n\n```bash\nmkdir my-api && cd my-api\nnpm init -y\nnpm install express pg dotenv\nnpm install -D typescript @types/express @types/pg tsx\n```\n\n## Database Connection\n\nUse a connection pool for efficient database access:\n\n```typescript\nimport { Pool } from 'pg';\n\nconst pool = new Pool({\n  connectionString: process.env.DATABASE_URL,\n  max: 20,\n});\n```\n\n## Route Structure\n\nOrganize routes by resource:\n- `GET /api/users` — list with pagination\n- `GET /api/users/:id` — get by ID\n- `POST /api/users` — create with validation\n- `PUT /api/users/:id` — update\n- `DELETE /api/users/:id` — soft delete\n\n## Error Handling\n\nCreate a centralized error handler that returns consistent JSON error responses with appropriate HTTP status codes.\n\n## What's Next\n\nIn part 2, we'll add JWT authentication, rate limiting, and request logging.",
+        "status": "review",
+        "author_id": "10000000-0000-0000-0000-000000000001",
+        "category_id": "20000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000004",
+        "title": "Docker Compose for Local Development",
+        "slug": "docker-compose-local-development",
+        "excerpt": "How to set up a complete development environment with Docker Compose — databases, caches, and services all running locally.",
+        "body": "Docker Compose transforms local development by giving every team member an identical environment. No more 'works on my machine' problems.\n\n## Basic Setup\n\nA typical web app needs a database, cache, and maybe a message queue:\n\n```yaml\nservices:\n  db:\n    image: postgres:16\n    environment:\n      POSTGRES_DB: myapp\n      POSTGRES_PASSWORD: devpass\n    ports:\n      - '5432:5432'\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n\n  redis:\n    image: redis:7-alpine\n    ports:\n      - '6379:6379'\n\nvolumes:\n  pgdata:\n```\n\n## Hot Reload\n\nMount your source code as a volume so changes are reflected immediately without rebuilding the container.\n\n## Health Checks\n\nAdd health checks so dependent services wait for databases to be ready before starting.\n\n## Tips\n\n- Use `.env` files for environment-specific config\n- Create a `Makefile` with common commands\n- Use named volumes for data persistence across restarts",
+        "status": "published",
+        "author_id": "10000000-0000-0000-0000-000000000003",
+        "category_id": "20000000-0000-0000-0000-000000000003",
+        "published_at": "2026-02-01T08:00:00Z"
+      },
+      {
+        "id": "40000000-0000-0000-0000-000000000005",
+        "title": "PostgreSQL Query Optimization Techniques",
+        "slug": "postgresql-query-optimization",
+        "excerpt": "Practical tips for making your PostgreSQL queries faster — from EXPLAIN ANALYZE to proper indexing strategies.",
+        "body": "Slow queries are the most common performance bottleneck in web applications. Here's how to find and fix them.\n\n## Start with EXPLAIN ANALYZE\n\nAlways measure before optimizing:\n\n```sql\nEXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)\nSELECT * FROM orders\nWHERE customer_id = 'abc-123'\nORDER BY created_at DESC\nLIMIT 20;\n```\n\n## Indexing Strategies\n\n1. **B-tree indexes** for equality and range queries\n2. **GIN indexes** for JSONB and full-text search\n3. **Partial indexes** to index only relevant rows\n4. **Composite indexes** — put the most selective column first\n\n## Common Pitfalls\n\n- Indexing columns used in WHERE but not in ORDER BY\n- Using SELECT * when you only need 3 columns\n- Missing indexes on foreign key columns\n- Not using connection pooling (PgBouncer)\n\n## Monitoring\n\nEnable `pg_stat_statements` to find your slowest queries automatically.",
+        "status": "draft",
+        "author_id": "10000000-0000-0000-0000-000000000002",
+        "category_id": "20000000-0000-0000-0000-000000000002"
+      }
+    ],
+    "comment": [
+      {
+        "id": "50000000-0000-0000-0000-000000000001",
+        "post_id": "40000000-0000-0000-0000-000000000001",
+        "author_name": "Alex Rivera",
+        "author_email": "alex@devmail.com",
+        "body": "Great article! We migrated our dashboard to RSC last month and saw a 35% reduction in bundle size. The key was identifying which components truly needed client-side interactivity.",
+        "status": "approved"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000002",
+        "post_id": "40000000-0000-0000-0000-000000000001",
+        "author_name": "Sam Thompson",
+        "author_email": "sam.t@webdev.io",
+        "body": "How does this work with authentication? Do server components have access to cookies/session data?",
+        "status": "approved"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000003",
+        "post_id": "40000000-0000-0000-0000-000000000002",
+        "author_name": "Jordan Lee",
+        "author_email": "jordan@cssmaster.dev",
+        "body": "Container queries are a game changer. Finally we can build truly reusable components that adapt to their context, not just the viewport.",
+        "status": "approved"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000004",
+        "post_id": "40000000-0000-0000-0000-000000000004",
+        "author_name": "Nina Patel",
+        "author_email": "nina@startup.co",
+        "body": "This saved me hours of setup. One tip: add `restart: unless-stopped` to your services so they survive host reboots.",
+        "status": "approved"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000005",
+        "post_id": "40000000-0000-0000-0000-000000000002",
+        "author_name": "Suspicious User",
+        "author_email": "spam@example.com",
+        "body": "Check out my website for free CSS templates!!!",
+        "status": "spam"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000006",
+        "post_id": "40000000-0000-0000-0000-000000000004",
+        "author_name": "Chris Wu",
+        "author_email": "chris@devops.team",
+        "body": "Would love to see a follow-up covering multi-stage builds for production images. Our build times dropped from 8 minutes to 90 seconds after optimizing our Dockerfiles.",
+        "status": "pending"
+      }
+    ],
+    "post_tags": [
+      { "post_id": "40000000-0000-0000-0000-000000000001", "tag_id": "30000000-0000-0000-0000-000000000001" },
+      { "post_id": "40000000-0000-0000-0000-000000000001", "tag_id": "30000000-0000-0000-0000-000000000002" },
+      { "post_id": "40000000-0000-0000-0000-000000000001", "tag_id": "30000000-0000-0000-0000-000000000007" },
+      { "post_id": "40000000-0000-0000-0000-000000000001", "tag_id": "30000000-0000-0000-0000-000000000008" },
+      { "post_id": "40000000-0000-0000-0000-000000000002", "tag_id": "30000000-0000-0000-0000-000000000003" },
+      { "post_id": "40000000-0000-0000-0000-000000000002", "tag_id": "30000000-0000-0000-0000-000000000007" },
+      { "post_id": "40000000-0000-0000-0000-000000000003", "tag_id": "30000000-0000-0000-0000-000000000002" },
+      { "post_id": "40000000-0000-0000-0000-000000000003", "tag_id": "30000000-0000-0000-0000-000000000004" },
+      { "post_id": "40000000-0000-0000-0000-000000000003", "tag_id": "30000000-0000-0000-0000-000000000005" },
+      { "post_id": "40000000-0000-0000-0000-000000000003", "tag_id": "30000000-0000-0000-0000-000000000007" },
+      { "post_id": "40000000-0000-0000-0000-000000000004", "tag_id": "30000000-0000-0000-0000-000000000006" },
+      { "post_id": "40000000-0000-0000-0000-000000000004", "tag_id": "30000000-0000-0000-0000-000000000007" },
+      { "post_id": "40000000-0000-0000-0000-000000000005", "tag_id": "30000000-0000-0000-0000-000000000005" },
+      { "post_id": "40000000-0000-0000-0000-000000000005", "tag_id": "30000000-0000-0000-0000-000000000008" }
+    ]
+  }
+}

@@ -1,0 +1,640 @@
+{
+  "version": 1,
+  "exported_at": "2026-02-08T00:00:00Z",
+  "entities": [
+    {
+      "name": "department",
+      "table": "departments",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true, "unique": true },
+        { "name": "code", "type": "string", "required": true, "unique": true },
+        { "name": "head_id", "type": "uuid" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "employee",
+      "table": "employees",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "first_name", "type": "string", "required": true },
+        { "name": "last_name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "phone", "type": "string" },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "department_id", "type": "uuid", "required": true },
+        { "name": "manager_id", "type": "uuid" },
+        { "name": "hire_date", "type": "date", "required": true },
+        { "name": "status", "type": "string", "default": "active" },
+        { "name": "photo", "type": "file" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "leave_request",
+      "table": "leave_requests",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "employee_id", "type": "uuid", "required": true },
+        { "name": "type", "type": "string", "required": true, "enum": ["annual", "sick", "personal", "maternity", "paternity", "unpaid"] },
+        { "name": "start_date", "type": "date", "required": true },
+        { "name": "end_date", "type": "date", "required": true },
+        { "name": "days", "type": "integer", "required": true },
+        { "name": "reason", "type": "text" },
+        { "name": "status", "type": "string", "default": "pending" },
+        { "name": "approved_by", "type": "uuid" },
+        { "name": "approved_at", "type": "timestamp" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "document",
+      "table": "documents",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "employee_id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "type", "type": "string", "required": true, "enum": ["contract", "id_proof", "certificate", "review", "other"] },
+        { "name": "file", "type": "file", "required": true },
+        { "name": "notes", "type": "text" },
+        { "name": "uploaded_by", "type": "uuid" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    },
+    {
+      "name": "attendance",
+      "table": "attendance",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "employee_id", "type": "uuid", "required": true },
+        { "name": "date", "type": "date", "required": true },
+        { "name": "check_in", "type": "timestamp" },
+        { "name": "check_out", "type": "timestamp" },
+        { "name": "status", "type": "string", "enum": ["present", "absent", "half_day", "remote", "leave"], "default": "present" },
+        { "name": "notes", "type": "text" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "department_employees",
+      "type": "one_to_many",
+      "source": "department",
+      "target": "employee",
+      "source_key": "id",
+      "target_key": "department_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "employee_manager",
+      "type": "one_to_many",
+      "source": "employee",
+      "target": "employee",
+      "source_key": "id",
+      "target_key": "manager_id",
+      "ownership": "none",
+      "on_delete": "set_null"
+    },
+    {
+      "name": "employee_leave_requests",
+      "type": "one_to_many",
+      "source": "employee",
+      "target": "leave_request",
+      "source_key": "id",
+      "target_key": "employee_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "employee_documents",
+      "type": "one_to_many",
+      "source": "employee",
+      "target": "document",
+      "source_key": "id",
+      "target_key": "employee_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "employee_attendance",
+      "type": "one_to_many",
+      "source": "employee",
+      "target": "attendance",
+      "source_key": "id",
+      "target_key": "employee_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    }
+  ],
+  "rules": [
+    {
+      "entity": "leave_request",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "days",
+        "operator": "min",
+        "value": 1,
+        "message": "Leave must be at least 1 day"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "leave_request",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "days",
+        "operator": "max",
+        "value": 30,
+        "message": "Leave cannot exceed 30 days"
+      },
+      "priority": 1,
+      "active": true
+    },
+    {
+      "entity": "leave_request",
+      "hook": "before_write",
+      "type": "expression",
+      "definition": {
+        "expression": "new Date(record.end_date) >= new Date(record.start_date)",
+        "message": "End date must be on or after start date"
+      },
+      "priority": 2,
+      "active": true
+    },
+    {
+      "entity": "employee",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "email",
+        "operator": "pattern",
+        "value": "^[^@]+@[^@]+\\.[^@]+$",
+        "message": "Invalid email format"
+      },
+      "priority": 0,
+      "active": true
+    }
+  ],
+  "state_machines": [
+    {
+      "entity": "leave_request",
+      "field": "status",
+      "definition": {
+        "initial": "pending",
+        "transitions": [
+          {
+            "from": "pending",
+            "to": "manager_approved",
+            "roles": ["manager"],
+            "actions": []
+          },
+          {
+            "from": "pending",
+            "to": "rejected",
+            "roles": ["manager", "hr"],
+            "actions": []
+          },
+          {
+            "from": "manager_approved",
+            "to": "approved",
+            "roles": ["hr"],
+            "actions": [
+              { "type": "set_field", "field": "approved_at", "value": "now" }
+            ]
+          },
+          {
+            "from": "manager_approved",
+            "to": "rejected",
+            "roles": ["hr"],
+            "actions": []
+          },
+          {
+            "from": "pending",
+            "to": "cancelled",
+            "actions": []
+          },
+          {
+            "from": "approved",
+            "to": "cancelled",
+            "actions": []
+          }
+        ]
+      },
+      "active": true
+    },
+    {
+      "entity": "employee",
+      "field": "status",
+      "definition": {
+        "initial": "active",
+        "transitions": [
+          { "from": "active", "to": "on_leave", "actions": [] },
+          { "from": "on_leave", "to": "active", "actions": [] },
+          { "from": "active", "to": "probation", "actions": [] },
+          { "from": "probation", "to": "active", "actions": [] },
+          { "from": ["active", "on_leave", "probation"], "to": "terminated", "roles": ["hr"], "actions": [] },
+          { "from": "terminated", "to": "active", "roles": ["hr"], "actions": [] }
+        ]
+      },
+      "active": true
+    }
+  ],
+  "workflows": [
+    {
+      "name": "leave_approval",
+      "trigger": {
+        "type": "state_change",
+        "entity": "leave_request",
+        "field": "status",
+        "to": "pending"
+      },
+      "context": {
+        "record_id": "record.id",
+        "employee_id": "record.employee_id",
+        "days": "record.days",
+        "type": "record.type"
+      },
+      "steps": [
+        {
+          "id": "check_days",
+          "type": "condition",
+          "expression": "context.days > 5",
+          "on_true": { "goto": "manager_review" },
+          "on_false": { "goto": "auto_approve" }
+        },
+        {
+          "id": "manager_review",
+          "type": "approval",
+          "assignee": { "type": "role", "role": "manager" },
+          "timeout": "48h",
+          "on_approve": { "goto": "hr_review" },
+          "on_reject": { "goto": "reject_leave" },
+          "on_timeout": { "goto": "reject_leave" }
+        },
+        {
+          "id": "hr_review",
+          "type": "approval",
+          "assignee": { "type": "role", "role": "hr" },
+          "timeout": "48h",
+          "on_approve": { "goto": "approve_leave" },
+          "on_reject": { "goto": "reject_leave" },
+          "on_timeout": { "goto": "reject_leave" }
+        },
+        {
+          "id": "auto_approve",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "leave_request",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "approved"
+            }
+          ],
+          "then": { "goto": "end" }
+        },
+        {
+          "id": "approve_leave",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "leave_request",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "approved"
+            }
+          ],
+          "then": { "goto": "end" }
+        },
+        {
+          "id": "reject_leave",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "leave_request",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "rejected"
+            }
+          ],
+          "then": { "goto": "end" }
+        }
+      ],
+      "active": true
+    }
+  ],
+  "permissions": [
+    {
+      "entity": "employee",
+      "action": "read",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "employee",
+      "action": "create",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "employee",
+      "action": "update",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "employee",
+      "action": "delete",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "department",
+      "action": "read",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "department",
+      "action": "create",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "department",
+      "action": "update",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "leave_request",
+      "action": "read",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "leave_request",
+      "action": "create",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "leave_request",
+      "action": "update",
+      "roles": ["manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "document",
+      "action": "read",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "document",
+      "action": "create",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "document",
+      "action": "delete",
+      "roles": ["hr"],
+      "conditions": []
+    },
+    {
+      "entity": "attendance",
+      "action": "read",
+      "roles": ["employee", "manager", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "attendance",
+      "action": "create",
+      "roles": ["employee", "hr"],
+      "conditions": []
+    },
+    {
+      "entity": "attendance",
+      "action": "update",
+      "roles": ["hr"],
+      "conditions": []
+    }
+  ],
+  "webhooks": [
+    {
+      "entity": "leave_request",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/leave-submitted",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-hr" },
+      "condition": "action === 'create'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "leave_request",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/leave-approved",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-hr" },
+      "condition": "record.status === 'approved'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "employee",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/new-employee",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-hr" },
+      "condition": "action === 'create'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    }
+  ],
+  "sample_data": {
+    "department": [
+      { "id": "10000000-0000-0000-0000-000000000001", "name": "Engineering", "code": "ENG" },
+      { "id": "10000000-0000-0000-0000-000000000002", "name": "Marketing", "code": "MKT" },
+      { "id": "10000000-0000-0000-0000-000000000003", "name": "Human Resources", "code": "HR" },
+      { "id": "10000000-0000-0000-0000-000000000004", "name": "Finance", "code": "FIN" }
+    ],
+    "employee": [
+      {
+        "id": "20000000-0000-0000-0000-000000000001",
+        "first_name": "John",
+        "last_name": "Williams",
+        "email": "john.williams@company.com",
+        "phone": "+1-555-1001",
+        "title": "VP of Engineering",
+        "department_id": "10000000-0000-0000-0000-000000000001",
+        "hire_date": "2022-03-15",
+        "status": "active"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000002",
+        "first_name": "Amy",
+        "last_name": "Chen",
+        "email": "amy.chen@company.com",
+        "phone": "+1-555-1002",
+        "title": "Senior Software Engineer",
+        "department_id": "10000000-0000-0000-0000-000000000001",
+        "manager_id": "20000000-0000-0000-0000-000000000001",
+        "hire_date": "2023-06-01",
+        "status": "active"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000003",
+        "first_name": "Carlos",
+        "last_name": "Rivera",
+        "email": "carlos.rivera@company.com",
+        "phone": "+1-555-1003",
+        "title": "Marketing Director",
+        "department_id": "10000000-0000-0000-0000-000000000002",
+        "hire_date": "2022-08-20",
+        "status": "active"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000004",
+        "first_name": "Sarah",
+        "last_name": "Johnson",
+        "email": "sarah.johnson@company.com",
+        "phone": "+1-555-1004",
+        "title": "HR Director",
+        "department_id": "10000000-0000-0000-0000-000000000003",
+        "hire_date": "2021-11-01",
+        "status": "active"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000005",
+        "first_name": "Priya",
+        "last_name": "Patel",
+        "email": "priya.patel@company.com",
+        "phone": "+1-555-1005",
+        "title": "UX Designer",
+        "department_id": "10000000-0000-0000-0000-000000000002",
+        "manager_id": "20000000-0000-0000-0000-000000000003",
+        "hire_date": "2024-01-10",
+        "status": "active"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000006",
+        "first_name": "Raj",
+        "last_name": "Mehta",
+        "email": "raj.mehta@company.com",
+        "phone": "+1-555-1006",
+        "title": "Junior Developer",
+        "department_id": "10000000-0000-0000-0000-000000000001",
+        "manager_id": "20000000-0000-0000-0000-000000000001",
+        "hire_date": "2025-09-15",
+        "status": "probation"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000007",
+        "first_name": "Lisa",
+        "last_name": "Thompson",
+        "email": "lisa.thompson@company.com",
+        "title": "Financial Analyst",
+        "department_id": "10000000-0000-0000-0000-000000000004",
+        "hire_date": "2023-04-01",
+        "status": "on_leave"
+      }
+    ],
+    "leave_request": [
+      {
+        "id": "30000000-0000-0000-0000-000000000001",
+        "employee_id": "20000000-0000-0000-0000-000000000002",
+        "type": "annual",
+        "start_date": "2026-03-10",
+        "end_date": "2026-03-14",
+        "days": 5,
+        "reason": "Family vacation to Japan — flights already booked.",
+        "status": "approved",
+        "approved_by": "20000000-0000-0000-0000-000000000004",
+        "approved_at": "2026-02-01T10:30:00Z"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000002",
+        "employee_id": "20000000-0000-0000-0000-000000000003",
+        "type": "sick",
+        "start_date": "2026-02-06",
+        "end_date": "2026-02-07",
+        "days": 2,
+        "reason": "Flu — doctor recommended rest for 2 days.",
+        "status": "pending"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000003",
+        "employee_id": "20000000-0000-0000-0000-000000000001",
+        "type": "personal",
+        "start_date": "2026-02-20",
+        "end_date": "2026-02-20",
+        "days": 1,
+        "reason": "Home inspection appointment.",
+        "status": "manager_approved"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000004",
+        "employee_id": "20000000-0000-0000-0000-000000000005",
+        "type": "annual",
+        "start_date": "2026-04-01",
+        "end_date": "2026-04-14",
+        "days": 10,
+        "reason": "Extended trip home to visit family in Mumbai.",
+        "status": "rejected"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000005",
+        "employee_id": "20000000-0000-0000-0000-000000000007",
+        "type": "maternity",
+        "start_date": "2026-01-15",
+        "end_date": "2026-04-15",
+        "days": 30,
+        "reason": "Maternity leave.",
+        "status": "approved",
+        "approved_by": "20000000-0000-0000-0000-000000000004",
+        "approved_at": "2026-01-10T09:00:00Z"
+      }
+    ],
+    "attendance": [
+      { "id": "50000000-0000-0000-0000-000000000001", "employee_id": "20000000-0000-0000-0000-000000000001", "date": "2026-02-03", "check_in": "2026-02-03T08:45:00Z", "check_out": "2026-02-03T17:30:00Z", "status": "present" },
+      { "id": "50000000-0000-0000-0000-000000000002", "employee_id": "20000000-0000-0000-0000-000000000002", "date": "2026-02-03", "check_in": "2026-02-03T09:15:00Z", "check_out": "2026-02-03T18:00:00Z", "status": "present" },
+      { "id": "50000000-0000-0000-0000-000000000003", "employee_id": "20000000-0000-0000-0000-000000000003", "date": "2026-02-03", "check_in": "2026-02-03T09:00:00Z", "check_out": "2026-02-03T17:00:00Z", "status": "remote", "notes": "Working from home — client call in the afternoon" },
+      { "id": "50000000-0000-0000-0000-000000000004", "employee_id": "20000000-0000-0000-0000-000000000005", "date": "2026-02-03", "check_in": "2026-02-03T09:00:00Z", "check_out": "2026-02-03T13:00:00Z", "status": "half_day", "notes": "Dentist appointment in the afternoon" },
+      { "id": "50000000-0000-0000-0000-000000000005", "employee_id": "20000000-0000-0000-0000-000000000006", "date": "2026-02-03", "check_in": "2026-02-03T09:30:00Z", "check_out": "2026-02-03T18:30:00Z", "status": "present" },
+      { "id": "50000000-0000-0000-0000-000000000006", "employee_id": "20000000-0000-0000-0000-000000000001", "date": "2026-02-04", "check_in": "2026-02-04T08:30:00Z", "check_out": "2026-02-04T17:00:00Z", "status": "present" },
+      { "id": "50000000-0000-0000-0000-000000000007", "employee_id": "20000000-0000-0000-0000-000000000002", "date": "2026-02-04", "check_in": "2026-02-04T09:00:00Z", "check_out": "2026-02-04T17:45:00Z", "status": "present" },
+      { "id": "50000000-0000-0000-0000-000000000008", "employee_id": "20000000-0000-0000-0000-000000000003", "date": "2026-02-04", "status": "absent", "notes": "Called in sick" },
+      { "id": "50000000-0000-0000-0000-000000000009", "employee_id": "20000000-0000-0000-0000-000000000007", "date": "2026-02-03", "status": "leave", "notes": "On maternity leave" },
+      { "id": "50000000-0000-0000-0000-000000000010", "employee_id": "20000000-0000-0000-0000-000000000007", "date": "2026-02-04", "status": "leave", "notes": "On maternity leave" }
+    ]
+  }
+}

@@ -1439,14 +1439,15 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 
 func (h *Handler) Import(c *fiber.Ctx) error {
 	var payload struct {
-		Version       int              `json:"version"`
-		Entities      []map[string]any `json:"entities"`
-		Relations     []map[string]any `json:"relations"`
-		Rules         []map[string]any `json:"rules"`
-		StateMachines []map[string]any `json:"state_machines"`
-		Workflows     []map[string]any `json:"workflows"`
-		Permissions   []map[string]any `json:"permissions"`
-		Webhooks      []map[string]any `json:"webhooks"`
+		Version       int                              `json:"version"`
+		Entities      []map[string]any                 `json:"entities"`
+		Relations     []map[string]any                 `json:"relations"`
+		Rules         []map[string]any                 `json:"rules"`
+		StateMachines []map[string]any                 `json:"state_machines"`
+		Workflows     []map[string]any                 `json:"workflows"`
+		Permissions   []map[string]any                 `json:"permissions"`
+		Webhooks      []map[string]any                 `json:"webhooks"`
+		SampleData    map[string][]map[string]any      `json:"sample_data"`
 	}
 	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
@@ -1678,6 +1679,119 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 
 	// Final reload
 	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
+
+	// Step 8: Sample data (insert records into business tables)
+	if len(payload.SampleData) > 0 {
+		summary["records"] = 0
+
+		// Process entity records in definition order
+		for _, entRaw := range payload.Entities {
+			name, _ := entRaw["name"].(string)
+			entity := h.registry.GetEntity(name)
+			if entity == nil {
+				continue
+			}
+			records, ok := payload.SampleData[name]
+			if !ok || len(records) == 0 {
+				continue
+			}
+			// Build field type map from entity definition
+			fieldTypes := make(map[string]string)
+			for _, f := range entity.Fields {
+				fieldTypes[f.Name] = f.Type
+			}
+			for _, record := range records {
+				cols := make([]string, 0, len(record))
+				placeholders := make([]string, 0, len(record))
+				values := make([]any, 0, len(record))
+				i := 1
+				for key, val := range record {
+					ft, ok := fieldTypes[key]
+					if !ok {
+						continue
+					}
+					// Convert JSON float64 to proper Go types for pgx
+					if v, isFloat := val.(float64); isFloat {
+						switch ft {
+						case "integer", "int", "bigint":
+							val = int64(v)
+						}
+					}
+					cols = append(cols, `"`+key+`"`)
+					placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+					values = append(values, val)
+					i++
+				}
+				if len(cols) == 0 {
+					continue
+				}
+				query := fmt.Sprintf(
+					`INSERT INTO %q (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
+					entity.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", "),
+				)
+				_, err := store.Exec(ctx, h.store.Pool, query, values...)
+				if err != nil {
+					errors = append(errors, fmt.Sprintf("Record %s: %v", name, err))
+					continue
+				}
+				summary["records"]++
+			}
+		}
+
+		// Process join table data (keys that don't match entity names)
+		for key, records := range payload.SampleData {
+			if h.registry.GetEntity(key) != nil {
+				continue // already processed above
+			}
+			if len(records) == 0 {
+				continue
+			}
+			// Find matching join table from payload relations
+			tableName := ""
+			var validCols map[string]bool
+			for _, rel := range payload.Relations {
+				jt, _ := rel["join_table"].(string)
+				if jt == key {
+					tableName = key
+					sjk, _ := rel["source_join_key"].(string)
+					tjk, _ := rel["target_join_key"].(string)
+					validCols = map[string]bool{sjk: true, tjk: true}
+					break
+				}
+			}
+			if tableName == "" {
+				continue
+			}
+			for _, record := range records {
+				cols := make([]string, 0, len(record))
+				placeholders := make([]string, 0, len(record))
+				values := make([]any, 0, len(record))
+				i := 1
+				for k, v := range record {
+					if !validCols[k] {
+						continue
+					}
+					cols = append(cols, `"`+k+`"`)
+					placeholders = append(placeholders, fmt.Sprintf("$%d", i))
+					values = append(values, v)
+					i++
+				}
+				if len(cols) == 0 {
+					continue
+				}
+				query := fmt.Sprintf(
+					`INSERT INTO %q (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
+					tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "),
+				)
+				_, err := store.Exec(ctx, h.store.Pool, query, values...)
+				if err != nil {
+					errors = append(errors, fmt.Sprintf("Record %s: %v", key, err))
+					continue
+				}
+				summary["records"]++
+			}
+		}
+	}
 
 	result := fiber.Map{
 		"message": "Import completed",

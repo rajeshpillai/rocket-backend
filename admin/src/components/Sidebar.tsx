@@ -45,7 +45,8 @@ export function Sidebar() {
       navigate("/apps", { replace: true });
     } else if (value) {
       setSelectedApp(value);
-      navigate("/entities", { replace: true });
+      // Full reload ensures all page data refreshes for the new app context
+      window.location.reload();
     }
   };
 

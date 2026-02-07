@@ -221,6 +221,41 @@ Entities: `ticket`, `customer`, `agent`, `response`. State machine on `ticket.pr
 ### Multi-Tenant SaaS
 Each client gets their own isolated app (separate database) via the multi-app system. Export a schema from a template app, import it into each new client's app. Per-app JWT secrets, independent user bases, no data leakage between tenants. Platform admin manages all apps from a single dashboard.
 
+## Example Schemas
+
+Ready-to-import schema files are available in the [`examples/`](examples/) folder. Create an app, then import any schema via the Admin UI (Entities page > Import Schema) or the API:
+
+**Full workflow — create an app and load a schema in 3 steps:**
+
+```bash
+# 1. Login as platform admin
+TOKEN=$(curl -s -X POST http://localhost:8080/api/_platform/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"platform@localhost","password":"changeme"}' | jq -r '.data.access_token')
+
+# 2. Create a new app
+curl -X POST http://localhost:8080/api/_platform/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"helpdesk","display_name":"Helpdesk App"}'
+
+# 3. Import the schema (platform token works in any app)
+curl -X POST http://localhost:8080/api/helpdesk/_admin/import \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d @examples/helpdesk-ticketing.json
+```
+
+The import creates all tables, relations, rules, state machines, workflows, permissions, and webhooks. The app is immediately ready to use — start creating tickets at `POST /api/helpdesk/ticket`.
+
+To update an existing app, just re-import — the import is **idempotent** (skips items that already exist).
+
+| Schema | File | Entities | Features Demonstrated |
+|--------|------|----------|----------------------|
+| **Helpdesk / Ticketing** | [helpdesk-ticketing.json](examples/helpdesk-ticketing.json) | customer, agent, ticket, response | State machine (open &rarr; assigned &rarr; resolved &rarr; closed), critical ticket escalation workflow, file attachments on responses, role-based permissions |
+| **Content Management** | [content-management.json](examples/content-management.json) | author, category, tag, post, comment, media | Many-to-many (post &harr; tags), editorial workflow (draft &rarr; review &rarr; published), slug pattern validation, file uploads, comment moderation |
+| **Employee Management** | [employee-management.json](examples/employee-management.json) | department, employee, leave_request, document, attendance | Multi-step leave approval workflow (auto-approve &le;5 days, manager+HR for longer), employee status state machine, date validation rules, document file uploads |
+
 ## Roadmap
 
 - [x] Field validation rules (min, max, pattern)
