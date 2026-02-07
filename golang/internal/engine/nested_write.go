@@ -65,6 +65,20 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Evaluate rules (field → expression → computed)
+	var old map[string]any
+	if !plan.IsCreate {
+		old, _ = fetchRecord(ctx, tx, plan.Entity, plan.ID)
+	}
+	if old == nil {
+		old = map[string]any{}
+	}
+
+	ruleErrs := EvaluateRules(reg, plan.Entity.Name, "before_write", plan.Fields, old, plan.IsCreate)
+	if len(ruleErrs) > 0 {
+		return nil, ValidationError(ruleErrs)
+	}
+
 	var parentID any
 
 	if plan.IsCreate {

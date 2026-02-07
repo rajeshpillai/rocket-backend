@@ -22,7 +22,14 @@ func LoadAll(ctx context.Context, pool *pgxpool.Pool, reg *Registry) error {
 	}
 
 	reg.Load(entities, relations)
-	log.Printf("Loaded %d entities, %d relations into registry", len(entities), len(relations))
+
+	rules, err := loadRules(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("load rules: %w", err)
+	}
+	reg.LoadRules(rules)
+
+	log.Printf("Loaded %d entities, %d relations, %d rules into registry", len(entities), len(relations), len(rules))
 	return nil
 }
 
@@ -79,4 +86,28 @@ func loadRelations(ctx context.Context, pool *pgxpool.Pool) ([]*Relation, error)
 		relations = append(relations, &rel)
 	}
 	return relations, rows.Err()
+}
+
+func loadRules(ctx context.Context, pool *pgxpool.Pool) ([]*Rule, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []*Rule
+	for rows.Next() {
+		var r Rule
+		var defJSON []byte
+		if err := rows.Scan(&r.ID, &r.Entity, &r.Hook, &r.Type, &defJSON, &r.Priority, &r.Active); err != nil {
+			return nil, fmt.Errorf("scan rule row: %w", err)
+		}
+		if err := json.Unmarshal(defJSON, &r.Definition); err != nil {
+			log.Printf("WARN: skipping rule %s (invalid JSON): %v", r.ID, err)
+			continue
+		}
+		rules = append(rules, &r)
+	}
+	return rules, rows.Err()
 }

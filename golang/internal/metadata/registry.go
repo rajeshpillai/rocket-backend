@@ -1,12 +1,16 @@
 package metadata
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type Registry struct {
-	mu           sync.RWMutex
-	entities     map[string]*Entity
+	mu                sync.RWMutex
+	entities          map[string]*Entity
 	relationsBySource map[string][]*Relation // keyed by source entity name
 	relationsByName   map[string]*Relation   // keyed by relation name
+	rulesByEntity     map[string][]*Rule     // keyed by entity name, sorted by priority
 }
 
 func NewRegistry() *Registry {
@@ -14,6 +18,7 @@ func NewRegistry() *Registry {
 		entities:          make(map[string]*Entity),
 		relationsBySource: make(map[string][]*Relation),
 		relationsByName:   make(map[string]*Relation),
+		rulesByEntity:     make(map[string][]*Rule),
 	}
 }
 
@@ -81,6 +86,20 @@ func (r *Registry) AllRelations() []*Relation {
 	return relations
 }
 
+// GetRulesForEntity returns active rules for an entity and hook, sorted by priority.
+func (r *Registry) GetRulesForEntity(entityName, hook string) []*Rule {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	all := r.rulesByEntity[entityName]
+	var result []*Rule
+	for _, rule := range all {
+		if rule.Active && rule.Hook == hook {
+			result = append(result, rule)
+		}
+	}
+	return result
+}
+
 // Load replaces all entities and relations in the registry.
 // Called during startup and after admin mutations.
 func (r *Registry) Load(entities []*Entity, relations []*Relation) {
@@ -97,5 +116,22 @@ func (r *Registry) Load(entities []*Entity, relations []*Relation) {
 	for _, rel := range relations {
 		r.relationsByName[rel.Name] = rel
 		r.relationsBySource[rel.Source] = append(r.relationsBySource[rel.Source], rel)
+	}
+}
+
+// LoadRules replaces all rules in the registry, sorted by priority.
+func (r *Registry) LoadRules(rules []*Rule) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.rulesByEntity = make(map[string][]*Rule)
+	for _, rule := range rules {
+		r.rulesByEntity[rule.Entity] = append(r.rulesByEntity[rule.Entity], rule)
+	}
+	// Sort each entity's rules by priority
+	for _, entityRules := range r.rulesByEntity {
+		sort.Slice(entityRules, func(i, j int) bool {
+			return entityRules[i].Priority < entityRules[j].Priority
+		})
 	}
 }

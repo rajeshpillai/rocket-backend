@@ -34,6 +34,12 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler) {
 	admin.Post("/relations", h.CreateRelation)
 	admin.Put("/relations/:name", h.UpdateRelation)
 	admin.Delete("/relations/:name", h.DeleteRelation)
+
+	admin.Get("/rules", h.ListRules)
+	admin.Get("/rules/:id", h.GetRule)
+	admin.Post("/rules", h.CreateRule)
+	admin.Put("/rules/:id", h.UpdateRule)
+	admin.Delete("/rules/:id", h.DeleteRule)
 }
 
 // --- Entity Endpoints ---
@@ -293,6 +299,118 @@ func (h *Handler) DeleteRelation(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": fiber.Map{"name": name, "deleted": true}})
 }
 
+// --- Rule Endpoints ---
+
+func (h *Handler) ListRules(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules ORDER BY entity, priority")
+	if err != nil {
+		return fmt.Errorf("list rules: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetRule(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateRule(c *fiber.Ctx) error {
+	var rule metadata.Rule
+	if err := c.BodyParser(&rule); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if err := validateRule(&rule, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	defJSON, err := json.Marshal(rule.Definition)
+	if err != nil {
+		return fmt.Errorf("marshal rule definition: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		rule.Entity, rule.Hook, rule.Type, defJSON, rule.Priority, rule.Active)
+	if err != nil {
+		return fmt.Errorf("insert rule: %w", err)
+	}
+	rule.ID = fmt.Sprintf("%v", row["id"])
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": rule})
+}
+
+func (h *Handler) UpdateRule(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _rules WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
+	}
+
+	var rule metadata.Rule
+	if err := c.BodyParser(&rule); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+	rule.ID = id
+
+	if err := validateRule(&rule, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	defJSON, err := json.Marshal(rule.Definition)
+	if err != nil {
+		return fmt.Errorf("marshal rule definition: %w", err)
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"UPDATE _rules SET entity = $1, hook = $2, type = $3, definition = $4, priority = $5, active = $6, updated_at = NOW() WHERE id = $7",
+		rule.Entity, rule.Hook, rule.Type, defJSON, rule.Priority, rule.Active, id)
+	if err != nil {
+		return fmt.Errorf("update rule: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": rule})
+}
+
+func (h *Handler) DeleteRule(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _rules WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _rules WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete rule %s: %w", id, err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
 // --- Validation ---
 
 func validateEntity(e *metadata.Entity) error {
@@ -310,6 +428,22 @@ func validateEntity(e *metadata.Entity) error {
 	}
 	if !e.HasField(e.PrimaryKey.Field) {
 		return fmt.Errorf("primary key field %s not found in fields", e.PrimaryKey.Field)
+	}
+	return nil
+}
+
+func validateRule(r *metadata.Rule, reg *metadata.Registry) error {
+	if r.Entity == "" {
+		return fmt.Errorf("entity is required")
+	}
+	if reg.GetEntity(r.Entity) == nil {
+		return fmt.Errorf("entity not found: %s", r.Entity)
+	}
+	if r.Hook != "before_write" && r.Hook != "before_delete" {
+		return fmt.Errorf("invalid hook: %s (must be before_write or before_delete)", r.Hook)
+	}
+	if r.Type != "field" && r.Type != "expression" && r.Type != "computed" {
+		return fmt.Errorf("invalid rule type: %s (must be field, expression, or computed)", r.Type)
 	}
 	return nil
 }
