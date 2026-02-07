@@ -34,6 +34,10 @@ export function unknownEntityError(name: string): AppError {
   return new AppError("UNKNOWN_ENTITY", 404, `Unknown entity: ${name}`);
 }
 
+export function conflictError(msg: string): AppError {
+  return new AppError("CONFLICT", 409, msg);
+}
+
 export function validationError(details: ErrorDetail[]): AppError {
   return new AppError("VALIDATION_FAILED", 422, "Validation failed", details);
 }

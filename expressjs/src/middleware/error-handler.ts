@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import { AppError } from "../engine/errors.js";
+import { AppError, conflictError } from "../engine/errors.js";
+import { UniqueViolationError } from "../store/postgres.js";
 
 export function errorHandler(
   err: Error,
@@ -18,6 +19,13 @@ export function errorHandler(
       body.error.details = err.details;
     }
     res.status(err.status).json(body);
+    return;
+  }
+
+  if (err instanceof UniqueViolationError) {
+    const msg = err.detail || "A record with this value already exists";
+    const appErr = conflictError(msg);
+    res.status(appErr.status).json({ error: { code: appErr.code, message: appErr.message } });
     return;
   }
 

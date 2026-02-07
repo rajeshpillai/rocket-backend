@@ -40,13 +40,40 @@ export class Store {
 
 export const ErrNotFound = new Error("not found");
 
+export class UniqueViolationError extends Error {
+  detail: string;
+  constraint: string;
+
+  constructor(message: string, detail: string, constraint: string) {
+    super(message);
+    this.detail = detail;
+    this.constraint = constraint;
+  }
+}
+
+export function mapPgError(err: any): any {
+  if (!err) return err;
+  if (err.code === "23505") {
+    return new UniqueViolationError(
+      err.message,
+      err.detail ?? "",
+      err.constraint ?? "",
+    );
+  }
+  return err;
+}
+
 export async function queryRows(
   q: Queryable,
   sql: string,
   params: any[] = [],
 ): Promise<Record<string, any>[]> {
-  const result = await q.query(sql, params);
-  return result.rows;
+  try {
+    const result = await q.query(sql, params);
+    return result.rows;
+  } catch (err) {
+    throw mapPgError(err);
+  }
 }
 
 export async function queryRow(
@@ -66,6 +93,10 @@ export async function exec(
   sql: string,
   params: any[] = [],
 ): Promise<number> {
-  const result = await q.query(sql, params);
-  return result.rowCount ?? 0;
+  try {
+    const result = await q.query(sql, params);
+    return result.rowCount ?? 0;
+  } catch (err) {
+    throw mapPgError(err);
+  }
 }
