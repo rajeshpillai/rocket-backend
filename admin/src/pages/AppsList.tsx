@@ -136,60 +136,59 @@ export function AppsList() {
       </Show>
 
       <Show when={!loading() && apps().length > 0}>
-        <div class="table-container">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Display Name</th>
-                <th>Database</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={apps()}>
-                {(app) => (
-                  <tr>
-                    <td>
+        <table class="data-table">
+          <thead class="table-header">
+            <tr>
+              <th class="table-header-cell">Name</th>
+              <th class="table-header-cell">Display Name</th>
+              <th class="table-header-cell">Database</th>
+              <th class="table-header-cell">Status</th>
+              <th class="table-header-cell">Created</th>
+              <th class="table-header-cell">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="table-body">
+            <For each={apps()}>
+              {(app) => (
+                <tr class="table-row">
+                  <td class="table-cell">
+                    <button
+                      class="table-cell-link"
+                      style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      onClick={() => handleSelect(app.name)}
+                    >
+                      {app.name}
+                    </button>
+                  </td>
+                  <td class="table-cell">{app.display_name}</td>
+                  <td class="table-cell-mono">{app.db_name}</td>
+                  <td class="table-cell">
+                    <span class={`badge ${app.status === "active" ? "badge-success" : "badge-warning"}`}>
+                      {app.status}
+                    </span>
+                  </td>
+                  <td class="table-cell">{new Date(app.created_at).toLocaleDateString()}</td>
+                  <td class="table-cell-actions">
+                    <div style={{ display: "flex", gap: "0.5rem", "justify-content": "flex-end" }}>
                       <button
-                        class="link-button"
+                        class="btn-primary btn-sm"
                         onClick={() => handleSelect(app.name)}
                       >
-                        {app.name}
+                        Open
                       </button>
-                    </td>
-                    <td>{app.display_name}</td>
-                    <td>{app.db_name}</td>
-                    <td>
-                      <span class={`badge ${app.status === "active" ? "badge-success" : "badge-warning"}`}>
-                        {app.status}
-                      </span>
-                    </td>
-                    <td>{new Date(app.created_at).toLocaleDateString()}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <button
-                          class="btn-primary btn-sm"
-                          onClick={() => handleSelect(app.name)}
-                        >
-                          Open
-                        </button>
-                        <button
-                          class="btn-danger btn-sm"
-                          onClick={() => handleDelete(app.name)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
-        </div>
+                      <button
+                        class="btn-danger btn-sm"
+                        onClick={() => handleDelete(app.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
       </Show>
     </div>
   );

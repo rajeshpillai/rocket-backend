@@ -100,3 +100,17 @@
 - [x] Route restructure: management DB bootstrap → AppManager → platform routes → app-scoped routes
 - [x] Multi-app scheduler (iterates all AppContexts for workflow timeouts + webhook retries)
 - [x] Exported `processWorkflowTimeouts()` and `processWebhookRetries()` for multi-app scheduler
+
+## Phase 7: File Uploads [DONE]
+- [x] Config: `StorageConfig` interface (driver, local_path, max_file_size) in config/index.ts + app.yaml
+- [x] Storage interface (`storage/storage.ts`): `FileStorage` with save/open/delete methods
+- [x] Local storage implementation (`storage/local.ts`): disk-based, `{basePath}/{appName}/{fileID}/{filename}`
+- [x] `_files` system table added to bootstrap DDL
+- [x] File handler (`engine/file-handler.ts`): upload, serve, delete, list endpoints
+- [x] `file` field type maps to JSONB in `postgresType()` (metadata/types.ts)
+- [x] Write pipeline: `resolveFileFields()` in nested-write.ts — UUID → full JSONB metadata `{id, filename, size, mime_type}`
+- [x] AppContext: added `fileHandler: FileHandler`
+- [x] AppManager: accepts `FileStorage` + `maxFileSize`, passes to AppContext construction
+- [x] Route registration: file routes under `/_files` with multer middleware in app-routes.ts
+- [x] Entry point: `LocalStorage` created from config, passed to `AppManager`
+- [x] Dependencies: added `multer` + `@types/multer`

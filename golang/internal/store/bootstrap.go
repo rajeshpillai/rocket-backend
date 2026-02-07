@@ -139,6 +139,16 @@ CREATE TABLE IF NOT EXISTS _webhook_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_webhook_logs_status ON _webhook_logs(status);
 CREATE INDEX IF NOT EXISTS idx_webhook_logs_retry ON _webhook_logs(next_retry_at) WHERE status = 'retrying';
+
+CREATE TABLE IF NOT EXISTS _files (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename      TEXT NOT NULL,
+    storage_path  TEXT NOT NULL,
+    mime_type     TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size          BIGINT NOT NULL DEFAULT 0,
+    uploaded_by   UUID,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
 `
 
 func (s *Store) Bootstrap(ctx context.Context) error {

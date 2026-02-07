@@ -9,6 +9,8 @@ import { Handler } from "../engine/handler.js";
 import { AdminHandler } from "../admin/handler.js";
 import { AuthHandler } from "../auth/handler.js";
 import { WorkflowHandler } from "../engine/workflow-handler.js";
+import { FileHandler } from "../engine/file-handler.js";
+import type { FileStorage } from "../storage/storage.js";
 import type { AppContext, AppInfo } from "./context.js";
 
 export class AppManager {
@@ -17,11 +19,15 @@ export class AppManager {
   private mgmtStore: Store;
   private dbConfig: DatabaseConfig;
   private poolSize: number;
+  private fileStorage: FileStorage;
+  private maxFileSize: number;
 
-  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number) {
+  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number, fileStorage: FileStorage, maxFileSize: number) {
     this.mgmtStore = mgmtStore;
     this.dbConfig = dbConfig;
     this.poolSize = appPoolSize;
+    this.fileStorage = fileStorage;
+    this.maxFileSize = maxFileSize;
   }
 
   async get(appName: string): Promise<AppContext | null> {
@@ -83,6 +89,7 @@ export class AppManager {
       adminHandler: new AdminHandler(appStore, registry, migrator),
       authHandler: new AuthHandler(appStore, jwtSecret),
       workflowHandler: new WorkflowHandler(appStore, registry),
+      fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
     };
 
     this.apps.set(name, ac);
@@ -180,6 +187,7 @@ export class AppManager {
           adminHandler: new AdminHandler(appStore, registry, migrator),
           authHandler: new AuthHandler(appStore, jwtSecret),
           workflowHandler: new WorkflowHandler(appStore, registry),
+          fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
         };
 
         this.apps.set(name, ac);
@@ -237,6 +245,7 @@ export class AppManager {
       adminHandler: new AdminHandler(appStore, registry, migrator),
       authHandler: new AuthHandler(appStore, jwtSecret as string),
       workflowHandler: new WorkflowHandler(appStore, registry),
+      fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, appName),
     };
 
     this.apps.set(appName, ac);

@@ -8,7 +8,8 @@ export type FieldType =
   | "uuid"
   | "timestamp"
   | "date"
-  | "json";
+  | "json"
+  | "file";
 
 export const FIELD_TYPES: FieldType[] = [
   "string",
@@ -21,6 +22,7 @@ export const FIELD_TYPES: FieldType[] = [
   "timestamp",
   "date",
   "json",
+  "file",
 ];
 
 export const PK_TYPES = ["uuid", "int", "bigint", "string"] as const;

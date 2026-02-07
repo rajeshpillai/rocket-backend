@@ -17,6 +17,9 @@ admin/dist/
 *.swp
 *.swo
 
+# File uploads
+uploads/
+
 # OS
 .DS_Store
 Thumbs.db

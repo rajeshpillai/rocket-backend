@@ -6,12 +6,12 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 ## Current Status
 
-**Phase 0–6 are complete** in two languages. Both share the same Postgres instance.
+**Phase 0–7 are complete** in two languages. Both share the same Postgres instance.
 
 | Implementation | Directory | Framework | Driver | Status |
 |----------------|-----------|-----------|--------|--------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Phase 6 done |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 6 done |
+| Go | `golang/` | Fiber v2 | pgx v5 | Phase 7 done |
+| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 7 done |
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -58,6 +58,18 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 **Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers app management (create/list/delete/select), entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, webhook management, webhook log viewer, platform login/logout, and auth-protected routes.
 
+**What Phase 7 delivers:**
+- `file` field type — maps to JSONB in PostgreSQL, stores `{id, filename, size, mime_type}`
+- Dedicated file upload endpoint (`POST /api/:app/_files/upload`) with multipart/form-data
+- File serve endpoint (`GET /api/:app/_files/:id`) streams files with correct Content-Type
+- File delete + list endpoints (admin only)
+- Storage interface with local-disk implementation (S3-ready)
+- Per-app file isolation (`uploads/{app_name}/`)
+- Write pipeline resolves UUID → full JSONB metadata on file fields
+- `_files` system table tracks all uploads
+- Admin UI: FileUploadField component integrated into DataRecordEditor
+- Config: `storage` section in app.yaml (driver, local_path, max_file_size)
+
 **Not yet built (future phases):**
 - Audit log
 
@@ -97,7 +109,8 @@ rocket-backend/
 │       ├── config/config.go
 │       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow,permission,user_context,webhook}.go
 │       ├── store/{postgres,bootstrap,migrator}.go
-│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions,webhook,webhook_scheduler}.go
+│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions,webhook,webhook_scheduler,file_handler}.go
+│       ├── storage/{storage,local}.go
 │       ├── auth/{auth,handler,middleware}.go
 │       ├── admin/handler.go
 │       └── multiapp/{context,manager,middleware,app_routes,platform_bootstrap,platform_handler,scheduler}.go
@@ -110,7 +123,8 @@ rocket-backend/
         ├── config/index.ts
         ├── metadata/{types,registry,loader,rule,state-machine,workflow,permission,webhook}.ts
         ├── store/{postgres,bootstrap,migrator,schema}.ts
-        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler,webhook,webhook-scheduler}.ts
+        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler,webhook,webhook-scheduler,file-handler}.ts
+        ├── storage/{storage,local}.ts
         ├── auth/{auth,handler,middleware,permissions}.ts
         ├── admin/handler.ts
         ├── multiapp/{context,manager,middleware,app-routes,platform-bootstrap,platform-handler,scheduler}.ts
@@ -146,6 +160,7 @@ _refresh_tokens     — id (UUID PK), user_id (FK→_users), token (UUID UNIQUE)
 _permissions        — id (UUID PK), entity, action, roles (TEXT[]), conditions (JSONB), created_at, updated_at
 _webhooks           — id (UUID PK), entity, hook, url, method, headers (JSONB), condition, async, retry (JSONB), active, created_at, updated_at
 _webhook_logs       — id (UUID PK), webhook_id (FK→_webhooks), entity, hook, url, method, request_headers (JSONB), request_body (JSONB), response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at
+_files              — id (UUID PK), filename, storage_path, mime_type, size (BIGINT), uploaded_by (UUID), created_at
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -211,6 +226,14 @@ GET            /api/:app/_admin/webhook-logs/:id
 POST           /api/:app/_admin/webhook-logs/:id/retry
 ```
 
+### App-Scoped File Upload
+```
+POST   /api/:app/_files/upload              # Upload file (multipart/form-data, field "file")
+GET    /api/:app/_files/:id                 # Serve/download file (streams with Content-Type)
+DELETE /api/:app/_files/:id                 # Delete file (admin only)
+GET    /api/:app/_files                     # List all files (admin only)
+```
+
 ### App-Scoped Workflow Runtime
 ```
 GET  /api/:app/_workflows/pending       # List paused instances
@@ -270,3 +293,4 @@ None currently.
 - Docs in `docs/` are shared and language-agnostic
 - Create/update docs in golang and express respective docs folder for technical implementation details
 - After implementing each backend feature, the admin UI in `admin/` must be updated to expose that feature
+- Update man-days.md with efforts

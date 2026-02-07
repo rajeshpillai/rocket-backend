@@ -41,6 +41,7 @@ export function Sidebar() {
   const handleAppChange = (e: Event) => {
     const value = (e.target as HTMLSelectElement).value;
     if (value === "__manage__") {
+      setSelectedApp(null);
       navigate("/apps", { replace: true });
     } else if (value) {
       setSelectedApp(value);

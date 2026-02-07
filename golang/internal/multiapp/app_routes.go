@@ -104,6 +104,13 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	wf.Post("/:id/approve", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.Approve }))
 	wf.Post("/:id/reject", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.Reject }))
 
+	// File routes (auth required)
+	files := protected.Group("/_files")
+	files.Post("/upload", dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.Upload }))
+	files.Get("/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.Serve }))
+	files.Delete("/:id", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.Delete }))
+	files.Get("/", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.List }))
+
 	// Dynamic entity routes (must be last — catch-all pattern)
 	protected.Get("/:entity", dispatch(func(ac *AppContext) fiber.Handler { return ac.EngineHandler.List }))
 	protected.Get("/:entity/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.EngineHandler.GetByID }))

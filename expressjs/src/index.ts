@@ -9,6 +9,7 @@ import { platformAuthMiddleware } from "./multiapp/middleware.js";
 import { registerAppRoutes } from "./multiapp/app-routes.js";
 import { MultiAppScheduler } from "./multiapp/scheduler.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { LocalStorage } from "./storage/local.js";
 
 async function main() {
   // 1. Load config
@@ -25,8 +26,11 @@ async function main() {
   await platformBootstrap(mgmtStore.pool);
   console.log("Platform tables ready");
 
-  // 4. Create AppManager and load all existing apps
-  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size);
+  // 4. Create file storage
+  const fileStorage = new LocalStorage(cfg.storage.local_path);
+
+  // 5. Create AppManager and load all existing apps
+  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size, fileStorage, cfg.storage.max_file_size);
   try {
     await manager.loadAll();
   } catch (err) {

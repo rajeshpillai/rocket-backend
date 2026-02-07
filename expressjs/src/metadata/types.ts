@@ -63,6 +63,7 @@ export function postgresType(f: Field): string {
     case "date":
       return "DATE";
     case "json":
+    case "file":
       return "JSONB";
     default:
       return "TEXT";

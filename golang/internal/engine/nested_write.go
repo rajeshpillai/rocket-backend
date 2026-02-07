@@ -3,10 +3,13 @@ package engine
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
+
+var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // WritePlan describes the full set of operations for a write request.
 type WritePlan struct {
@@ -84,6 +87,11 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	smErrs := EvaluateStateMachines(reg, plan.Entity.Name, plan.Fields, old, plan.IsCreate)
 	if len(smErrs) > 0 {
 		return nil, ValidationError(smErrs)
+	}
+
+	// Resolve file fields: UUID string → JSONB metadata object
+	if err := resolveFileFields(ctx, tx, plan.Entity, plan.Fields); err != nil {
+		return nil, fmt.Errorf("resolve file fields: %w", err)
 	}
 
 	var parentID any
@@ -179,4 +187,41 @@ func joinColumns(cols []string) string {
 		result += c
 	}
 	return result
+}
+
+// resolveFileFields converts UUID strings in file-type fields to full JSONB metadata objects.
+// If the value is already a map (full metadata), it passes through unchanged.
+func resolveFileFields(ctx context.Context, q store.Querier, entity *metadata.Entity, fields map[string]any) error {
+	for _, f := range entity.Fields {
+		if f.Type != "file" {
+			continue
+		}
+		val, ok := fields[f.Name]
+		if !ok || val == nil {
+			continue
+		}
+		// If already a map (full metadata object), pass through
+		if _, isMap := val.(map[string]any); isMap {
+			continue
+		}
+		// If it's a UUID string, resolve from _files
+		strVal := fmt.Sprintf("%v", val)
+		if !uuidRE.MatchString(strVal) {
+			continue
+		}
+
+		row, err := store.QueryRow(ctx, q,
+			"SELECT id, filename, size, mime_type FROM _files WHERE id = $1", strVal)
+		if err != nil {
+			return NewAppError("NOT_FOUND", 404, fmt.Sprintf("File %s not found", strVal))
+		}
+
+		fields[f.Name] = map[string]any{
+			"id":        row["id"],
+			"filename":  row["filename"],
+			"size":      row["size"],
+			"mime_type": row["mime_type"],
+		}
+	}
+	return nil
 }

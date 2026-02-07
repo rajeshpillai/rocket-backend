@@ -5,6 +5,7 @@ import (
 	"rocket-backend/internal/auth"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/metadata"
+	"rocket-backend/internal/storage"
 	"rocket-backend/internal/store"
 )
 
@@ -22,6 +23,11 @@ type AppContext struct {
 	AdminHandler    *admin.Handler
 	AuthHandler     *auth.AuthHandler
 	WorkflowHandler *engine.WorkflowHandler
+	FileHandler     *engine.FileHandler
+
+	// Injected by manager for building FileHandler
+	fileStorage storage.FileStorage
+	maxFileSize int64
 }
 
 // BuildHandlers creates all handler instances for this app context.
@@ -31,6 +37,9 @@ func (ac *AppContext) BuildHandlers() {
 	ac.AdminHandler = admin.NewHandler(ac.Store, ac.Registry, ac.Migrator)
 	ac.AuthHandler = auth.NewAuthHandler(ac.Store, ac.JWTSecret)
 	ac.WorkflowHandler = engine.NewWorkflowHandler(ac.Store, ac.Registry)
+	if ac.fileStorage != nil {
+		ac.FileHandler = engine.NewFileHandler(ac.Store, ac.fileStorage, ac.maxFileSize, ac.Name)
+	}
 }
 
 // AppInfo is a summary of an app returned by List.

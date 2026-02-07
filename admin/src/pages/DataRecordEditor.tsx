@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import type { Field, EntityDefinition } from "../types/entity";
+import { FileUploadField } from "../components/form/FileUploadField";
 
 interface DataRecordEditorProps {
   entity: EntityDefinition;
@@ -94,6 +95,10 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
             data[f.name] = raw;
           }
           break;
+        case "file":
+          // File field: value is either a UUID string or empty
+          data[f.name] = raw || null;
+          break;
         default:
           data[f.name] = raw || null;
       }
@@ -119,6 +124,17 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
                 {field.type}
               </span>
             </label>
+            <Show
+              when={field.type !== "file"}
+              fallback={
+                <FileUploadField
+                  label={field.name}
+                  value={values()[field.name]}
+                  onChange={(fileId) => updateValue(field.name, fileId)}
+                  required={field.required}
+                />
+              }
+            >
             <Show
               when={field.type !== "boolean"}
               fallback={
@@ -172,6 +188,7 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
                   />
                 </Show>
               </Show>
+            </Show>
             </Show>
           </div>
         )}

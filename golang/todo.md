@@ -99,3 +99,16 @@
 - [x] Route restructure: management DB bootstrap → AppManager → platform routes → app-scoped routes
 - [x] Multi-app scheduler (iterates all AppContexts for workflow timeouts + webhook retries)
 - [x] Exported `ProcessWorkflowTimeouts()` and `ProcessWebhookRetries()` for multi-app scheduler
+
+## Phase 7: File Uploads [DONE]
+- [x] Config: `StorageConfig` struct (Driver, LocalPath, MaxFileSize) in config.go + app.yaml
+- [x] Storage interface (`storage/storage.go`): `FileStorage` with Save/Open/Delete methods
+- [x] Local storage implementation (`storage/local.go`): disk-based, `{basePath}/{appName}/{fileID}/{filename}`
+- [x] `_files` system table added to bootstrap DDL
+- [x] File handler (`engine/file_handler.go`): Upload, Serve, Delete, List endpoints
+- [x] `file` field type maps to JSONB in `PostgresType()` (metadata/field.go)
+- [x] Write pipeline: `resolveFileFields()` in nested_write.go — UUID → full JSONB metadata `{id, filename, size, mime_type}`
+- [x] AppContext: added `FileHandler`, `fileStorage`, `maxFileSize`; FileHandler built in `BuildHandlers()`
+- [x] AppManager: accepts `FileStorage` + `maxFileSize`, passes to AppContext construction
+- [x] Route registration: file routes under `/_files` (upload, serve, delete, list) in app_routes.go
+- [x] Entry point: `LocalStorage` created from config, passed to `NewAppManager`

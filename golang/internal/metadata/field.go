@@ -36,7 +36,7 @@ func (f Field) PostgresType() string {
 		return "TIMESTAMPTZ"
 	case "date":
 		return "DATE"
-	case "json":
+	case "json", "file":
 		return "JSONB"
 	default:
 		return "TEXT"

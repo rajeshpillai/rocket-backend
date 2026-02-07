@@ -30,8 +30,8 @@ The same backend is implemented in multiple languages, all sharing a single Post
 
 | Language | Directory | Framework | Status |
 |----------|-----------|-----------|--------|
-| Go | [golang/](golang/) | Fiber v2 + pgx | Phase 2 complete |
-| TypeScript | [expressjs/](expressjs/) | Express + pg | Phase 2 complete |
+| Go | [golang/](golang/) | Fiber v2 + pgx | Phase 7 complete |
+| TypeScript | [expressjs/](expressjs/) | Express + pg | Phase 7 complete |
 
 ## Quick Start
 
@@ -63,6 +63,13 @@ npx tsx src/index.ts
 ```
 
 Both start on port `8080` by default.
+
+### Default Credentials
+
+| Scope | Email | Password | Notes |
+|-------|-------|----------|-------|
+| Platform admin | `platform@localhost` | `changeme` | Seeded on first boot. Use to create/manage apps. |
+| Per-app admin | `admin@localhost` | `changeme` | Seeded per app on creation. Use to manage entities, users, etc. |
 
 ### 3. Start the Admin UI
 
@@ -192,6 +199,8 @@ rocket-backend/
 - [x] Expression rules & computed fields
 - [x] State machines (transitions, guards, actions)
 - [x] SolidJS admin UI
-- [ ] Workflows
-- [ ] Auth (JWT) & permissions
-- [ ] Webhooks
+- [x] Workflows (trigger, approval, condition steps, timeout scheduler)
+- [x] Auth (JWT) & permissions (HS256, row-level security, whitelist model)
+- [x] Webhooks (async/sync, retry with exponential backoff)
+- [x] Multi-app (database-per-app isolation, platform auth)
+- [x] File uploads (storage interface, local disk, JSONB metadata, UUID resolution)

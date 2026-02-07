@@ -16,6 +16,7 @@
     "js-yaml": "^4.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",
+    "multer": "^2.0.2",
     "pg": "^8.13.0"
   },
   "devDependencies": {
@@ -24,6 +25,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.9",
+    "@types/multer": "^2.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "drizzle-kit": "^0.30.0",

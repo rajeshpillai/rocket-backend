@@ -16,7 +16,10 @@ import { PermissionsList } from "./pages/PermissionsList";
 import { WebhooksList } from "./pages/WebhooksList";
 import { WebhookLogs } from "./pages/WebhookLogs";
 import { isAuthenticated } from "./stores/auth";
+import { selectedApp } from "./stores/app";
 import { ToastContainer } from "./components/Toast";
+
+const APP_FREE_PATHS = ["/admin/login", "/admin/apps", "/admin/", "/admin"];
 
 function AppRoot(props: ParentProps) {
   const location = useLocation();
@@ -39,6 +42,12 @@ function AppRoot(props: ParentProps) {
   // Protected routes: redirect to login if not authenticated
   if (!isAuthenticated()) {
     navigate("/login", { replace: true });
+    return null;
+  }
+
+  // App-scoped routes: redirect to /apps if no app is selected
+  if (!selectedApp() && !APP_FREE_PATHS.includes(location.pathname)) {
+    navigate("/apps", { replace: true });
     return null;
   }
 

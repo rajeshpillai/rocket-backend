@@ -1,10 +1,10 @@
 import type { Queryable, Store } from "../store/postgres.js";
-import { queryRow, exec } from "../store/postgres.js";
+import { queryRow, queryRows, exec } from "../store/postgres.js";
 import type { Entity } from "../metadata/types.js";
 import type { Registry } from "../metadata/registry.js";
 import { getField, fieldNames } from "../metadata/types.js";
 import type { ErrorDetail } from "./errors.js";
-import { validationError } from "./errors.js";
+import { AppError, validationError } from "./errors.js";
 import type { RelationWrite } from "./writer.js";
 import {
   buildInsertSQL,
@@ -109,6 +109,9 @@ export async function executeWritePlan(
       throw validationError(smErrs);
     }
 
+    // Resolve file fields: UUID string → JSONB metadata object
+    await resolveFileFields(client, plan.entity, plan.fields);
+
     let parentID: any;
 
     if (plan.isCreate) {
@@ -176,4 +179,44 @@ export async function fetchRecord(
   }
 
   return queryRow(q, sql, [id]);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * For each file-type field whose value is a UUID string, resolve it to
+ * the full JSONB metadata object {id, filename, size, mime_type, url}.
+ * If the value is already an object, pass through unchanged.
+ */
+async function resolveFileFields(
+  q: Queryable,
+  entity: Entity,
+  fields: Record<string, any>,
+): Promise<void> {
+  for (const f of entity.fields) {
+    if (f.type !== "file") continue;
+    const val = fields[f.name];
+    if (val === undefined || val === null) continue;
+    // If already an object (full metadata), pass through
+    if (typeof val === "object") continue;
+    // If it's a UUID string, resolve from _files
+    const strVal = String(val);
+    if (!UUID_RE.test(strVal)) continue;
+
+    const rows = await queryRows(
+      q,
+      "SELECT id, filename, size, mime_type FROM _files WHERE id = $1",
+      [strVal],
+    );
+    if (rows.length === 0) {
+      throw new AppError("NOT_FOUND", 404, `File ${strVal} not found`);
+    }
+    const fileRow = rows[0];
+    fields[f.name] = {
+      id: fileRow.id,
+      filename: fileRow.filename,
+      size: Number(fileRow.size),
+      mime_type: fileRow.mime_type,
+    };
+  }
 }

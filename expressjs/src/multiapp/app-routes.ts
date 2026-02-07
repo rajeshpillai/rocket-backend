@@ -1,10 +1,13 @@
 import { Router } from "express";
 import type { Express, Request, Response, NextFunction } from "express";
+import multer from "multer";
 import { requireAdmin } from "../auth/middleware.js";
 import { AppError } from "../engine/errors.js";
 import type { AppManager } from "./manager.js";
 import type { AppContext } from "./context.js";
 import { appResolverMiddleware, appAuthMiddleware } from "./middleware.js";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 type HandlerFn = (req: Request, res: Response, next: NextFunction) => void;
 
@@ -110,6 +113,14 @@ export function registerAppRoutes(
   wfRouter.post("/:id/approve", dispatch((ac) => ac.workflowHandler.approveInstance));
   wfRouter.post("/:id/reject", dispatch((ac) => ac.workflowHandler.rejectInstance));
   app.use("/api/:app/_workflows", resolverMW, appAuthMW, wfRouter);
+
+  // File routes (auth required, upload uses multer)
+  const fileRouter = Router({ mergeParams: true });
+  fileRouter.post("/upload", upload.single("file"), dispatch((ac) => ac.fileHandler.upload));
+  fileRouter.get("/:id", dispatch((ac) => ac.fileHandler.serve));
+  fileRouter.delete("/:id", adminMW, dispatch((ac) => ac.fileHandler.delete));
+  fileRouter.get("/", adminMW, dispatch((ac) => ac.fileHandler.list));
+  app.use("/api/:app/_files", resolverMW, appAuthMW, fileRouter);
 
   // Dynamic entity routes (must be last — catch-all pattern)
   const entityRouter = Router({ mergeParams: true });

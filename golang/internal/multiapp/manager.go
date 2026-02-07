@@ -10,25 +10,30 @@ import (
 
 	"rocket-backend/internal/config"
 	"rocket-backend/internal/metadata"
+	"rocket-backend/internal/storage"
 	"rocket-backend/internal/store"
 )
 
 // AppManager manages the lifecycle of per-app resources.
 type AppManager struct {
-	mu        sync.RWMutex
-	apps      map[string]*AppContext
-	mgmtStore *store.Store
-	dbConfig  config.DatabaseConfig
-	poolSize  int
+	mu          sync.RWMutex
+	apps        map[string]*AppContext
+	mgmtStore   *store.Store
+	dbConfig    config.DatabaseConfig
+	poolSize    int
+	fileStorage storage.FileStorage
+	maxFileSize int64
 }
 
 // NewAppManager creates an AppManager backed by the management database.
-func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int) *AppManager {
+func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int, fs storage.FileStorage, maxFileSize int64) *AppManager {
 	return &AppManager{
-		apps:      make(map[string]*AppContext),
-		mgmtStore: mgmtStore,
-		dbConfig:  dbCfg,
-		poolSize:  appPoolSize,
+		apps:        make(map[string]*AppContext),
+		mgmtStore:   mgmtStore,
+		dbConfig:    dbCfg,
+		poolSize:    appPoolSize,
+		fileStorage: fs,
+		maxFileSize: maxFileSize,
 	}
 }
 
@@ -86,11 +91,13 @@ func (m *AppManager) Create(ctx context.Context, name, displayName string) (*App
 	}
 
 	ac := &AppContext{
-		Name:      name,
-		DBName:    dbName,
-		JWTSecret: jwtSecret,
-		Store:     appStore,
-		Registry:  reg,
+		Name:        name,
+		DBName:      dbName,
+		JWTSecret:   jwtSecret,
+		Store:       appStore,
+		Registry:    reg,
+		fileStorage: m.fileStorage,
+		maxFileSize: m.maxFileSize,
 	}
 	ac.BuildHandlers()
 
@@ -208,11 +215,13 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 		}
 
 		ac := &AppContext{
-			Name:      name,
-			DBName:    dbName,
-			JWTSecret: jwtSecret,
-			Store:     appStore,
-			Registry:  reg,
+			Name:        name,
+			DBName:      dbName,
+			JWTSecret:   jwtSecret,
+			Store:       appStore,
+			Registry:    reg,
+			fileStorage: m.fileStorage,
+			maxFileSize: m.maxFileSize,
 		}
 		ac.BuildHandlers()
 
@@ -280,11 +289,13 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 	}
 
 	ac := &AppContext{
-		Name:      appName,
-		DBName:    dbName,
-		JWTSecret: jwtSecret,
-		Store:     appStore,
-		Registry:  reg,
+		Name:        appName,
+		DBName:      dbName,
+		JWTSecret:   jwtSecret,
+		Store:       appStore,
+		Registry:    reg,
+		fileStorage: m.fileStorage,
+		maxFileSize: m.maxFileSize,
 	}
 	ac.BuildHandlers()
 	m.apps[appName] = ac

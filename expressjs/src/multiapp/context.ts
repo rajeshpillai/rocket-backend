@@ -5,6 +5,7 @@ import type { Handler } from "../engine/handler.js";
 import type { AdminHandler } from "../admin/handler.js";
 import type { AuthHandler } from "../auth/handler.js";
 import type { WorkflowHandler } from "../engine/workflow-handler.js";
+import type { FileHandler } from "../engine/file-handler.js";
 
 export interface AppContext {
   name: string;
@@ -17,6 +18,7 @@ export interface AppContext {
   adminHandler: AdminHandler;
   authHandler: AuthHandler;
   workflowHandler: WorkflowHandler;
+  fileHandler: FileHandler;
 }
 
 export interface AppInfo {

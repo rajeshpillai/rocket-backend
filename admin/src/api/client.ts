@@ -62,3 +62,33 @@ export function del<T>(path: string): Promise<T> {
     method: "DELETE",
   });
 }
+
+/** Upload a file using multipart/form-data. Does NOT set Content-Type (browser sets boundary). */
+export async function upload<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${getBase()}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    clearAuth();
+    window.location.href = "/admin/login";
+    throw new Error("Session expired");
+  }
+
+  const body = await res.json();
+  if (!res.ok) {
+    throw body;
+  }
+  return body as T;
+}

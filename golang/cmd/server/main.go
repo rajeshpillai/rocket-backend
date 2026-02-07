@@ -13,6 +13,7 @@ import (
 	"rocket-backend/internal/config"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/multiapp"
+	"rocket-backend/internal/storage"
 	"rocket-backend/internal/store"
 )
 
@@ -40,8 +41,11 @@ func main() {
 	}
 	log.Println("Platform tables ready")
 
-	// 4. Create AppManager and load all existing apps
-	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize)
+	// 4. Create file storage
+	fileStorage := storage.NewLocalStorage(cfg.Storage.LocalPath)
+
+	// 5. Create AppManager and load all existing apps
+	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize, fileStorage, cfg.Storage.MaxFileSize)
 	defer manager.Close()
 
 	if err := manager.LoadAll(ctx); err != nil {

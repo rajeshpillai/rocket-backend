@@ -9,9 +9,16 @@ import (
 type Config struct {
 	Server            ServerConfig   `mapstructure:"server"`
 	Database          DatabaseConfig `mapstructure:"database"`
+	Storage           StorageConfig  `mapstructure:"storage"`
 	JWTSecret         string         `mapstructure:"jwt_secret"`
 	PlatformJWTSecret string         `mapstructure:"platform_jwt_secret"`
 	AppPoolSize       int            `mapstructure:"app_pool_size"`
+}
+
+type StorageConfig struct {
+	Driver      string `mapstructure:"driver"`
+	LocalPath   string `mapstructure:"local_path"`
+	MaxFileSize int64  `mapstructure:"max_file_size"`
 }
 
 type ServerConfig struct {
@@ -45,6 +52,9 @@ func Load() (*Config, error) {
 	viper.SetDefault("jwt_secret", "changeme-secret")
 	viper.SetDefault("platform_jwt_secret", "changeme-platform-secret")
 	viper.SetDefault("app_pool_size", 5)
+	viper.SetDefault("storage.driver", "local")
+	viper.SetDefault("storage.local_path", "./uploads")
+	viper.SetDefault("storage.max_file_size", 10485760)
 
 	viper.AutomaticEnv()
 
