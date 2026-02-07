@@ -104,6 +104,10 @@ export function registerAppRoutes(
   adminRouter.get("/webhook-logs/:id", dispatch((ac) => ac.adminHandler.getWebhookLog));
   adminRouter.post("/webhook-logs/:id/retry", dispatch((ac) => ac.adminHandler.retryWebhookLog));
 
+  // Export/Import
+  adminRouter.get("/export", dispatch((ac) => ac.adminHandler.export));
+  adminRouter.post("/import", dispatch((ac) => ac.adminHandler.import));
+
   app.use("/api/:app/_admin", resolverMW, appAuthMW, adminMW, adminRouter);
 
   // Workflow runtime routes (auth required)

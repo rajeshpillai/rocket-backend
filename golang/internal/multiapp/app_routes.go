@@ -97,6 +97,10 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	adm.Get("/webhook-logs/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.GetWebhookLog }))
 	adm.Post("/webhook-logs/:id/retry", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.RetryWebhookLog }))
 
+	// Export/Import
+	adm.Get("/export", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Export }))
+	adm.Post("/import", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Import }))
+
 	// Workflow runtime routes
 	wf := protected.Group("/_workflows")
 	wf.Get("/pending", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.ListPending }))

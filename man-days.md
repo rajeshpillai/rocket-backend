@@ -1,4 +1,4 @@
-Actual Hours: 10 Hours (Don't change this)
+Actual Hours: 12 Hours (Don't change this)
 
 ## Estimated Man-Days (Traditional Development, Both Languages)
 
@@ -12,10 +12,11 @@ Actual Hours: 10 Hours (Don't change this)
 | Phase 5: Webhooks | `_webhooks` + `_webhook_logs` tables, dispatch engine (payload, headers, conditions), async (fire-and-forget) + sync (rollback on failure), retry scheduler (exponential backoff), webhook log CRUD + manual retry, integration into write + delete flows | 4 | 4 | 2 | 10 |
 | Phase 6: Multi-App | Management DB (`_apps`, `_platform_users`, `_platform_refresh_tokens`), platform bootstrap + auth, AppContext + AppManager, database-per-app provisioning, app resolver middleware, dual-auth (app JWT + platform JWT fallback), URL prefix routing, multi-app scheduler | 6 | 6 | 3 | 15 |
 | Phase 7: File Uploads | Storage interface + local-disk implementation, `_files` table, file handler (upload/serve/delete/list), `file` field type (JSONB), UUID resolution in write pipeline, route registration, multer integration | 3 | 3 | 1 | 7 |
-| **Total** | | **41** | **41** | **12** | **94** |
+| Schema Export/Import | Export all 7 metadata tables as JSON, dependency-ordered import with idempotent dedup, migrator integration, Admin UI export/import buttons with results display | 2 | 2 | 0.5 | 4.5 |
+| **Total** | | **43** | **43** | **12.5** | **98.5** |
 
 ### Summary
 
-- **Estimated effort (traditional):** 94 man-days (~4.5 months for a solo developer)
-- **Actual time with AI assistance:** 10 hours
-- **Speedup factor:** ~75x
+- **Estimated effort (traditional):** 98.5 man-days (~4.7 months for a solo developer)
+- **Actual time with AI assistance:** 12 hours
+- **Speedup factor:** ~79x

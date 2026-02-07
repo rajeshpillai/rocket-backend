@@ -114,3 +114,8 @@
 - [x] Route registration: file routes under `/_files` with multer middleware in app-routes.ts
 - [x] Entry point: `LocalStorage` created from config, passed to `AppManager`
 - [x] Dependencies: added `multer` + `@types/multer`
+
+## Schema Export/Import [DONE]
+- [x] `export` method in AdminHandler — queries all 7 metadata tables, returns clean JSON (no IDs/timestamps)
+- [x] `import` method in AdminHandler — dependency-ordered import with idempotent dedup per table
+- [x] Routes wired in both standalone (`admin/handler.ts`) and multiapp (`app-routes.ts`)

@@ -112,3 +112,8 @@
 - [x] AppManager: accepts `FileStorage` + `maxFileSize`, passes to AppContext construction
 - [x] Route registration: file routes under `/_files` (upload, serve, delete, list) in app_routes.go
 - [x] Entry point: `LocalStorage` created from config, passed to `NewAppManager`
+
+## Schema Export/Import [DONE]
+- [x] `Export` method in admin handler — queries all 7 metadata tables, returns clean JSON (no IDs/timestamps)
+- [x] `Import` method in admin handler — dependency-ordered import with idempotent dedup per table
+- [x] Routes wired in both standalone (`admin/handler.go`) and multiapp (`app_routes.go`)

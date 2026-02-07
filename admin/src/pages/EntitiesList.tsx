@@ -1,7 +1,8 @@
-import { createSignal, onMount, type JSX } from "solid-js";
+import { createSignal, onMount, Show, For, type JSX } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useEntities } from "../stores/entities";
 import { deleteEntity } from "../api/entities";
+import { exportSchema, importSchema, type ImportResult } from "../api/schema";
 import { parseDefinition, type EntityRow } from "../types/entity";
 import { isApiError } from "../types/api";
 import { DataTable, type Column } from "../components/DataTable";
@@ -13,8 +14,64 @@ export function EntitiesList() {
   const navigate = useNavigate();
   const { entities, loading, load } = useEntities();
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
+  const [importing, setImporting] = createSignal(false);
+  const [exporting, setExporting] = createSignal(false);
+  const [importResult, setImportResult] = createSignal<ImportResult | null>(null);
+  let fileInput: HTMLInputElement | undefined;
 
   onMount(() => load());
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const data = await exportSchema();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const date = new Date().toISOString().slice(0, 10);
+      a.download = `schema-export-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addToast("success", "Schema exported successfully");
+    } catch (err) {
+      if (isApiError(err)) {
+        addToast("error", err.error.message);
+      } else {
+        addToast("error", "Failed to export schema");
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportFile = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = "";
+
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const result = await importSchema(data);
+      setImportResult(result);
+      addToast("success", result.message);
+      await load(); // reload entities list
+    } catch (err) {
+      if (isApiError(err)) {
+        addToast("error", err.error.message);
+      } else if (err instanceof SyntaxError) {
+        addToast("error", "Invalid JSON file");
+      } else {
+        addToast("error", "Failed to import schema");
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const rows = () =>
     entities().map((row) => {
@@ -97,10 +154,53 @@ export function EntitiesList() {
           <h1 class="page-title">Entities</h1>
           <p class="page-subtitle">Manage your data entities and their fields</p>
         </div>
-        <button class="btn-primary" onClick={() => navigate("/entities/new")}>
-          Create Entity
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button class="btn-secondary" onClick={handleExport} disabled={exporting()}>
+            {exporting() ? "Exporting..." : "Export Schema"}
+          </button>
+          <button class="btn-secondary" onClick={() => fileInput?.click()} disabled={importing()}>
+            {importing() ? "Importing..." : "Import Schema"}
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json"
+            style={{ display: "none" }}
+            onChange={handleImportFile}
+          />
+          <button class="btn-primary" onClick={() => navigate("/entities/new")}>
+            Create Entity
+          </button>
+        </div>
       </div>
+
+      <Show when={importResult()}>
+        {(result) => (
+          <div class="card" style={{ "margin-bottom": "1rem" }}>
+            <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center", "margin-bottom": "0.5rem" }}>
+              <h3 style={{ margin: "0", "font-size": "0.95rem" }}>Import Results</h3>
+              <button class="btn-sm btn-secondary" onClick={() => setImportResult(null)}>Dismiss</button>
+            </div>
+            <div style={{ display: "flex", gap: "1rem", "flex-wrap": "wrap", "margin-bottom": "0.5rem" }}>
+              <For each={Object.entries(result().summary)}>
+                {([key, count]) => (
+                  <span class="badge badge-blue">{key}: {count}</span>
+                )}
+              </For>
+            </div>
+            <Show when={result().errors && result().errors!.length > 0}>
+              <div style={{ "margin-top": "0.5rem", "font-size": "0.85rem", color: "var(--color-danger, #dc2626)" }}>
+                <strong>Errors:</strong>
+                <ul style={{ margin: "0.25rem 0", "padding-left": "1.25rem" }}>
+                  <For each={result().errors}>
+                    {(err) => <li>{err}</li>}
+                  </For>
+                </ul>
+              </div>
+            </Show>
+          </div>
+        )}
+      </Show>
 
       {loading() ? (
         <p class="text-sm text-gray-500">Loading...</p>

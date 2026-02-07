@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -76,6 +77,9 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler, middleware ...fiber.Handler
 	admin.Get("/webhook-logs", h.ListWebhookLogs)
 	admin.Get("/webhook-logs/:id", h.GetWebhookLog)
 	admin.Post("/webhook-logs/:id/retry", h.RetryWebhookLog)
+
+	admin.Get("/export", h.Export)
+	admin.Post("/import", h.Import)
 }
 
 // --- Entity Endpoints ---
@@ -1320,6 +1324,369 @@ func validateWebhook(body map[string]any) string {
 	}
 
 	return ""
+}
+
+// --- Export/Import Endpoints ---
+
+func (h *Handler) Export(c *fiber.Ctx) error {
+	ctx := c.Context()
+
+	// Entities: definition column IS the full entity object
+	entityRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT definition FROM _entities ORDER BY name")
+	if err != nil {
+		return fmt.Errorf("export entities: %w", err)
+	}
+	entities := make([]any, 0, len(entityRows))
+	for _, row := range entityRows {
+		entities = append(entities, row["definition"])
+	}
+
+	// Relations: definition column IS the full relation object
+	relRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT definition FROM _relations ORDER BY name")
+	if err != nil {
+		return fmt.Errorf("export relations: %w", err)
+	}
+	relations := make([]any, 0, len(relRows))
+	for _, row := range relRows {
+		relations = append(relations, row["definition"])
+	}
+
+	// Rules
+	ruleRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority")
+	if err != nil {
+		return fmt.Errorf("export rules: %w", err)
+	}
+	rules := make([]map[string]any, 0, len(ruleRows))
+	for _, row := range ruleRows {
+		rules = append(rules, map[string]any{
+			"entity": row["entity"], "hook": row["hook"], "type": row["type"],
+			"definition": row["definition"], "priority": row["priority"], "active": row["active"],
+		})
+	}
+
+	// State machines
+	smRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, field, definition, active FROM _state_machines ORDER BY entity")
+	if err != nil {
+		return fmt.Errorf("export state machines: %w", err)
+	}
+	stateMachines := make([]map[string]any, 0, len(smRows))
+	for _, row := range smRows {
+		stateMachines = append(stateMachines, map[string]any{
+			"entity": row["entity"], "field": row["field"],
+			"definition": row["definition"], "active": row["active"],
+		})
+	}
+
+	// Workflows
+	wfRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT name, trigger, context, steps, active FROM _workflows ORDER BY name")
+	if err != nil {
+		return fmt.Errorf("export workflows: %w", err)
+	}
+	workflows := make([]map[string]any, 0, len(wfRows))
+	for _, row := range wfRows {
+		workflows = append(workflows, map[string]any{
+			"name": row["name"], "trigger": row["trigger"],
+			"context": row["context"], "steps": row["steps"], "active": row["active"],
+		})
+	}
+
+	// Permissions
+	permRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, action, roles, conditions FROM _permissions ORDER BY entity, action")
+	if err != nil {
+		return fmt.Errorf("export permissions: %w", err)
+	}
+	permissions := make([]map[string]any, 0, len(permRows))
+	for _, row := range permRows {
+		permissions = append(permissions, map[string]any{
+			"entity": row["entity"], "action": row["action"],
+			"roles": row["roles"], "conditions": row["conditions"],
+		})
+	}
+
+	// Webhooks
+	whRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook")
+	if err != nil {
+		return fmt.Errorf("export webhooks: %w", err)
+	}
+	webhooks := make([]map[string]any, 0, len(whRows))
+	for _, row := range whRows {
+		webhooks = append(webhooks, map[string]any{
+			"entity": row["entity"], "hook": row["hook"], "url": row["url"],
+			"method": row["method"], "headers": row["headers"], "condition": row["condition"],
+			"async": row["async"], "retry": row["retry"], "active": row["active"],
+		})
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{
+		"version":        1,
+		"exported_at":    time.Now().UTC().Format(time.RFC3339),
+		"entities":       entities,
+		"relations":      relations,
+		"rules":          rules,
+		"state_machines": stateMachines,
+		"workflows":      workflows,
+		"permissions":    permissions,
+		"webhooks":       webhooks,
+	}})
+}
+
+func (h *Handler) Import(c *fiber.Ctx) error {
+	var payload struct {
+		Version       int              `json:"version"`
+		Entities      []map[string]any `json:"entities"`
+		Relations     []map[string]any `json:"relations"`
+		Rules         []map[string]any `json:"rules"`
+		StateMachines []map[string]any `json:"state_machines"`
+		Workflows     []map[string]any `json:"workflows"`
+		Permissions   []map[string]any `json:"permissions"`
+		Webhooks      []map[string]any `json:"webhooks"`
+	}
+	if err := c.BodyParser(&payload); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+	if payload.Version != 1 {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED",
+			"message": fmt.Sprintf("Unsupported export version: %d", payload.Version)}})
+	}
+
+	ctx := c.Context()
+	summary := map[string]int{
+		"entities": 0, "relations": 0, "rules": 0,
+		"state_machines": 0, "workflows": 0,
+		"permissions": 0, "webhooks": 0,
+	}
+	var errors []string
+
+	// Step 1: Entities
+	for _, raw := range payload.Entities {
+		name, _ := raw["name"].(string)
+		table, _ := raw["table"].(string)
+		if name == "" || table == "" {
+			continue
+		}
+		if h.registry.GetEntity(name) != nil {
+			continue
+		}
+		defJSON, err := json.Marshal(raw)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Entity %s: %v", name, err))
+			continue
+		}
+		_, err = store.Exec(ctx, h.store.Pool,
+			"INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3)",
+			name, table, defJSON)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Entity %s: %v", name, err))
+			continue
+		}
+		// Migrate: create the business table
+		var entity metadata.Entity
+		if err := json.Unmarshal(defJSON, &entity); err == nil {
+			_ = h.migrator.Migrate(ctx, &entity)
+		}
+		summary["entities"]++
+	}
+
+	// Reload so relations can reference the new entities
+	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
+
+	// Step 2: Relations
+	for _, raw := range payload.Relations {
+		name, _ := raw["name"].(string)
+		source, _ := raw["source"].(string)
+		target, _ := raw["target"].(string)
+		if name == "" {
+			continue
+		}
+		if h.registry.GetRelation(name) != nil {
+			continue
+		}
+		defJSON, err := json.Marshal(raw)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Relation %s: %v", name, err))
+			continue
+		}
+		_, err = store.Exec(ctx, h.store.Pool,
+			"INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4)",
+			name, source, target, defJSON)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Relation %s: %v", name, err))
+			continue
+		}
+		// Create join table for many-to-many
+		var rel metadata.Relation
+		if err := json.Unmarshal(defJSON, &rel); err == nil && rel.IsManyToMany() {
+			src := h.registry.GetEntity(rel.Source)
+			tgt := h.registry.GetEntity(rel.Target)
+			if src != nil && tgt != nil {
+				_ = h.migrator.MigrateJoinTable(ctx, &rel, src, tgt)
+			}
+		}
+		summary["relations"]++
+	}
+
+	// Step 3: Rules (dedup by entity+hook+type+definition)
+	existingRules, _ := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, hook, type, definition FROM _rules")
+	ruleSet := make(map[string]bool)
+	for _, r := range existingRules {
+		defJSON, _ := json.Marshal(r["definition"])
+		key := fmt.Sprintf("%v|%v|%v|%s", r["entity"], r["hook"], r["type"], defJSON)
+		ruleSet[key] = true
+	}
+	for _, raw := range payload.Rules {
+		defJSON, _ := json.Marshal(raw["definition"])
+		key := fmt.Sprintf("%v|%v|%v|%s", raw["entity"], raw["hook"], raw["type"], defJSON)
+		if ruleSet[key] {
+			continue
+		}
+		_, err := store.QueryRow(ctx, h.store.Pool,
+			"INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+			raw["entity"], raw["hook"], raw["type"], defJSON, raw["priority"], raw["active"])
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Rule (%v/%v): %v", raw["entity"], raw["hook"], err))
+			continue
+		}
+		ruleSet[key] = true
+		summary["rules"]++
+	}
+
+	// Step 4: State machines (dedup by entity+field)
+	existingSMs, _ := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, field FROM _state_machines")
+	smSet := make(map[string]bool)
+	for _, r := range existingSMs {
+		smSet[fmt.Sprintf("%v|%v", r["entity"], r["field"])] = true
+	}
+	for _, raw := range payload.StateMachines {
+		key := fmt.Sprintf("%v|%v", raw["entity"], raw["field"])
+		if smSet[key] {
+			continue
+		}
+		defJSON, _ := json.Marshal(raw["definition"])
+		_, err := store.QueryRow(ctx, h.store.Pool,
+			"INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1,$2,$3,$4) RETURNING id",
+			raw["entity"], raw["field"], defJSON, raw["active"])
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("State machine (%v/%v): %v", raw["entity"], raw["field"], err))
+			continue
+		}
+		smSet[key] = true
+		summary["state_machines"]++
+	}
+
+	// Step 5: Workflows (dedup by name)
+	for _, raw := range payload.Workflows {
+		name, _ := raw["name"].(string)
+		if name == "" {
+			continue
+		}
+		_, err := store.QueryRow(ctx, h.store.Pool, "SELECT id FROM _workflows WHERE name = $1", name)
+		if err == nil {
+			continue // already exists
+		}
+		triggerJSON, _ := json.Marshal(raw["trigger"])
+		contextJSON, _ := json.Marshal(raw["context"])
+		stepsJSON, _ := json.Marshal(raw["steps"])
+		_, err = store.QueryRow(ctx, h.store.Pool,
+			"INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+			name, triggerJSON, contextJSON, stepsJSON, raw["active"])
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Workflow %s: %v", name, err))
+			continue
+		}
+		summary["workflows"]++
+	}
+
+	// Step 6: Permissions (dedup by entity+action)
+	existingPerms, _ := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, action FROM _permissions")
+	permSet := make(map[string]bool)
+	for _, r := range existingPerms {
+		permSet[fmt.Sprintf("%v|%v", r["entity"], r["action"])] = true
+	}
+	for _, raw := range payload.Permissions {
+		key := fmt.Sprintf("%v|%v", raw["entity"], raw["action"])
+		if permSet[key] {
+			continue
+		}
+		condJSON, _ := json.Marshal(raw["conditions"])
+		_, err := store.QueryRow(ctx, h.store.Pool,
+			"INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1,$2,$3,$4) RETURNING id",
+			raw["entity"], raw["action"], raw["roles"], condJSON)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Permission (%v/%v): %v", raw["entity"], raw["action"], err))
+			continue
+		}
+		permSet[key] = true
+		summary["permissions"]++
+	}
+
+	// Step 7: Webhooks (dedup by entity+hook+url)
+	existingWHs, _ := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, hook, url FROM _webhooks")
+	whSet := make(map[string]bool)
+	for _, r := range existingWHs {
+		whSet[fmt.Sprintf("%v|%v|%v", r["entity"], r["hook"], r["url"])] = true
+	}
+	for _, raw := range payload.Webhooks {
+		key := fmt.Sprintf("%v|%v|%v", raw["entity"], raw["hook"], raw["url"])
+		if whSet[key] {
+			continue
+		}
+		headersJSON, _ := json.Marshal(raw["headers"])
+		retryJSON, _ := json.Marshal(raw["retry"])
+		method := raw["method"]
+		if method == nil {
+			method = "POST"
+		}
+		hook := raw["hook"]
+		if hook == nil {
+			hook = "after_write"
+		}
+		async := raw["async"]
+		if async == nil {
+			async = true
+		}
+		active := raw["active"]
+		if active == nil {
+			active = true
+		}
+		condition := raw["condition"]
+		if condition == nil {
+			condition = ""
+		}
+		_, err := store.QueryRow(ctx, h.store.Pool,
+			`INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+			raw["entity"], hook, raw["url"], method,
+			string(headersJSON), condition, async, string(retryJSON), active)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Webhook (%v/%v/%v): %v", raw["entity"], raw["hook"], raw["url"], err))
+			continue
+		}
+		whSet[key] = true
+		summary["webhooks"]++
+	}
+
+	// Final reload
+	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
+
+	result := fiber.Map{
+		"message": "Import completed",
+		"summary": summary,
+	}
+	if len(errors) > 0 {
+		result["errors"] = errors
+	}
+	return c.JSON(fiber.Map{"data": result})
 }
 
 func validateRelation(r *metadata.Relation, reg *metadata.Registry) error {

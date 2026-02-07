@@ -973,6 +973,338 @@ export class AdminHandler {
     );
     res.json({ data: updated });
   });
+
+  // --- Export / Import ---
+
+  export = asyncHandler(async (_req: Request, res: Response) => {
+    // Helper to parse JSONB that may come as string or object
+    const parseJSON = (val: any): any => {
+      if (val == null) return val;
+      if (typeof val === "string") {
+        try { return JSON.parse(val); } catch { return val; }
+      }
+      return val;
+    };
+
+    // Entities — definition column IS the full entity object
+    const entityRows = await queryRows(
+      this.store.pool,
+      "SELECT definition FROM _entities ORDER BY name",
+    );
+    const entities = (entityRows ?? []).map((r: any) => parseJSON(r.definition));
+
+    // Relations — definition column IS the full relation object
+    const relationRows = await queryRows(
+      this.store.pool,
+      "SELECT definition FROM _relations ORDER BY name",
+    );
+    const relations = (relationRows ?? []).map((r: any) => parseJSON(r.definition));
+
+    // Rules
+    const ruleRows = await queryRows(
+      this.store.pool,
+      "SELECT entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority",
+    );
+    const rules = (ruleRows ?? []).map((r: any) => ({
+      entity: r.entity,
+      hook: r.hook,
+      type: r.type,
+      definition: parseJSON(r.definition),
+      priority: r.priority,
+      active: r.active,
+    }));
+
+    // State machines
+    const smRows = await queryRows(
+      this.store.pool,
+      "SELECT entity, field, definition, active FROM _state_machines ORDER BY entity",
+    );
+    const stateMachines = (smRows ?? []).map((r: any) => ({
+      entity: r.entity,
+      field: r.field,
+      definition: parseJSON(r.definition),
+      active: r.active,
+    }));
+
+    // Workflows
+    const wfRows = await queryRows(
+      this.store.pool,
+      "SELECT name, trigger, context, steps, active FROM _workflows ORDER BY name",
+    );
+    const workflows = (wfRows ?? []).map((r: any) => ({
+      name: r.name,
+      trigger: parseJSON(r.trigger),
+      context: parseJSON(r.context),
+      steps: parseJSON(r.steps),
+      active: r.active,
+    }));
+
+    // Permissions
+    const permRows = await queryRows(
+      this.store.pool,
+      "SELECT entity, action, roles, conditions FROM _permissions ORDER BY entity, action",
+    );
+    const permissions = (permRows ?? []).map((r: any) => ({
+      entity: r.entity,
+      action: r.action,
+      roles: parseJSON(r.roles),
+      conditions: parseJSON(r.conditions),
+    }));
+
+    // Webhooks
+    const whRows = await queryRows(
+      this.store.pool,
+      "SELECT entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook",
+    );
+    const webhooks = (whRows ?? []).map((r: any) => ({
+      entity: r.entity,
+      hook: r.hook,
+      url: r.url,
+      method: r.method,
+      headers: parseJSON(r.headers),
+      condition: r.condition,
+      async: r.async,
+      retry: parseJSON(r.retry),
+      active: r.active,
+    }));
+
+    res.json({
+      data: {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        entities,
+        relations,
+        rules,
+        state_machines: stateMachines,
+        workflows,
+        permissions,
+        webhooks,
+      },
+    });
+  });
+
+  import = asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body;
+    if (!body || typeof body !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    if (body.version !== 1) {
+      throw new AppError("VALIDATION_FAILED", 422, `Unsupported schema version: ${body.version}`);
+    }
+
+    const summary: Record<string, number> = {};
+    const errors: string[] = [];
+
+    // Helper to parse JSONB
+    const parseJSON = (val: any): any => {
+      if (val == null) return val;
+      if (typeof val === "string") {
+        try { return JSON.parse(val); } catch { return val; }
+      }
+      return val;
+    };
+
+    // 1. Entities
+    const entities = body.entities ?? [];
+    let entityCount = 0;
+    for (const ent of entities) {
+      try {
+        if (this.registry.getEntity(ent.name)) continue; // skip existing
+        await exec(
+          this.store.pool,
+          "INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3)",
+          [ent.name, ent.table, JSON.stringify(ent)],
+        );
+        await this.migrator.migrate(ent);
+        entityCount++;
+      } catch (e: any) {
+        errors.push(`entity ${ent.name}: ${e.message}`);
+      }
+    }
+    summary.entities = entityCount;
+
+    // Reload registry after entities so relations can reference them
+    await reload(this.store.pool, this.registry);
+
+    // 2. Relations
+    const relations = body.relations ?? [];
+    let relationCount = 0;
+    for (const rel of relations) {
+      try {
+        if (this.registry.getRelation(rel.name)) continue; // skip existing
+        await exec(
+          this.store.pool,
+          "INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4)",
+          [rel.name, rel.source, rel.target, JSON.stringify(rel)],
+        );
+        if (isManyToMany(rel)) {
+          const sourceEntity = this.registry.getEntity(rel.source);
+          const targetEntity = this.registry.getEntity(rel.target);
+          if (sourceEntity && targetEntity) {
+            await this.migrator.migrateJoinTable(rel, sourceEntity, targetEntity);
+          }
+        }
+        relationCount++;
+      } catch (e: any) {
+        errors.push(`relation ${rel.name}: ${e.message}`);
+      }
+    }
+    summary.relations = relationCount;
+
+    // 3. Rules — dedup by entity+hook+type+definition
+    const ruleRows = body.rules ?? [];
+    let ruleCount = 0;
+    const existingRules = await queryRows(
+      this.store.pool,
+      "SELECT entity, hook, type, definition FROM _rules",
+    );
+    const ruleSet = new Set(
+      (existingRules ?? []).map((r: any) =>
+        `${r.entity}|${r.hook}|${r.type}|${JSON.stringify(parseJSON(r.definition))}`,
+      ),
+    );
+    for (const rule of ruleRows) {
+      try {
+        const key = `${rule.entity}|${rule.hook}|${rule.type}|${JSON.stringify(rule.definition)}`;
+        if (ruleSet.has(key)) continue;
+        await exec(
+          this.store.pool,
+          "INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6)",
+          [rule.entity, rule.hook, rule.type, JSON.stringify(rule.definition), rule.priority ?? 0, rule.active ?? true],
+        );
+        ruleSet.add(key);
+        ruleCount++;
+      } catch (e: any) {
+        errors.push(`rule ${rule.entity}/${rule.type}: ${e.message}`);
+      }
+    }
+    summary.rules = ruleCount;
+
+    // 4. State machines — dedup by entity+field
+    const smRows = body.state_machines ?? [];
+    let smCount = 0;
+    const existingSMs = await queryRows(
+      this.store.pool,
+      "SELECT entity, field FROM _state_machines",
+    );
+    const smSet = new Set(
+      (existingSMs ?? []).map((r: any) => `${r.entity}|${r.field}`),
+    );
+    for (const sm of smRows) {
+      try {
+        const key = `${sm.entity}|${sm.field}`;
+        if (smSet.has(key)) continue;
+        await exec(
+          this.store.pool,
+          "INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4)",
+          [sm.entity, sm.field, JSON.stringify(sm.definition), sm.active ?? true],
+        );
+        smSet.add(key);
+        smCount++;
+      } catch (e: any) {
+        errors.push(`state_machine ${sm.entity}/${sm.field}: ${e.message}`);
+      }
+    }
+    summary.state_machines = smCount;
+
+    // 5. Workflows — dedup by name
+    const wfRows = body.workflows ?? [];
+    let wfCount = 0;
+    const existingWFs = await queryRows(
+      this.store.pool,
+      "SELECT name FROM _workflows",
+    );
+    const wfSet = new Set(
+      (existingWFs ?? []).map((r: any) => r.name as string),
+    );
+    for (const wf of wfRows) {
+      try {
+        if (wfSet.has(wf.name)) continue;
+        await exec(
+          this.store.pool,
+          "INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5)",
+          [wf.name, JSON.stringify(wf.trigger), JSON.stringify(wf.context ?? {}), JSON.stringify(wf.steps), wf.active ?? true],
+        );
+        wfSet.add(wf.name);
+        wfCount++;
+      } catch (e: any) {
+        errors.push(`workflow ${wf.name}: ${e.message}`);
+      }
+    }
+    summary.workflows = wfCount;
+
+    // 6. Permissions — dedup by entity+action
+    const permRows = body.permissions ?? [];
+    let permCount = 0;
+    const existingPerms = await queryRows(
+      this.store.pool,
+      "SELECT entity, action FROM _permissions",
+    );
+    const permSet = new Set(
+      (existingPerms ?? []).map((r: any) => `${r.entity}|${r.action}`),
+    );
+    for (const perm of permRows) {
+      try {
+        const key = `${perm.entity}|${perm.action}`;
+        if (permSet.has(key)) continue;
+        await exec(
+          this.store.pool,
+          "INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4)",
+          [perm.entity, perm.action, perm.roles ?? [], JSON.stringify(perm.conditions ?? [])],
+        );
+        permSet.add(key);
+        permCount++;
+      } catch (e: any) {
+        errors.push(`permission ${perm.entity}/${perm.action}: ${e.message}`);
+      }
+    }
+    summary.permissions = permCount;
+
+    // 7. Webhooks — dedup by entity+hook+url
+    const whRows = body.webhooks ?? [];
+    let whCount = 0;
+    const existingWHs = await queryRows(
+      this.store.pool,
+      "SELECT entity, hook, url FROM _webhooks",
+    );
+    const whSet = new Set(
+      (existingWHs ?? []).map((r: any) => `${r.entity}|${r.hook}|${r.url}`),
+    );
+    for (const wh of whRows) {
+      try {
+        const key = `${wh.entity}|${wh.hook}|${wh.url}`;
+        if (whSet.has(key)) continue;
+        await exec(
+          this.store.pool,
+          `INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            wh.entity, wh.hook ?? "after_write", wh.url, wh.method ?? "POST",
+            JSON.stringify(wh.headers ?? {}), wh.condition ?? "", wh.async ?? true,
+            JSON.stringify(wh.retry ?? { max_attempts: 3, backoff: "exponential" }), wh.active ?? true,
+          ],
+        );
+        whSet.add(key);
+        whCount++;
+      } catch (e: any) {
+        errors.push(`webhook ${wh.entity}/${wh.hook}/${wh.url}: ${e.message}`);
+      }
+    }
+    summary.webhooks = whCount;
+
+    // Final reload
+    await reload(this.store.pool, this.registry);
+
+    const result: Record<string, any> = {
+      message: "Import completed",
+      summary,
+    };
+    if (errors.length > 0) {
+      result.errors = errors;
+    }
+
+    res.json({ data: result });
+  });
 }
 
 export function registerAdminRoutes(
@@ -1033,6 +1365,9 @@ export function registerAdminRoutes(
   admin.get("/webhook-logs", handler.listWebhookLogs);
   admin.get("/webhook-logs/:id", handler.getWebhookLog);
   admin.post("/webhook-logs/:id/retry", handler.retryWebhookLog);
+
+  admin.get("/export", handler.export);
+  admin.post("/import", handler.import);
 
   app.use("/api/_admin", ...middleware, admin);
 }

@@ -70,6 +70,11 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Admin UI: FileUploadField component integrated into DataRecordEditor
 - Config: `storage` section in app.yaml (driver, local_path, max_file_size)
 
+**Schema Export/Import** — full schema portability between apps/systems:
+- `GET /_admin/export` returns all metadata (entities, relations, rules, state machines, workflows, permissions, webhooks) as a single JSON document
+- `POST /_admin/import` accepts the export JSON and recreates everything (tables, relations, business logic) with idempotent dedup
+- Admin UI: Export/Import buttons on the Entities page (download JSON file / upload JSON file with results summary)
+
 **Not yet built (future phases):**
 - Audit log
 
@@ -224,6 +229,8 @@ GET/PUT/DELETE /api/:app/_admin/webhooks/:id
 GET            /api/:app/_admin/webhook-logs          # ?webhook_id, ?status, ?entity filters
 GET            /api/:app/_admin/webhook-logs/:id
 POST           /api/:app/_admin/webhook-logs/:id/retry
+GET            /api/:app/_admin/export                # Export full schema as JSON
+POST           /api/:app/_admin/import                # Import schema JSON (idempotent)
 ```
 
 ### App-Scoped File Upload

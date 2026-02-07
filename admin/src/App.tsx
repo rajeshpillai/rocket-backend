@@ -58,7 +58,7 @@ export function App() {
   return (
     <Router base="/admin" root={AppRoot}>
       <Route path="/login" component={Login} />
-      <Route path="/" component={() => <Navigate href="/admin/apps" />} />
+      <Route path="/" component={() => <Navigate href="/apps" />} />
       <Route path="/apps" component={AppsList} />
       <Route path="/entities" component={EntitiesList} />
       <Route path="/entities/new" component={EntityDetail} />

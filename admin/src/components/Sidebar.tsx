@@ -87,6 +87,10 @@ export function Sidebar() {
       </div>
 
       <Show when={selectedApp()}>
+        <div style={{ padding: "0 0.75rem 0.5rem", "font-size": "0.75rem", color: "var(--text-muted, #888)" }}>
+          <span>Current app:</span>{" "}
+          <strong style={{ color: "var(--text-primary, #e0e0e0)" }}>{selectedApp()}</strong>
+        </div>
         <nav class="sidebar-nav">
           <For each={navItems}>
             {(item) => (
