@@ -23,10 +23,9 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Validation (required fields, enums)
 - Standard error format with codes and field-level details
 
-**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, and data browsing.
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, and data browsing.
 
 **Not yet built (future phases):**
-- Validation rules (field rules, expression rules, computed fields)
 - State machines
 - Workflows
 - Auth (JWT + permissions)
@@ -94,6 +93,7 @@ Shared Postgres 15 via Docker Compose. Port **5433** on host (remapped from defa
 ```
 _entities    — name (PK), table_name, definition (JSONB), created_at, updated_at
 _relations   — name (PK), source (FK), target (FK), definition (JSONB), created_at, updated_at
+_rules       — id (UUID PK), entity (FK), hook, type, definition (JSONB), priority, active, created_at, updated_at
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -120,6 +120,8 @@ GET/POST       /api/_admin/entities
 GET/PUT/DELETE /api/_admin/entities/:name
 GET/POST       /api/_admin/relations
 GET/PUT/DELETE /api/_admin/relations/:name
+GET/POST       /api/_admin/rules
+GET/PUT/DELETE /api/_admin/rules/:id
 ```
 
 ### Dynamic (per entity)
@@ -171,4 +173,5 @@ None currently.
 - TypeScript: strict mode, ESM modules, `pg` directly for dynamic queries, async/await
 - Each implementation has its own `todo.md` tracking phase progress
 - Docs in `docs/` are shared and language-agnostic
-- Create update Docs in golang and express respective docs folder for technical implementation details.
+- Create/update docs in golang and express respective docs folder for technical implementation details
+- After implementing each backend feature, the admin UI in `admin/` must be updated to expose that feature

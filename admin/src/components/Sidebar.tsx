@@ -3,6 +3,7 @@ import { A, useLocation } from "@solidjs/router";
 const navItems = [
   { href: "/entities", label: "Entities", icon: "□" },
   { href: "/relations", label: "Relations", icon: "⇄" },
+  { href: "/rules", label: "Rules", icon: "✓" },
   { href: "/data", label: "Data Browser", icon: "▤" },
 ];
 
