@@ -193,6 +193,34 @@ rocket-backend/
 }
 ```
 
+## What Can You Build?
+
+Rocket Backend replaces the entire custom backend for data-driven applications. Define your schema via the admin UI or API, and you get a production-ready REST API with auth, permissions, business logic, and integrations — no code required.
+
+### CRM / Sales Pipeline
+Entities: `company`, `contact`, `deal`, `activity`. Relations link contacts to companies, deals to contacts. State machine on `deal.stage` (lead &rarr; qualified &rarr; proposal &rarr; won/lost) with guard expressions ("amount > 10000 requires manager approval"). Webhooks notify Slack on deal stage changes. Permissions let sales reps see only their own deals.
+
+### Project Management / Issue Tracker
+Entities: `project`, `task`, `comment`, `attachment` (file field). State machine on `task.status` (todo &rarr; in_progress &rarr; review &rarr; done). Workflow triggers approval when a task moves to "done" — PM must approve before it closes. Rules enforce that `due_date` cannot be in the past. Row-level permissions: team members see their project's tasks only.
+
+### E-Commerce / Order Management
+Entities: `product`, `order`, `order_item`, `customer`. Nested writes create an order with its items in one transaction. State machine on `order.status` (pending &rarr; paid &rarr; shipped &rarr; delivered) with `set_field` actions (auto-set `shipped_at` on transition). Sync webhook validates payment with external gateway before committing. Computed field calculates `order.total` from items.
+
+### HR / Employee Management
+Entities: `employee`, `department`, `leave_request`, `document` (file field). Workflow on leave requests: employee submits &rarr; manager approval step &rarr; HR approval step &rarr; auto-set status to "approved". Timeout: if manager doesn't respond in 48 hours, escalate. Permissions: employees see only their own leave requests, managers see their department's.
+
+### Content Management / Blog
+Entities: `post`, `category`, `tag`, `media` (file field). Many-to-many relation between posts and tags (auto-created join table). State machine on `post.status` (draft &rarr; review &rarr; published &rarr; archived). Rules enforce `title` min length and `slug` pattern. Webhook triggers static site rebuild on publish.
+
+### Inventory / Warehouse
+Entities: `product`, `warehouse`, `stock_movement`, `supplier`. Rules enforce `quantity >= 0`. Computed field calculates `stock_level` from movements. Webhook alerts when stock drops below threshold (condition expression: `record.stock_level < 10`). Async webhooks sync inventory to external ERP.
+
+### Helpdesk / Ticketing
+Entities: `ticket`, `customer`, `agent`, `response`. State machine on `ticket.priority` and `ticket.status` (open &rarr; assigned &rarr; in_progress &rarr; resolved &rarr; closed). Workflow: high-priority tickets trigger approval from team lead before assignment. SLA tracking via timeout scheduler. Row-level permissions: customers see only their tickets.
+
+### Multi-Tenant SaaS
+Each client gets their own isolated app (separate database) via the multi-app system. Export a schema from a template app, import it into each new client's app. Per-app JWT secrets, independent user bases, no data leakage between tenants. Platform admin manages all apps from a single dashboard.
+
 ## Roadmap
 
 - [x] Field validation rules (min, max, pattern)
@@ -204,3 +232,4 @@ rocket-backend/
 - [x] Webhooks (async/sync, retry with exponential backoff)
 - [x] Multi-app (database-per-app isolation, platform auth)
 - [x] File uploads (storage interface, local disk, JSONB metadata, UUID resolution)
+- [x] Schema export/import (JSON portability between apps/systems)
