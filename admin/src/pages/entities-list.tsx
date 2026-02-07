@@ -5,9 +5,9 @@ import { deleteEntity } from "../api/entities";
 import { exportSchema, importSchema, type ImportResult } from "../api/schema";
 import { parseDefinition, type EntityRow } from "../types/entity";
 import { isApiError } from "../types/api";
-import { DataTable, type Column } from "../components/DataTable";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
+import { DataTable, type Column } from "../components/data-table";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
 import { addToast } from "../stores/notifications";
 
 export function EntitiesList() {

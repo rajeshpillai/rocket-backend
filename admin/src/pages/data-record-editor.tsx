@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import type { Field, EntityDefinition } from "../types/entity";
-import { FileUploadField } from "../components/form/FileUploadField";
+import { FileUploadField } from "../components/form/file-upload-field";
 
 interface DataRecordEditorProps {
   entity: EntityDefinition;

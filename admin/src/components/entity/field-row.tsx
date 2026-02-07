@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import type { Field, FieldType } from "../../types/entity";
-import { FieldTypeSelector } from "./FieldTypeSelector";
-import { TagInput } from "../form/TagInput";
+import { FieldTypeSelector } from "./field-type-selector";
+import { TagInput } from "../form/tag-input";
 
 interface FieldRowProps {
   field: Field;

@@ -1,9 +1,9 @@
 import { Show } from "solid-js";
 import type { RulePayload, RuleType, RuleHook, FieldOperator } from "../types/rule";
 import { RULE_TYPES, RULE_HOOKS, FIELD_OPERATORS } from "../types/rule";
-import { TextInput } from "../components/form/TextInput";
-import { SelectInput } from "../components/form/SelectInput";
-import { Toggle } from "../components/form/Toggle";
+import { TextInput } from "../components/form/text-input";
+import { SelectInput } from "../components/form/select-input";
+import { Toggle } from "../components/form/toggle";
 
 interface RuleEditorProps {
   rule: RulePayload;

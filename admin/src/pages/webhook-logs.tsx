@@ -2,8 +2,8 @@ import { createSignal, onMount, type JSX } from "solid-js";
 import { listWebhookLogs, retryWebhookLog } from "../api/webhooks";
 import type { WebhookLogRow } from "../types/webhook";
 import { isApiError } from "../types/api";
-import { DataTable, type Column } from "../components/DataTable";
-import { Badge } from "../components/Badge";
+import { DataTable, type Column } from "../components/data-table";
+import { Badge } from "../components/badge";
 import { addToast } from "../stores/notifications";
 
 const statusColors: Record<string, "green" | "blue" | "red" | "yellow" | "gray"> = {

@@ -2,10 +2,10 @@ import { createSignal, onMount, type JSX } from "solid-js";
 import { listUsers, createUser, updateUser, deleteUser } from "../api/users";
 import { emptyUser, type UserRow, type UserPayload } from "../types/user";
 import { isApiError } from "../types/api";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
 import { addToast } from "../stores/notifications";
 
 export function UsersList() {

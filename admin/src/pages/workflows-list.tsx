@@ -13,11 +13,11 @@ import {
 } from "../types/workflow";
 import { isApiError } from "../types/api";
 import { useEntities } from "../stores/entities";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
-import { WorkflowEditor } from "./WorkflowEditor";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
+import { WorkflowEditor } from "./workflow-editor";
 import { addToast } from "../stores/notifications";
 
 export function WorkflowsList() {

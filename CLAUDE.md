@@ -83,7 +83,7 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 ```
 rocket-backend/
 ├── docker-compose.yml           # Shared Postgres 15 (port 5433:5432)
-├── CLAUDE.MD                    # This file — project context for AI sessions
+├── claude.md                    # This file — project context for AI sessions
 ├── README.md                    # Project overview + quick start
 ├── .gitignore
 ├── admin/                       # SolidJS admin UI (Vite + Tailwind)
@@ -292,7 +292,7 @@ cd admin && npm run dev
 None currently.
 
 ## Conventions
-
+- File and Folder names should be lowercase-hypenated
 - Both implementations must produce identical API responses
 - Go: `snake_case.go` files, `pgx` directly, `fmt.Errorf` wrapping, context threading
 - TypeScript: strict mode, ESM modules, `pg` directly for dynamic queries, async/await

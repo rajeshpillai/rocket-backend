@@ -1,6 +1,6 @@
 import type { ParentProps } from "solid-js";
-import { Sidebar } from "./Sidebar";
-import { ToastContainer } from "./Toast";
+import { Sidebar } from "./sidebar";
+import { ToastContainer } from "./toast";
 
 export function Layout(props: ParentProps) {
   return (

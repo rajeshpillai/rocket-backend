@@ -7,10 +7,10 @@ import {
 } from "../api/workflows";
 import type { WorkflowInstance } from "../types/workflow";
 import { isApiError } from "../types/api";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { Badge } from "../components/Badge";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { Badge } from "../components/badge";
+import { ConfirmDialog } from "../components/confirm-dialog";
 import { addToast } from "../stores/notifications";
 
 export function WorkflowMonitor() {

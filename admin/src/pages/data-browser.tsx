@@ -10,12 +10,12 @@ import {
   type FilterParam,
 } from "../api/data";
 import { isApiError } from "../types/api";
-import { DataTable, type Column } from "../components/DataTable";
-import { Pagination } from "../components/Pagination";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { FilterBar } from "../components/form/FilterBar";
-import { DataRecordEditor } from "./DataRecordEditor";
+import { DataTable, type Column } from "../components/data-table";
+import { Pagination } from "../components/pagination";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { FilterBar } from "../components/form/filter-bar";
+import { DataRecordEditor } from "./data-record-editor";
 import { addToast } from "../stores/notifications";
 
 export function DataBrowser() {

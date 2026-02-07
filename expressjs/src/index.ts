@@ -2,12 +2,12 @@ import express from "express";
 import morgan from "morgan";
 import { loadConfig } from "./config/index.js";
 import { Store } from "./store/postgres.js";
-import { AppManager } from "./multiapp/manager.js";
-import { platformBootstrap } from "./multiapp/platform-bootstrap.js";
-import { PlatformHandler, registerPlatformRoutes } from "./multiapp/platform-handler.js";
-import { platformAuthMiddleware } from "./multiapp/middleware.js";
-import { registerAppRoutes } from "./multiapp/app-routes.js";
-import { MultiAppScheduler } from "./multiapp/scheduler.js";
+import { AppManager } from "./multi-app/manager.js";
+import { platformBootstrap } from "./multi-app/platform-bootstrap.js";
+import { PlatformHandler, registerPlatformRoutes } from "./multi-app/platform-handler.js";
+import { platformAuthMiddleware } from "./multi-app/middleware.js";
+import { registerAppRoutes } from "./multi-app/app-routes.js";
+import { MultiAppScheduler } from "./multi-app/scheduler.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { LocalStorage } from "./storage/local.js";
 

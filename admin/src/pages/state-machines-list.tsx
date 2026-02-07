@@ -1,114 +1,122 @@
 import { createSignal, onMount, type JSX } from "solid-js";
-import { listRules, createRule, updateRule, deleteRule } from "../api/rules";
-import { parseRuleDefinition, emptyRule, type RuleRow, type RulePayload } from "../types/rule";
+import {
+  listStateMachines,
+  createStateMachine,
+  updateStateMachine,
+  deleteStateMachine,
+} from "../api/state-machines";
+import {
+  parseDefinition,
+  emptyStateMachine,
+  formatFrom,
+  type StateMachineRow,
+  type StateMachinePayload,
+} from "../types/state-machine";
 import { isApiError } from "../types/api";
 import { useEntities } from "../stores/entities";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
-import { RuleEditor } from "./RuleEditor";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
+import { StateMachineEditor } from "./state-machine-editor";
 import { addToast } from "../stores/notifications";
 
-const typeColor: Record<string, "blue" | "purple" | "green"> = {
-  field: "blue",
-  expression: "purple",
-  computed: "green",
-};
-
-const hookColor: Record<string, "blue" | "gray"> = {
-  before_write: "blue",
-  before_delete: "gray",
-};
-
-export function RulesList() {
+export function StateMachinesList() {
   const { entityNames, load: loadEntities } = useEntities();
-  const [rules, setRules] = createSignal<RuleRow[]>([]);
+  const [machines, setMachines] = createSignal<StateMachineRow[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [editorOpen, setEditorOpen] = createSignal(false);
-  const [editingRule, setEditingRule] = createSignal<RulePayload>(emptyRule());
+  const [editingSM, setEditingSM] = createSignal<StateMachinePayload>(
+    emptyStateMachine(),
+  );
   const [editingId, setEditingId] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [editorError, setEditorError] = createSignal<string | null>(null);
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
 
-  async function loadRules() {
+  async function loadMachines() {
     setLoading(true);
     try {
-      const res = await listRules();
-      setRules(res.data);
+      const res = await listStateMachines();
+      setMachines(res.data);
     } finally {
       setLoading(false);
     }
   }
 
   onMount(() => {
-    loadRules();
+    loadMachines();
     loadEntities();
   });
 
   type Row = {
     id: string;
     entity: string;
-    type: string;
-    hook: string;
-    priority: number;
+    field: string;
+    initial: string;
+    transitions: string;
     active: boolean;
-    summary: string;
-    _payload: RulePayload;
+    _payload: StateMachinePayload;
   };
 
   const rows = (): Row[] =>
-    rules().map((row) => {
-      const def = parseRuleDefinition(row);
-      let summary = "";
-      if (row.type === "field") {
-        summary = `${def.field} ${def.operator} ${def.value ?? ""}`;
-      } else if (row.type === "expression") {
-        const expr = def.expression ?? "";
-        summary = expr.length > 50 ? expr.slice(0, 50) + "..." : expr;
-      } else if (row.type === "computed") {
-        summary = `${def.field} = ${(def.expression ?? "").slice(0, 40)}`;
-      }
+    machines().map((row) => {
+      const def = parseDefinition(row);
+      const transitionSummary = (def.transitions ?? [])
+        .map((t) => `${formatFrom(t.from)} -> ${t.to}`)
+        .join(", ");
 
       return {
         id: row.id,
         entity: row.entity,
-        type: row.type,
-        hook: row.hook,
-        priority: row.priority,
+        field: row.field,
+        initial: def.initial ?? "",
+        transitions:
+          transitionSummary.length > 60
+            ? transitionSummary.slice(0, 60) + "..."
+            : transitionSummary,
         active: row.active,
-        summary,
         _payload: {
           id: row.id,
           entity: row.entity,
-          hook: row.hook as any,
-          type: row.type as any,
+          field: row.field,
           definition: def,
-          priority: row.priority,
           active: row.active,
         },
       };
     });
 
   const openCreate = () => {
-    setEditingRule(emptyRule());
+    setEditingSM(emptyStateMachine());
     setEditingId(null);
     setEditorError(null);
     setEditorOpen(true);
   };
 
-  const openEdit = (payload: RulePayload) => {
-    setEditingRule({ ...payload, definition: { ...payload.definition } });
+  const openEdit = (payload: StateMachinePayload) => {
+    setEditingSM({
+      ...payload,
+      definition: {
+        ...payload.definition,
+        transitions: payload.definition.transitions.map((t) => ({
+          ...t,
+          actions: [...(t.actions ?? [])],
+        })),
+      },
+    });
     setEditingId(payload.id ?? null);
     setEditorError(null);
     setEditorOpen(true);
   };
 
   const handleSave = async () => {
-    const rule = editingRule();
-    if (!rule.entity) {
+    const sm = editingSM();
+    if (!sm.entity) {
       setEditorError("Entity is required");
+      return;
+    }
+    if (!sm.field) {
+      setEditorError("State field is required");
       return;
     }
 
@@ -117,19 +125,19 @@ export function RulesList() {
 
     try {
       if (editingId()) {
-        await updateRule(editingId()!, rule);
-        addToast("success", "Rule updated");
+        await updateStateMachine(editingId()!, sm);
+        addToast("success", "State machine updated");
       } else {
-        await createRule(rule);
-        addToast("success", "Rule created");
+        await createStateMachine(sm);
+        addToast("success", "State machine created");
       }
       setEditorOpen(false);
-      await loadRules();
+      await loadMachines();
     } catch (err) {
       if (isApiError(err)) {
         setEditorError(err.error.message);
       } else {
-        setEditorError("Failed to save rule");
+        setEditorError("Failed to save state machine");
       }
     } finally {
       setSaving(false);
@@ -140,15 +148,15 @@ export function RulesList() {
     const id = deleteTarget();
     if (!id) return;
     try {
-      await deleteRule(id);
-      addToast("success", "Rule deleted");
+      await deleteStateMachine(id);
+      addToast("success", "State machine deleted");
       setDeleteTarget(null);
-      await loadRules();
+      await loadMachines();
     } catch (err) {
       if (isApiError(err)) {
         addToast("error", err.error.message);
       } else {
-        addToast("error", "Failed to delete rule");
+        addToast("error", "Failed to delete state machine");
       }
       setDeleteTarget(null);
     }
@@ -156,28 +164,9 @@ export function RulesList() {
 
   const columns: Column<Row>[] = [
     { key: "entity", header: "Entity" },
-    {
-      key: "type",
-      header: "Type",
-      render: (val): JSX.Element => (
-        <Badge
-          label={String(val)}
-          color={typeColor[String(val)] ?? "gray"}
-        />
-      ),
-    },
-    {
-      key: "hook",
-      header: "Hook",
-      render: (val): JSX.Element => (
-        <Badge
-          label={String(val).replace(/_/g, " ")}
-          color={hookColor[String(val)] ?? "gray"}
-        />
-      ),
-    },
-    { key: "summary", header: "Summary" },
-    { key: "priority", header: "Priority" },
+    { key: "field", header: "Field" },
+    { key: "initial", header: "Initial State" },
+    { key: "transitions", header: "Transitions" },
     {
       key: "active",
       header: "Active",
@@ -221,11 +210,13 @@ export function RulesList() {
     <div>
       <div class="page-header">
         <div>
-          <h1 class="page-title">Rules</h1>
-          <p class="page-subtitle">Manage validation rules and computed fields</p>
+          <h1 class="page-title">State Machines</h1>
+          <p class="page-subtitle">
+            Manage state transitions, guards, and actions
+          </p>
         </div>
         <button class="btn-primary" onClick={openCreate}>
-          Create Rule
+          Create State Machine
         </button>
       </div>
 
@@ -235,20 +226,20 @@ export function RulesList() {
         <DataTable
           columns={columns}
           rows={rows()}
-          emptyMessage="No rules yet. Create one to add validation or computed fields."
+          emptyMessage="No state machines yet. Create one to define state transitions."
         />
       )}
 
       <Modal
         open={editorOpen()}
         onClose={() => setEditorOpen(false)}
-        title={editingId() ? "Edit Rule" : "Create Rule"}
+        title={editingId() ? "Edit State Machine" : "Create State Machine"}
         wide
       >
-        <RuleEditor
-          rule={editingRule()}
+        <StateMachineEditor
+          sm={editingSM()}
           entityNames={entityNames()}
-          onChange={setEditingRule}
+          onChange={setEditingSM}
           onSave={handleSave}
           onCancel={() => setEditorOpen(false)}
           saving={saving()}
@@ -258,8 +249,8 @@ export function RulesList() {
 
       <ConfirmDialog
         open={deleteTarget() !== null}
-        title="Delete Rule"
-        message="Are you sure you want to delete this rule?"
+        title="Delete State Machine"
+        message="Are you sure you want to delete this state machine?"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />

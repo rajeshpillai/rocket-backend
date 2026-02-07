@@ -3,9 +3,9 @@ import { useParams, useNavigate } from "@solidjs/router";
 import { getEntity, createEntity, updateEntity } from "../api/entities";
 import { parseDefinition, type EntityDefinition, type Field, type FieldType } from "../types/entity";
 import { isApiError } from "../types/api";
-import { FieldRow } from "../components/entity/FieldRow";
-import { Toggle } from "../components/form/Toggle";
-import { SelectInput } from "../components/form/SelectInput";
+import { FieldRow } from "../components/entity/field-row";
+import { Toggle } from "../components/form/toggle";
+import { SelectInput } from "../components/form/select-input";
 import { addToast } from "../stores/notifications";
 import { useEntities } from "../stores/entities";
 

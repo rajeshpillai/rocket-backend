@@ -1,8 +1,8 @@
 import { Show } from "solid-js";
 import type { RelationDefinition, RelationType, Ownership, OnDelete, FetchStrategy, WriteMode } from "../types/relation";
 import { RELATION_TYPES, OWNERSHIP_OPTIONS, ON_DELETE_OPTIONS, FETCH_OPTIONS, WRITE_MODE_OPTIONS } from "../types/relation";
-import { TextInput } from "../components/form/TextInput";
-import { SelectInput } from "../components/form/SelectInput";
+import { TextInput } from "../components/form/text-input";
+import { SelectInput } from "../components/form/select-input";
 
 interface RelationEditorProps {
   relation: RelationDefinition;

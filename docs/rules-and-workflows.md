@@ -29,7 +29,7 @@ Each layer builds on the previous. Most applications only need layers 1-3. Workf
 
 ## Layer 1: Field Rules (existing)
 
-Per-field validation using simple operators. Already defined in [CLAUDE.MD](../CLAUDE.MD) and [dynamic-rest-api.md](dynamic-rest-api.md).
+Per-field validation using simple operators. Already defined in [claude.md](../claude.md) and [dynamic-rest-api.md](dynamic-rest-api.md).
 
 ```json
 {

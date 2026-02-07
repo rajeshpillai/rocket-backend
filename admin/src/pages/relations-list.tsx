@@ -3,11 +3,11 @@ import { listRelations, createRelation, updateRelation, deleteRelation } from ".
 import { parseRelationDefinition, type RelationRow, type RelationDefinition } from "../types/relation";
 import { isApiError } from "../types/api";
 import { useEntities } from "../stores/entities";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
-import { RelationEditor } from "./RelationEditor";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
+import { RelationEditor } from "./relation-editor";
 import { addToast } from "../stores/notifications";
 
 const emptyRelation = (): RelationDefinition => ({

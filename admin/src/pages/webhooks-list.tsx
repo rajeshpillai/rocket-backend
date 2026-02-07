@@ -14,10 +14,10 @@ import {
 } from "../types/webhook";
 import { isApiError } from "../types/api";
 import { useEntities } from "../stores/entities";
-import { DataTable, type Column } from "../components/DataTable";
-import { Modal } from "../components/Modal";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Badge } from "../components/Badge";
+import { DataTable, type Column } from "../components/data-table";
+import { Modal } from "../components/modal";
+import { ConfirmDialog } from "../components/confirm-dialog";
+import { Badge } from "../components/badge";
 import { addToast } from "../stores/notifications";
 
 const hookColors: Record<string, "green" | "blue" | "purple" | "red"> = {
