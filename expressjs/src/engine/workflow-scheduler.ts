@@ -98,6 +98,12 @@ export class WorkflowScheduler {
   }
 }
 
+// processWorkflowTimeouts runs workflow timeout processing for a given store and registry.
+export async function processWorkflowTimeouts(store: Store, registry: Registry): Promise<void> {
+  const tmp = new WorkflowScheduler(store, registry);
+  await tmp.processTimeouts();
+}
+
 function parseInstance(row: Record<string, any>): WorkflowInstance {
   let context: Record<string, any> = {};
   if (row.context != null) {

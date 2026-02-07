@@ -2,6 +2,8 @@ server:
   port: 8080
 
 jwt_secret: changeme-secret
+platform_jwt_secret: changeme-platform-secret
+app_pool_size: 5
 
 database:
   host: localhost

@@ -85,3 +85,18 @@
 - [x] Background retry scheduler (30s setInterval, exponential backoff: 30s × 2^attempt)
 - [x] State machine webhook stub replaced with real dispatchWebhookDirect (fire-and-forget)
 - [x] Workflow webhook stub replaced with real dispatchWebhookDirect (synchronous, step waits)
+
+## Phase 6: Multi-App (Database-per-App) [DONE]
+- [x] Config: `platform_jwt_secret` and `app_pool_size` in Config interface + app.yaml
+- [x] Store: `connectWithPoolSize()`, `connectToDB()`, `createDatabase()`, `dropDatabase()`
+- [x] Platform bootstrap: `_apps`, `_platform_users`, `_platform_refresh_tokens` tables + seed platform admin
+- [x] AppContext interface (store, registry, migrator, engineHandler, adminHandler, authHandler, workflowHandler)
+- [x] AppManager class (get/create/delete/list/loadAll/allContexts/close) with Promise-based concurrency guard
+- [x] Platform handler (login/refresh/logout against platform users, listApps/getApp/createApp/deleteApp)
+- [x] App resolver middleware (extracts `:app`, looks up AppContext, sets `req.appCtx`)
+- [x] App auth middleware (tries app JWT secret, falls back to platform JWT)
+- [x] Platform auth middleware (platform JWT only)
+- [x] App-scoped route registration (dispatch pattern delegates to per-app handlers, mergeParams routers)
+- [x] Route restructure: management DB bootstrap → AppManager → platform routes → app-scoped routes
+- [x] Multi-app scheduler (iterates all AppContexts for workflow timeouts + webhook retries)
+- [x] Exported `processWorkflowTimeouts()` and `processWebhookRetries()` for multi-app scheduler

@@ -6,12 +6,12 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 ## Current Status
 
-**Phase 0–5 are complete** in two languages. Both share the same Postgres database.
+**Phase 0–6 are complete** in two languages. Both share the same Postgres instance.
 
 | Implementation | Directory | Framework | Driver | Status |
 |----------------|-----------|-----------|--------|--------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Phase 5 done |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 5 done |
+| Go | `golang/` | Fiber v2 | pgx v5 | Phase 6 done |
+| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 6 done |
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -45,7 +45,18 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Admin API for webhook + log CRUD, manual retry endpoint
 - State machine + workflow webhook stubs replaced with real HTTP dispatch
 
-**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, webhook management, webhook log viewer, login/logout, and auth-protected routes.
+**What Phase 6 delivers:**
+- Multi-app support (database-per-app isolation)
+- Management database (`rocket`) holds `_apps`, `_platform_users`, `_platform_refresh_tokens`
+- Platform auth (separate from per-app auth): `platform@localhost / changeme`
+- App lifecycle: create app → provisions new database → bootstraps all system tables → seeds admin user
+- Platform admin token accepted in any app (dual-auth middleware: tries app JWT first, falls back to platform JWT)
+- URL prefix routing: `/api/_platform/*` for management, `/api/:app/*` for app-scoped operations
+- Per-app JWT secrets (auto-generated on app creation)
+- AppContext holds pre-built handlers per app (zero changes to existing engine/handler code)
+- Multi-app schedulers (single scheduler iterates all apps for workflow timeouts + webhook retries)
+
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers app management (create/list/delete/select), entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, data browsing, user management, permission management, webhook management, webhook log viewer, platform login/logout, and auth-protected routes.
 
 **Not yet built (future phases):**
 - Audit log
@@ -63,12 +74,12 @@ rocket-backend/
 │   ├── vite.config.ts / tsconfig.json / tailwind.config.js
 │   └── src/
 │       ├── App.tsx              # Router + layout
-│       ├── api/                 # API client (entities, relations, data, users, permissions, webhooks)
+│       ├── api/                 # API client (client.ts, platform.ts)
 │       ├── components/          # Shared UI (DataTable, Modal, Toast, Sidebar, etc.)
-│       ├── pages/               # EntitiesList, EntityDetail, RelationsList, DataBrowser, Login, UsersList, PermissionsList, WebhooksList, WebhookLogs, etc.
-│       ├── stores/              # SolidJS stores (entities, notifications, auth)
+│       ├── pages/               # AppsList, EntitiesList, EntityDetail, RelationsList, DataBrowser, Login, etc.
+│       ├── stores/              # SolidJS stores (entities, notifications, auth, app)
 │       ├── styles/              # Tailwind + component CSS
-│       └── types/               # TypeScript types (entity, relation, api, user, permission, webhook)
+│       └── types/               # TypeScript types (entity, relation, api, user, permission, webhook, app)
 ├── docs/                        # Shared technical documentation
 │   ├── dynamic-rest-api.md      # Router, read flow, write flow design
 │   ├── metadata-schemas.md      # Entity, field, relation schemas
@@ -88,7 +99,8 @@ rocket-backend/
 │       ├── store/{postgres,bootstrap,migrator}.go
 │       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler,permissions,webhook,webhook_scheduler}.go
 │       ├── auth/{auth,handler,middleware}.go
-│       └── admin/handler.go
+│       ├── admin/handler.go
+│       └── multiapp/{context,manager,middleware,app_routes,platform_bootstrap,platform_handler,scheduler}.go
 └── expressjs/                   # Express.js implementation
     ├── app.yaml                 # Config (port 8080, db on 5433)
     ├── package.json / tsconfig.json
@@ -101,14 +113,26 @@ rocket-backend/
         ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler,webhook,webhook-scheduler}.ts
         ├── auth/{auth,handler,middleware,permissions}.ts
         ├── admin/handler.ts
+        ├── multiapp/{context,manager,middleware,app-routes,platform-bootstrap,platform-handler,scheduler}.ts
         └── middleware/error-handler.ts
 ```
 
 ## Database
 
-Shared Postgres 15 via Docker Compose. Port **5433** on host (remapped from default 5432 to avoid conflict with local Postgres). Credentials: `rocket/rocket`, database: `rocket`.
+Shared Postgres 15 via Docker Compose. Port **5433** on host (remapped from default 5432 to avoid conflict with local Postgres). Credentials: `rocket/rocket`.
 
-### System Tables
+- **Management database** (`rocket`): holds `_apps`, `_platform_users`, `_platform_refresh_tokens`
+- **Per-app databases** (`rocket_{appname}`): each contains all system tables below
+
+### Platform Tables (management database)
+
+```
+_apps                    — name (PK), display_name, db_name (UNIQUE), jwt_secret, status, created_at, updated_at
+_platform_users          — id (UUID PK), email (UNIQUE), password_hash, roles (TEXT[]), active, created_at, updated_at
+_platform_refresh_tokens — id (UUID PK), user_id (FK→_platform_users), token (UUID UNIQUE), expires_at, created_at
+```
+
+### System Tables (per-app database)
 
 ```
 _entities           — name (PK), table_name, definition (JSONB), created_at, updated_at
@@ -142,54 +166,66 @@ Three entities exist: `customer`, `invoice`, `invoice_item`. One relation: `item
 - **Whitelist permissions** — no `_permissions` row = denied; admin role always bypasses
 - **Auth routes before middleware** — `/api/auth/*` registered first, naturally unprotected
 - **Webhooks (Phase 5)** — async by default (fire-and-forget after commit), sync optional (fire pre-commit, non-2xx rolls back). No new HTTP dependencies (Go: net/http, Express: fetch). Retry via background scheduler with exponential backoff.
+- **Database-per-app (Phase 6)** — each app gets its own PostgreSQL database; management database is the control plane. AppContext holds pre-built handlers (zero changes to existing engine code). Dual-auth middleware tries app JWT first, falls back to platform JWT.
 
 ## API Quick Reference
 
-### Auth (no token required)
+### Platform (no auth for login/refresh/logout; platform auth for app management)
 ```
-POST /api/auth/login              # Returns {access_token, refresh_token}
-POST /api/auth/refresh            # Rotates refresh token
-POST /api/auth/logout             # Invalidates refresh token
-```
-
-### Admin (requires auth + admin role)
-```
-GET/POST       /api/_admin/entities
-GET/PUT/DELETE /api/_admin/entities/:name
-GET/POST       /api/_admin/relations
-GET/PUT/DELETE /api/_admin/relations/:name
-GET/POST       /api/_admin/rules
-GET/PUT/DELETE /api/_admin/rules/:id
-GET/POST       /api/_admin/state-machines
-GET/PUT/DELETE /api/_admin/state-machines/:id
-GET/POST       /api/_admin/workflows
-GET/PUT/DELETE /api/_admin/workflows/:id
-GET/POST       /api/_admin/users
-GET/PUT/DELETE /api/_admin/users/:id
-GET/POST       /api/_admin/permissions
-GET/PUT/DELETE /api/_admin/permissions/:id
-GET/POST       /api/_admin/webhooks
-GET/PUT/DELETE /api/_admin/webhooks/:id
-GET            /api/_admin/webhook-logs          # ?webhook_id, ?status, ?entity filters
-GET            /api/_admin/webhook-logs/:id
-POST           /api/_admin/webhook-logs/:id/retry
+POST /api/_platform/auth/login       # Platform admin login → {access_token, refresh_token}
+POST /api/_platform/auth/refresh     # Platform token refresh
+POST /api/_platform/auth/logout      # Platform logout
+GET  /api/_platform/apps             # List all apps
+POST /api/_platform/apps             # Create app {name, display_name}
+GET  /api/_platform/apps/:name       # Get app details
+DELETE /api/_platform/apps/:name     # Delete app (drops database)
 ```
 
-### Workflow Runtime
+### App-Scoped Auth (no token required)
 ```
-GET  /api/_workflows/pending       # List paused instances
-GET  /api/_workflows/:id           # Get instance details
-POST /api/_workflows/:id/approve   # Approve current step
-POST /api/_workflows/:id/reject    # Reject current step
+POST /api/:app/auth/login            # Per-app user login → {access_token, refresh_token}
+POST /api/:app/auth/refresh          # Per-app token refresh
+POST /api/:app/auth/logout           # Per-app logout
 ```
 
-### Dynamic (per entity)
+### App-Scoped Admin (requires auth + admin role)
 ```
-GET    /api/:entity                    # List (filters, sort, pagination, includes)
-GET    /api/:entity/:id                # Get by ID (with optional includes)
-POST   /api/:entity                    # Create (with optional nested writes)
-PUT    /api/:entity/:id                # Update (with optional nested writes)
-DELETE /api/:entity/:id                # Soft or hard delete
+GET/POST       /api/:app/_admin/entities
+GET/PUT/DELETE /api/:app/_admin/entities/:name
+GET/POST       /api/:app/_admin/relations
+GET/PUT/DELETE /api/:app/_admin/relations/:name
+GET/POST       /api/:app/_admin/rules
+GET/PUT/DELETE /api/:app/_admin/rules/:id
+GET/POST       /api/:app/_admin/state-machines
+GET/PUT/DELETE /api/:app/_admin/state-machines/:id
+GET/POST       /api/:app/_admin/workflows
+GET/PUT/DELETE /api/:app/_admin/workflows/:id
+GET/POST       /api/:app/_admin/users
+GET/PUT/DELETE /api/:app/_admin/users/:id
+GET/POST       /api/:app/_admin/permissions
+GET/PUT/DELETE /api/:app/_admin/permissions/:id
+GET/POST       /api/:app/_admin/webhooks
+GET/PUT/DELETE /api/:app/_admin/webhooks/:id
+GET            /api/:app/_admin/webhook-logs          # ?webhook_id, ?status, ?entity filters
+GET            /api/:app/_admin/webhook-logs/:id
+POST           /api/:app/_admin/webhook-logs/:id/retry
+```
+
+### App-Scoped Workflow Runtime
+```
+GET  /api/:app/_workflows/pending       # List paused instances
+GET  /api/:app/_workflows/:id           # Get instance details
+POST /api/:app/_workflows/:id/approve   # Approve current step
+POST /api/:app/_workflows/:id/reject    # Reject current step
+```
+
+### App-Scoped Dynamic (per entity)
+```
+GET    /api/:app/:entity                    # List (filters, sort, pagination, includes)
+GET    /api/:app/:entity/:id                # Get by ID (with optional includes)
+POST   /api/:app/:entity                    # Create (with optional nested writes)
+PUT    /api/:app/:entity/:id                # Update (with optional nested writes)
+DELETE /api/:app/:entity/:id                # Soft or hard delete
 ```
 
 ### Query params

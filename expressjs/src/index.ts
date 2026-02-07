@@ -2,18 +2,12 @@ import express from "express";
 import morgan from "morgan";
 import { loadConfig } from "./config/index.js";
 import { Store } from "./store/postgres.js";
-import { bootstrap } from "./store/bootstrap.js";
-import { Migrator } from "./store/migrator.js";
-import { Registry } from "./metadata/registry.js";
-import { loadAll } from "./metadata/loader.js";
-import { Handler } from "./engine/handler.js";
-import { registerDynamicRoutes } from "./engine/router.js";
-import { AdminHandler, registerAdminRoutes } from "./admin/handler.js";
-import { WorkflowHandler, registerWorkflowRoutes } from "./engine/workflow-handler.js";
-import { WorkflowScheduler } from "./engine/workflow-scheduler.js";
-import { WebhookScheduler } from "./engine/webhook-scheduler.js";
-import { AuthHandler, registerAuthRoutes } from "./auth/handler.js";
-import { authMiddleware, requireAdmin } from "./auth/middleware.js";
+import { AppManager } from "./multiapp/manager.js";
+import { platformBootstrap } from "./multiapp/platform-bootstrap.js";
+import { PlatformHandler, registerPlatformRoutes } from "./multiapp/platform-handler.js";
+import { platformAuthMiddleware } from "./multiapp/middleware.js";
+import { registerAppRoutes } from "./multiapp/app-routes.js";
+import { MultiAppScheduler } from "./multiapp/scheduler.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 async function main() {
@@ -23,26 +17,23 @@ async function main() {
     `Config loaded (port: ${cfg.server.port}, db: ${cfg.database.host}:${cfg.database.port}/${cfg.database.name})`,
   );
 
-  // 2. Connect to database
-  const store = await Store.connect(cfg.database);
-  console.log("Database connected");
+  // 2. Connect to management database
+  const mgmtStore = await Store.connect(cfg.database);
+  console.log("Management database connected");
 
-  // 3. Bootstrap system tables
-  await bootstrap(store.pool);
-  console.log("System tables ready");
+  // 3. Bootstrap platform tables (_apps, _platform_users, _platform_refresh_tokens)
+  await platformBootstrap(mgmtStore.pool);
+  console.log("Platform tables ready");
 
-  // 4. Create registry and load metadata
-  const registry = new Registry();
+  // 4. Create AppManager and load all existing apps
+  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size);
   try {
-    await loadAll(store.pool, registry);
+    await manager.loadAll();
   } catch (err) {
-    console.warn("WARN: Failed to load metadata:", err);
+    console.warn("WARN: Failed to load apps:", err);
   }
 
-  // 5. Create migrator
-  const migrator = new Migrator(store);
-
-  // 6. Create Express app
+  // 5. Create Express app
   const app = express();
   app.use(express.json());
   app.use(
@@ -51,43 +42,27 @@ async function main() {
     }),
   );
 
-  // 7. Health check
+  // 6. Health check
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
 
-  // 8. Register auth routes (before middleware — no auth required)
-  const authHandler = new AuthHandler(store, cfg.jwt_secret);
-  registerAuthRoutes(app, authHandler);
+  // 7. Platform routes (auth + app CRUD)
+  const platformHandler = new PlatformHandler(mgmtStore, cfg.platform_jwt_secret, manager);
+  const platformAuthMW = platformAuthMiddleware(cfg.platform_jwt_secret);
+  registerPlatformRoutes(app, platformHandler, platformAuthMW);
 
-  // 9. Auth middleware for protected routes
-  const authMW = authMiddleware(cfg.jwt_secret);
-  const adminMW = requireAdmin();
+  // 8. App-scoped routes (all existing CRUD/admin/auth/workflow routes under /api/:app)
+  registerAppRoutes(app, manager, cfg.platform_jwt_secret);
 
-  // 10. Register admin routes (auth + admin required)
-  const adminHandler = new AdminHandler(store, registry, migrator);
-  registerAdminRoutes(app, adminHandler, authMW, adminMW);
-
-  // 11. Register workflow runtime routes (auth required)
-  const workflowHandler = new WorkflowHandler(store, registry);
-  registerWorkflowRoutes(app, workflowHandler, authMW);
-
-  // 12. Register dynamic entity routes (auth required)
-  const engineHandler = new Handler(store, registry);
-  registerDynamicRoutes(app, engineHandler, authMW);
-
-  // 13. Error handler (must be last middleware)
+  // 9. Error handler (must be last middleware)
   app.use(errorHandler);
 
-  // 14. Start workflow scheduler
-  const scheduler = new WorkflowScheduler(store, registry);
+  // 10. Start multi-app schedulers
+  const scheduler = new MultiAppScheduler(manager);
   scheduler.start();
 
-  // 15. Start webhook retry scheduler
-  const webhookScheduler = new WebhookScheduler(store);
-  webhookScheduler.start();
-
-  // 16. Start server
+  // 11. Start server
   const port = cfg.server.port;
   app.listen(port, () => {
     console.log(`Starting server on :${port}`);

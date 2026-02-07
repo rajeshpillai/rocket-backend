@@ -50,6 +50,12 @@ func (ws *WorkflowScheduler) run() {
 	}
 }
 
+// ProcessWorkflowTimeouts processes timed-out workflow instances for a given store and registry.
+func ProcessWorkflowTimeouts(s *store.Store, reg *metadata.Registry) {
+	tmp := &WorkflowScheduler{store: s, registry: reg}
+	tmp.processTimeouts()
+}
+
 func (ws *WorkflowScheduler) processTimeouts() {
 	ctx := context.Background()
 

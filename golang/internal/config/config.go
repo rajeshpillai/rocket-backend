@@ -7,9 +7,11 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig   `mapstructure:"server"`
-	Database  DatabaseConfig `mapstructure:"database"`
-	JWTSecret string         `mapstructure:"jwt_secret"`
+	Server            ServerConfig   `mapstructure:"server"`
+	Database          DatabaseConfig `mapstructure:"database"`
+	JWTSecret         string         `mapstructure:"jwt_secret"`
+	PlatformJWTSecret string         `mapstructure:"platform_jwt_secret"`
+	AppPoolSize       int            `mapstructure:"app_pool_size"`
 }
 
 type ServerConfig struct {
@@ -41,6 +43,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("database.pool_size", 10)
 	viper.SetDefault("jwt_secret", "changeme-secret")
+	viper.SetDefault("platform_jwt_secret", "changeme-platform-secret")
+	viper.SetDefault("app_pool_size", 5)
 
 	viper.AutomaticEnv()
 

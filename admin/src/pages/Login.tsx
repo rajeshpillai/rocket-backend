@@ -1,15 +1,8 @@
 import { createSignal } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { setTokens } from "../stores/auth";
-import { post } from "../api/client";
+import { platformLogin } from "../api/platform";
 import { isApiError } from "../types/api";
-
-interface LoginResponse {
-  data: {
-    access_token: string;
-    refresh_token: string;
-  };
-}
 
 export function Login() {
   const navigate = useNavigate();
@@ -24,12 +17,9 @@ export function Login() {
     setLoading(true);
 
     try {
-      const resp = await post<LoginResponse>("/auth/login", {
-        email: email(),
-        password: password(),
-      });
+      const resp = await platformLogin(email(), password());
       setTokens(resp.data.access_token, resp.data.refresh_token);
-      navigate("/entities", { replace: true });
+      navigate("/apps", { replace: true });
     } catch (err) {
       if (isApiError(err)) {
         setError(err.error.message);
@@ -45,7 +35,7 @@ export function Login() {
     <div class="login-container">
       <div class="login-card">
         <h1 class="login-title">Rocket Admin</h1>
-        <p class="login-subtitle">Sign in to your account</p>
+        <p class="login-subtitle">Sign in to your platform account</p>
 
         {error() && (
           <div class="login-error">{error()}</div>
@@ -62,7 +52,7 @@ export function Login() {
               class="form-input"
               value={email()}
               onInput={(e) => setEmail(e.currentTarget.value)}
-              placeholder="admin@localhost"
+              placeholder="platform@localhost"
               required
             />
           </div>

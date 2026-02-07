@@ -27,6 +27,16 @@ export class Store {
     return new Store(pool);
   }
 
+  static async connectWithPoolSize(cfg: DatabaseConfig, poolSize: number): Promise<Store> {
+    const override = { ...cfg, pool_size: poolSize };
+    return Store.connect(override);
+  }
+
+  static async connectToDB(cfg: DatabaseConfig, dbName: string, poolSize: number): Promise<Store> {
+    const override = { ...cfg, name: dbName, pool_size: poolSize };
+    return Store.connect(override);
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -86,6 +96,22 @@ export async function queryRow(
     throw ErrNotFound;
   }
   return rows[0];
+}
+
+const validDBNameRegex = /^[a-z0-9_]+$/;
+
+export async function createDatabase(q: Queryable, dbName: string): Promise<void> {
+  if (!validDBNameRegex.test(dbName) || dbName.length > 63) {
+    throw new Error(`Invalid database name: ${dbName}`);
+  }
+  await q.query(`CREATE DATABASE ${dbName}`);
+}
+
+export async function dropDatabase(q: Queryable, dbName: string): Promise<void> {
+  if (!validDBNameRegex.test(dbName) || dbName.length > 63) {
+    throw new Error(`Invalid database name: ${dbName}`);
+  }
+  await q.query(`DROP DATABASE IF EXISTS ${dbName}`);
 }
 
 export async function exec(

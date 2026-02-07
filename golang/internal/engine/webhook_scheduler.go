@@ -51,6 +51,12 @@ func (ws *WebhookScheduler) run() {
 	}
 }
 
+// ProcessWebhookRetries retries failed webhook deliveries for a given store.
+func ProcessWebhookRetries(s *store.Store) {
+	tmp := &WebhookScheduler{store: s}
+	tmp.processRetries()
+}
+
 func (ws *WebhookScheduler) processRetries() {
 	ctx := context.Background()
 

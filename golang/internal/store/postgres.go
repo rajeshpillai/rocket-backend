@@ -62,6 +62,52 @@ func New(ctx context.Context, cfg config.DatabaseConfig) (*Store, error) {
 	return &Store{Pool: pool}, nil
 }
 
+// NewWithPoolSize connects to a database using the given config but overrides pool size.
+func NewWithPoolSize(ctx context.Context, cfg config.DatabaseConfig, poolSize int) (*Store, error) {
+	override := cfg
+	override.PoolSize = poolSize
+	return New(ctx, override)
+}
+
+// ConnStringForDB returns a connection string pointing to a different database name.
+func ConnStringForDB(cfg config.DatabaseConfig, dbName string) config.DatabaseConfig {
+	c := cfg
+	c.Name = dbName
+	return c
+}
+
+// CreateDatabase creates a new PostgreSQL database. Must be run outside a transaction.
+func CreateDatabase(ctx context.Context, q Querier, dbName string) error {
+	// Database names cannot be parameterized, so we validate the name
+	if !isValidDBName(dbName) {
+		return fmt.Errorf("invalid database name: %s", dbName)
+	}
+	_, err := q.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName))
+	return err
+}
+
+// DropDatabase drops a PostgreSQL database. Must be run outside a transaction.
+func DropDatabase(ctx context.Context, q Querier, dbName string) error {
+	if !isValidDBName(dbName) {
+		return fmt.Errorf("invalid database name: %s", dbName)
+	}
+	_, err := q.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
+	return err
+}
+
+// isValidDBName checks that a database name contains only safe characters.
+func isValidDBName(name string) bool {
+	if len(name) == 0 || len(name) > 63 {
+		return false
+	}
+	for _, c := range name {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) Close() {
 	s.Pool.Close()
 }

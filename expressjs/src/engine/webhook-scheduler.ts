@@ -109,3 +109,9 @@ export class WebhookScheduler {
     }
   }
 }
+
+// processWebhookRetries runs webhook retry processing for a given store.
+export async function processWebhookRetries(store: Store): Promise<void> {
+  const tmp = new WebhookScheduler(store);
+  await tmp.processRetries();
+}

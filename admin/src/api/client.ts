@@ -1,6 +1,10 @@
 import { getToken, clearAuth } from "../stores/auth";
+import { getSelectedApp } from "../stores/app";
 
-const BASE = "/api";
+function getBase(): string {
+  const app = getSelectedApp();
+  return app ? `/api/${app}` : "/api";
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
@@ -14,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${getBase()}${path}`, {
     ...options,
     headers,
   });

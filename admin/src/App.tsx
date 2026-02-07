@@ -2,6 +2,7 @@ import { type ParentProps } from "solid-js";
 import { Router, Route, Navigate, useLocation, useNavigate } from "@solidjs/router";
 import { Layout } from "./components/Layout";
 import { Login } from "./pages/Login";
+import { AppsList } from "./pages/AppsList";
 import { EntitiesList } from "./pages/EntitiesList";
 import { EntityDetail } from "./pages/EntityDetail";
 import { RelationsList } from "./pages/RelationsList";
@@ -24,7 +25,7 @@ function AppRoot(props: ParentProps) {
   // Login page renders without layout
   if (location.pathname === "/admin/login") {
     if (isAuthenticated()) {
-      navigate("/entities", { replace: true });
+      navigate("/apps", { replace: true });
       return null;
     }
     return (
@@ -48,7 +49,8 @@ export function App() {
   return (
     <Router base="/admin" root={AppRoot}>
       <Route path="/login" component={Login} />
-      <Route path="/" component={() => <Navigate href="/admin/entities" />} />
+      <Route path="/" component={() => <Navigate href="/admin/apps" />} />
+      <Route path="/apps" component={AppsList} />
       <Route path="/entities" component={EntitiesList} />
       <Route path="/entities/new" component={EntityDetail} />
       <Route path="/entities/:name" component={EntityDetail} />
