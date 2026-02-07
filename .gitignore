@@ -7,6 +7,10 @@ expressjs/node_modules/
 expressjs/dist/
 expressjs/.env
 
+# Admin UI
+admin/node_modules/
+admin/dist/
+
 # IDE
 .idea/
 .vscode/

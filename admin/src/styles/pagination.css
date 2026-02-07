@@ -1,0 +1,20 @@
+@layer components {
+  .pagination {
+    @apply flex items-center gap-1 mt-4;
+  }
+
+  .pagination-info {
+    @apply text-sm text-gray-500 mr-4;
+  }
+
+  .page-btn {
+    @apply px-3 py-1.5 text-sm rounded-md border border-gray-300
+           text-gray-700 hover:bg-gray-50 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .page-btn-active {
+    @apply page-btn bg-blue-600 text-white border-blue-600
+           hover:bg-blue-700;
+  }
+}

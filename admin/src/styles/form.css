@@ -1,0 +1,83 @@
+@layer components {
+  .form-group {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .form-row {
+    @apply grid grid-cols-2 gap-4;
+  }
+
+  .form-label {
+    @apply text-sm font-medium text-gray-700;
+  }
+
+  .form-input {
+    @apply block w-full rounded-md border border-gray-300
+           px-3 py-2 text-sm placeholder-gray-400
+           focus:border-blue-500 focus:ring-1 focus:ring-blue-500
+           focus:outline-none transition-colors;
+  }
+
+  .form-input-error {
+    @apply border-red-500 focus:border-red-500 focus:ring-red-500;
+  }
+
+  .form-select {
+    @apply form-input appearance-none bg-white
+           bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%236b7280%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.23%207.21a.75.75%200%20011.06.02L10%2011.168l3.71-3.938a.75.75%200%20111.08%201.04l-4.25%204.5a.75.75%200%2001-1.08%200l-4.25-4.5a.75.75%200%2001.02-1.06z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E')]
+           bg-no-repeat bg-[position:right_0.5rem_center] bg-[length:1.25rem]
+           pr-8;
+  }
+
+  .form-checkbox {
+    @apply h-4 w-4 rounded border-gray-300 text-blue-600
+           focus:ring-blue-500 cursor-pointer;
+  }
+
+  .form-toggle {
+    @apply relative inline-flex h-6 w-11 items-center rounded-full
+           transition-colors cursor-pointer flex-shrink-0;
+  }
+
+  .form-toggle-on {
+    @apply bg-blue-600;
+  }
+
+  .form-toggle-off {
+    @apply bg-gray-300;
+  }
+
+  .form-toggle-knob {
+    @apply inline-block h-4 w-4 rounded-full bg-white
+           transition-transform shadow-sm;
+  }
+
+  .form-toggle-knob-on {
+    @apply translate-x-6;
+  }
+
+  .form-toggle-knob-off {
+    @apply translate-x-1;
+  }
+
+  .form-error-text {
+    @apply text-xs text-red-600;
+  }
+
+  .form-help-text {
+    @apply text-xs text-gray-500;
+  }
+
+  .tag-list {
+    @apply flex flex-wrap gap-1.5;
+  }
+
+  .tag {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs
+           bg-blue-100 text-blue-800;
+  }
+
+  .tag-remove {
+    @apply text-blue-500 hover:text-blue-700 cursor-pointer font-bold;
+  }
+}

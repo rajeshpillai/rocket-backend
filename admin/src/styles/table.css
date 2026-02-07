@@ -1,0 +1,52 @@
+@layer components {
+  .data-table {
+    @apply w-full border-collapse bg-white rounded-lg shadow-sm
+           border border-gray-200 overflow-hidden;
+  }
+
+  .table-header {
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+
+  .table-header-cell {
+    @apply px-4 py-3 text-left text-xs font-semibold text-gray-500
+           uppercase tracking-wider select-none;
+  }
+
+  .table-header-sortable {
+    @apply table-header-cell cursor-pointer hover:text-gray-700
+           hover:bg-gray-100 transition-colors;
+  }
+
+  .table-body {
+    @apply divide-y divide-gray-100;
+  }
+
+  .table-row {
+    @apply hover:bg-gray-50 transition-colors;
+  }
+
+  .table-row-clickable {
+    @apply table-row cursor-pointer;
+  }
+
+  .table-cell {
+    @apply px-4 py-3 text-sm text-gray-700;
+  }
+
+  .table-cell-link {
+    @apply text-blue-600 hover:text-blue-800 cursor-pointer font-medium;
+  }
+
+  .table-cell-mono {
+    @apply table-cell font-mono text-xs;
+  }
+
+  .table-cell-actions {
+    @apply table-cell text-right whitespace-nowrap;
+  }
+
+  .table-empty {
+    @apply px-4 py-12 text-center text-gray-400 text-sm;
+  }
+}

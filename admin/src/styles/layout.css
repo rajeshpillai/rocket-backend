@@ -1,0 +1,52 @@
+@layer components {
+  .app-layout {
+    @apply flex min-h-screen;
+  }
+
+  .sidebar {
+    @apply w-64 bg-gray-900 text-gray-100 flex flex-col
+           fixed inset-y-0 left-0 z-30;
+  }
+
+  .sidebar-title {
+    @apply px-6 py-5 text-xl font-bold tracking-tight
+           border-b border-gray-800;
+  }
+
+  .sidebar-nav {
+    @apply flex flex-col py-4;
+  }
+
+  .nav-link {
+    @apply flex items-center gap-3 px-6 py-3 text-sm text-gray-300
+           hover:bg-gray-800 hover:text-white transition-colors;
+  }
+
+  .nav-link-active {
+    @apply bg-gray-800 text-white border-r-2 border-blue-500;
+  }
+
+  .content-area {
+    @apply ml-64 flex-1 p-8 bg-gray-50 min-h-screen;
+  }
+
+  .page-header {
+    @apply flex items-center justify-between mb-6;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-gray-900;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-gray-500 mt-1;
+  }
+
+  .section {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-gray-900 mb-4;
+  }
+}
