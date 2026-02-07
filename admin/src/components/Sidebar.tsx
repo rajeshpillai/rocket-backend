@@ -77,7 +77,7 @@ export function Sidebar() {
       <div style={{ padding: "0 0.75rem 0.75rem" }}>
         <select
           class="form-input"
-          style={{ "font-size": "0.85rem" }}
+          style={{ "font-size": "0.85rem", "background-color": "#1f2937", color: "#f3f4f6", "border-color": "#4b5563" }}
           value={selectedApp() ?? ""}
           onChange={handleAppChange}
         >
