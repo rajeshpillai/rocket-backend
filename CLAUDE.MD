@@ -171,3 +171,4 @@ None currently.
 - TypeScript: strict mode, ESM modules, `pg` directly for dynamic queries, async/await
 - Each implementation has its own `todo.md` tracking phase progress
 - Docs in `docs/` are shared and language-agnostic
+- Create update Docs in golang and express respective docs folder for technical implementation details.

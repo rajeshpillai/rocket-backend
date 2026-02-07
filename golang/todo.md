@@ -9,10 +9,15 @@
 - [x] HTTP handlers (CRUD, admin API, dynamic routing, includes)
 - [x] Entry point (main.go)
 
-## Phase 1: Validation Rules
-- [ ] Field-level rules (min, max, pattern, custom messages)
-- [ ] Expression rules (expr-lang/expr integration)
-- [ ] Rule evaluation in write pipeline
+## Phase 1: Validation Rules [DONE]
+- [x] `_rules` system table + bootstrap DDL
+- [x] Rule metadata types + loader into registry
+- [x] Admin API for rule CRUD (`/api/_admin/rules`)
+- [x] Field rules engine (min, max, min_length, max_length, pattern)
+- [x] Expression rules engine (expr-lang/expr compilation + evaluation)
+- [x] Computed fields (expression that sets a value before write)
+- [x] Rule evaluation wired into write pipeline (`before_write` hook)
+- [x] Unique constraint violations return 409 CONFLICT
 
 ## Phase 2: State Machines
 - [ ] State machine metadata schema
@@ -32,6 +37,3 @@
 ## Phase 5: Webhooks
 - [ ] Webhook registration and dispatch
 - [ ] Retry logic with backoff
-
-## Known Issues
-- Unique constraint violations return 500 instead of 409 CONFLICT
