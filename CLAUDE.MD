@@ -162,7 +162,7 @@ cd admin && npm run dev
 
 ## Known Issues
 
-- Unique constraint violations return 500 instead of 409 CONFLICT (both implementations)
+None currently.
 
 ## Conventions
 
