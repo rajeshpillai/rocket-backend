@@ -1,6 +1,7 @@
 import type { Queryable } from "../store/postgres.js";
 import type { Registry } from "./registry.js";
 import type { Entity, Relation } from "./types.js";
+import type { Rule, RuleDefinition } from "./rule.js";
 
 export async function loadAll(
   pool: Queryable,
@@ -9,8 +10,12 @@ export async function loadAll(
   const entities = await loadEntities(pool);
   const relations = await loadRelations(pool);
   registry.load(entities, relations);
+
+  const rules = await loadRules(pool);
+  registry.loadRules(rules);
+
   console.log(
-    `Loaded ${entities.length} entities, ${relations.length} relations into registry`,
+    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules into registry`,
   );
 }
 
@@ -60,4 +65,31 @@ async function loadRelations(pool: Queryable): Promise<Relation[]> {
     }
   }
   return relations;
+}
+
+async function loadRules(pool: Queryable): Promise<Rule[]> {
+  const result = await pool.query(
+    "SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority",
+  );
+  const rules: Rule[] = [];
+  for (const row of result.rows) {
+    try {
+      const def =
+        typeof row.definition === "string"
+          ? JSON.parse(row.definition)
+          : row.definition;
+      rules.push({
+        id: row.id,
+        entity: row.entity,
+        hook: row.hook,
+        type: row.type,
+        definition: def as RuleDefinition,
+        priority: row.priority,
+        active: row.active,
+      });
+    } catch (err) {
+      console.warn(`WARN: skipping rule ${row.id} (invalid JSON):`, err);
+    }
+  }
+  return rules;
 }

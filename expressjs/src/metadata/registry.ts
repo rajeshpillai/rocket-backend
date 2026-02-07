@@ -1,9 +1,11 @@
 import type { Entity, Relation } from "./types.js";
+import type { Rule } from "./rule.js";
 
 export class Registry {
   private entities = new Map<string, Entity>();
   private relationsBySource = new Map<string, Relation[]>();
   private relationsByName = new Map<string, Relation>();
+  private rulesByEntity = new Map<string, Rule[]>();
 
   getEntity(name: string): Entity | undefined {
     return this.entities.get(name);
@@ -43,6 +45,24 @@ export class Registry {
 
   allRelations(): Relation[] {
     return Array.from(this.relationsByName.values());
+  }
+
+  getRulesForEntity(entityName: string, hook: string): Rule[] {
+    const all = this.rulesByEntity.get(entityName) ?? [];
+    return all.filter((r) => r.active && r.hook === hook);
+  }
+
+  loadRules(rules: Rule[]): void {
+    this.rulesByEntity = new Map();
+    for (const rule of rules) {
+      const existing = this.rulesByEntity.get(rule.entity) ?? [];
+      existing.push(rule);
+      this.rulesByEntity.set(rule.entity, existing);
+    }
+    // Sort each entity's rules by priority
+    for (const entityRules of this.rulesByEntity.values()) {
+      entityRules.sort((a, b) => a.priority - b.priority);
+    }
   }
 
   load(entities: Entity[], relations: Relation[]): void {

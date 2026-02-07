@@ -13,6 +13,7 @@ import {
   separateFieldsAndRelations,
 } from "./writer.js";
 import { executeChildWrite } from "./diff.js";
+import { evaluateRules } from "./rules.js";
 
 export interface WritePlan {
   isCreate: boolean;
@@ -69,6 +70,28 @@ export async function executeWritePlan(
 ): Promise<Record<string, any>> {
   const client = await store.beginTx();
   try {
+    // Evaluate rules (field → expression → computed)
+    let old: Record<string, any> = {};
+    if (!plan.isCreate) {
+      try {
+        old = await fetchRecord(client, plan.entity, plan.id);
+      } catch {
+        // ignore if old record not found
+      }
+    }
+
+    const ruleErrs = evaluateRules(
+      registry,
+      plan.entity.name,
+      "before_write",
+      plan.fields,
+      old,
+      plan.isCreate,
+    );
+    if (ruleErrs.length > 0) {
+      throw validationError(ruleErrs);
+    }
+
     let parentID: any;
 
     if (plan.isCreate) {

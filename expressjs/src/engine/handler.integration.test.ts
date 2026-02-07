@@ -76,6 +76,241 @@ async function request(
   });
 }
 
+describe("field rule enforcement", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_field_rule_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create test entity
+    const resp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "total", type: "decimal", precision: 2 },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+
+    // Add field rule: total >= 0
+    const ruleResp = await request(app, "POST", "/api/_admin/rules", {
+      entity: entityName,
+      hook: "before_write",
+      type: "field",
+      definition: {
+        field: "total",
+        operator: "min",
+        value: 0,
+        message: "Total must be non-negative",
+      },
+      priority: 10,
+      active: true,
+    });
+    assert.equal(ruleResp.status, 201, `create rule failed: ${JSON.stringify(ruleResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _rules WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("rejects record violating field rule with 422", async () => {
+    const resp = await request(app, "POST", `/api/${entityName}`, {
+      total: -1,
+      name: "Bad Record",
+    });
+    assert.equal(resp.status, 422, `expected 422, got ${resp.status}: ${JSON.stringify(resp.body)}`);
+    assert.equal(resp.body.error.code, "VALIDATION_FAILED");
+    assert.ok(resp.body.error.details.length > 0, "expected error details");
+    assert.equal(resp.body.error.details[0].field, "total");
+  });
+
+  it("accepts record passing field rule with 201", async () => {
+    const resp = await request(app, "POST", `/api/${entityName}`, {
+      total: 100,
+      name: "Good Record",
+    });
+    assert.equal(resp.status, 201, `expected 201, got ${resp.status}: ${JSON.stringify(resp.body)}`);
+  });
+});
+
+describe("computed field enforcement", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_computed_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create entity with subtotal, tax_rate, total
+    const resp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "subtotal", type: "decimal", precision: 2 },
+        { name: "tax_rate", type: "decimal", precision: 4 },
+        { name: "total", type: "decimal", precision: 2 },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+
+    // Add computed rule: total = subtotal * (1 + tax_rate)
+    const ruleResp = await request(app, "POST", "/api/_admin/rules", {
+      entity: entityName,
+      hook: "before_write",
+      type: "computed",
+      definition: {
+        field: "total",
+        expression: "record.subtotal * (1 + record.tax_rate)",
+      },
+      priority: 100,
+      active: true,
+    });
+    assert.equal(ruleResp.status, 201, `create rule failed: ${JSON.stringify(ruleResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _rules WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("computes field value from expression", async () => {
+    const resp = await request(app, "POST", `/api/${entityName}`, {
+      subtotal: 100,
+      tax_rate: 0.1,
+      name: "Computed Test",
+    });
+    assert.equal(resp.status, 201, `expected 201, got ${resp.status}: ${JSON.stringify(resp.body)}`);
+    assert.ok(resp.body.data.total !== null && resp.body.data.total !== undefined, "expected total to be computed");
+  });
+});
+
+describe("rules CRUD", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_rules_entity";
+  let ruleID: string;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create test entity
+    const resp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "total", type: "decimal", precision: 2 },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _rules WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("creates a rule", async () => {
+    const resp = await request(app, "POST", "/api/_admin/rules", {
+      entity: entityName,
+      hook: "before_write",
+      type: "field",
+      definition: { field: "total", operator: "min", value: 0, message: "Total must be non-negative" },
+      priority: 10,
+    });
+    assert.equal(resp.status, 201, `create rule failed: ${JSON.stringify(resp.body)}`);
+    ruleID = resp.body.data.id;
+    assert.ok(ruleID, "expected rule ID");
+  });
+
+  it("lists rules", async () => {
+    const resp = await request(app, "GET", "/api/_admin/rules");
+    assert.equal(resp.status, 200);
+  });
+
+  it("gets rule by ID", async () => {
+    const resp = await request(app, "GET", `/api/_admin/rules/${ruleID}`);
+    assert.equal(resp.status, 200);
+  });
+
+  it("updates a rule", async () => {
+    const resp = await request(app, "PUT", `/api/_admin/rules/${ruleID}`, {
+      entity: entityName,
+      hook: "before_write",
+      type: "field",
+      definition: { field: "total", operator: "min", value: -100, message: "Total must be at least -100" },
+      priority: 20,
+    });
+    assert.equal(resp.status, 200, `update rule failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  it("deletes a rule", async () => {
+    const resp = await request(app, "DELETE", `/api/_admin/rules/${ruleID}`);
+    assert.equal(resp.status, 200);
+  });
+
+  it("returns 404 for deleted rule", async () => {
+    const resp = await request(app, "GET", `/api/_admin/rules/${ruleID}`);
+    assert.equal(resp.status, 404);
+  });
+});
+
 describe("unique constraint → 409 CONFLICT", () => {
   let store: Store;
   let registry: Registry;

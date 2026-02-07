@@ -5,6 +5,7 @@ import type { Registry } from "../metadata/registry.js";
 import type { Migrator } from "../store/migrator.js";
 import type { Entity, Relation } from "../metadata/types.js";
 import { hasField, isManyToMany } from "../metadata/types.js";
+import type { Rule } from "../metadata/rule.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
 
@@ -236,6 +237,118 @@ export class AdminHandler {
 
     res.json({ data: { name, deleted: true } });
   });
+
+  // --- Rule Endpoints ---
+
+  listRules = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules ORDER BY entity, priority",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getRule = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Rule not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createRule = asyncHandler(async (req: Request, res: Response) => {
+    const rule = req.body as Rule;
+    if (!rule || typeof rule !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const err = validateRule(rule, this.registry);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    const row = await queryRow(
+      this.store.pool,
+      "INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+      [
+        rule.entity,
+        rule.hook,
+        rule.type,
+        JSON.stringify(rule.definition),
+        rule.priority ?? 0,
+        rule.active ?? true,
+      ],
+    );
+    rule.id = row.id;
+
+    await reload(this.store.pool, this.registry);
+
+    res.status(201).json({ data: rule });
+  });
+
+  updateRule = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _rules WHERE id = $1", [
+        id,
+      ]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Rule not found: ${id}`);
+    }
+
+    const rule = req.body as Rule;
+    if (!rule || typeof rule !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    rule.id = id;
+
+    const err = validateRule(rule, this.registry);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    await exec(
+      this.store.pool,
+      "UPDATE _rules SET entity = $1, hook = $2, type = $3, definition = $4, priority = $5, active = $6, updated_at = NOW() WHERE id = $7",
+      [
+        rule.entity,
+        rule.hook,
+        rule.type,
+        JSON.stringify(rule.definition),
+        rule.priority ?? 0,
+        rule.active ?? true,
+        id,
+      ],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: rule });
+  });
+
+  deleteRule = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _rules WHERE id = $1", [
+        id,
+      ]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Rule not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _rules WHERE id = $1", [id]);
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: { id, deleted: true } });
+  });
 }
 
 export function registerAdminRoutes(
@@ -256,6 +369,12 @@ export function registerAdminRoutes(
   admin.put("/relations/:name", handler.updateRelation);
   admin.delete("/relations/:name", handler.deleteRelation);
 
+  admin.get("/rules", handler.listRules);
+  admin.get("/rules/:id", handler.getRule);
+  admin.post("/rules", handler.createRule);
+  admin.put("/rules/:id", handler.updateRule);
+  admin.delete("/rules/:id", handler.deleteRule);
+
   app.use("/api/_admin", admin);
 }
 
@@ -269,6 +388,17 @@ function validateEntity(e: Entity): string | null {
   if (!e.primary_key?.field) return "primary key field is required";
   if (!hasField(e, e.primary_key.field))
     return `primary key field ${e.primary_key.field} not found in fields`;
+  return null;
+}
+
+function validateRule(r: Rule, registry: Registry): string | null {
+  if (!r.entity) return "entity is required";
+  if (!registry.getEntity(r.entity))
+    return `entity not found: ${r.entity}`;
+  if (!["before_write", "before_delete"].includes(r.hook))
+    return `invalid hook: ${r.hook} (must be before_write or before_delete)`;
+  if (!["field", "expression", "computed"].includes(r.type))
+    return `invalid rule type: ${r.type} (must be field, expression, or computed)`;
   return null;
 }
 
