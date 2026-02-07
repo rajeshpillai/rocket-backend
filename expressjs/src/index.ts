@@ -9,6 +9,8 @@ import { loadAll } from "./metadata/loader.js";
 import { Handler } from "./engine/handler.js";
 import { registerDynamicRoutes } from "./engine/router.js";
 import { AdminHandler, registerAdminRoutes } from "./admin/handler.js";
+import { WorkflowHandler, registerWorkflowRoutes } from "./engine/workflow-handler.js";
+import { WorkflowScheduler } from "./engine/workflow-scheduler.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 async function main() {
@@ -55,14 +57,22 @@ async function main() {
   const adminHandler = new AdminHandler(store, registry, migrator);
   registerAdminRoutes(app, adminHandler);
 
-  // 9. Register dynamic entity routes
+  // 9. Register workflow runtime routes (before dynamic routes)
+  const workflowHandler = new WorkflowHandler(store, registry);
+  registerWorkflowRoutes(app, workflowHandler);
+
+  // 10. Register dynamic entity routes
   const engineHandler = new Handler(store, registry);
   registerDynamicRoutes(app, engineHandler);
 
-  // 10. Error handler (must be last middleware)
+  // 11. Error handler (must be last middleware)
   app.use(errorHandler);
 
-  // 11. Start server
+  // 12. Start workflow scheduler
+  const scheduler = new WorkflowScheduler(store, registry);
+  scheduler.start();
+
+  // 13. Start server
   const port = cfg.server.port;
   app.listen(port, () => {
     console.log(`Starting server on :${port}`);

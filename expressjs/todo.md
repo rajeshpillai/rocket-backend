@@ -33,10 +33,18 @@
 - [x] State machine evaluation wired into write pipeline (after rules, before SQL)
 - [x] Integration tests (5 enforcement + 6 CRUD)
 
-## Phase 3: Workflows
-- [ ] Workflow engine (approval steps, conditions, timeouts)
-- [ ] _workflow_instances table and scheduler
-- [ ] Approval endpoints
+## Phase 3: Workflows [DONE]
+- [x] `_workflows` + `_workflow_instances` system tables + bootstrap DDL
+- [x] Workflow metadata types (interfaces, parseStepGoto, normalizeWorkflowSteps)
+- [x] Registry integration (workflowsByTrigger, workflowsByName, getWorkflowsForTrigger, getWorkflow)
+- [x] Loader (loadWorkflows from _workflows table)
+- [x] Admin API for workflow CRUD (`/api/_admin/workflows`) with validation
+- [x] Workflow execution engine (triggerWorkflows, advanceWorkflow, executeStep)
+- [x] Step types: action (set_field UPDATE), condition (Function + with(env)), approval (pause + deadline)
+- [x] Post-commit workflow trigger hook in nested-write.ts
+- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`)
+- [x] Background timeout scheduler (60s setInterval)
+- [x] Integration tests (7 new workflow tests: CRUD, trigger, approval, rejection, condition branching)
 
 ## Phase 4: Auth & Permissions
 - [ ] JWT login/refresh flow

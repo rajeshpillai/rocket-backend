@@ -68,11 +68,20 @@ func main() {
 	adminHandler := admin.NewHandler(db, reg, migrator)
 	admin.RegisterAdminRoutes(app, adminHandler)
 
-	// 9. Register dynamic entity routes
+	// 9. Register workflow runtime routes (before dynamic routes)
+	workflowHandler := engine.NewWorkflowHandler(db, reg)
+	engine.RegisterWorkflowRoutes(app, workflowHandler)
+
+	// 10. Register dynamic entity routes
 	engineHandler := engine.NewHandler(db, reg)
 	engine.RegisterDynamicRoutes(app, engineHandler)
 
-	// 10. Start server
+	// 11. Start workflow scheduler
+	scheduler := engine.NewWorkflowScheduler(db, reg)
+	scheduler.Start()
+	defer scheduler.Stop()
+
+	// 12. Start server
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	log.Printf("Starting server on %s", addr)
 	log.Fatal(app.Listen(addr))

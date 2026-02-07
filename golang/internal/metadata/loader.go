@@ -35,8 +35,14 @@ func LoadAll(ctx context.Context, pool *pgxpool.Pool, reg *Registry) error {
 	}
 	reg.LoadStateMachines(machines)
 
-	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines into registry",
-		len(entities), len(relations), len(rules), len(machines))
+	workflows, err := loadWorkflows(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("load workflows: %w", err)
+	}
+	reg.LoadWorkflows(workflows)
+
+	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines, %d workflows into registry",
+		len(entities), len(relations), len(rules), len(machines), len(workflows))
 	return nil
 }
 
@@ -141,4 +147,36 @@ func loadStateMachines(ctx context.Context, pool *pgxpool.Pool) ([]*StateMachine
 		machines = append(machines, &sm)
 	}
 	return machines, rows.Err()
+}
+
+func loadWorkflows(ctx context.Context, pool *pgxpool.Pool) ([]*Workflow, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workflows []*Workflow
+	for rows.Next() {
+		var wf Workflow
+		var triggerJSON, contextJSON, stepsJSON []byte
+		if err := rows.Scan(&wf.ID, &wf.Name, &triggerJSON, &contextJSON, &stepsJSON, &wf.Active); err != nil {
+			return nil, fmt.Errorf("scan workflow row: %w", err)
+		}
+		if err := json.Unmarshal(triggerJSON, &wf.Trigger); err != nil {
+			log.Printf("WARN: skipping workflow %s (invalid trigger JSON): %v", wf.Name, err)
+			continue
+		}
+		if err := json.Unmarshal(contextJSON, &wf.Context); err != nil {
+			log.Printf("WARN: skipping workflow %s (invalid context JSON): %v", wf.Name, err)
+			continue
+		}
+		if err := json.Unmarshal(stepsJSON, &wf.Steps); err != nil {
+			log.Printf("WARN: skipping workflow %s (invalid steps JSON): %v", wf.Name, err)
+			continue
+		}
+		workflows = append(workflows, &wf)
+	}
+	return workflows, rows.Err()
 }

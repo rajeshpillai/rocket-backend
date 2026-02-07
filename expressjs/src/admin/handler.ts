@@ -8,6 +8,8 @@ import { hasField, isManyToMany } from "../metadata/types.js";
 import type { Rule } from "../metadata/rule.js";
 import type { StateMachine } from "../metadata/state-machine.js";
 import { normalizeDefinition } from "../metadata/state-machine.js";
+import type { Workflow } from "../metadata/workflow.js";
+import { normalizeWorkflowSteps } from "../metadata/workflow.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
 
@@ -458,6 +460,126 @@ export class AdminHandler {
 
     res.json({ data: { id, deleted: true } });
   });
+
+  // --- Workflow Endpoints ---
+
+  listWorkflows = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows ORDER BY name",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getWorkflow = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Workflow not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createWorkflow = asyncHandler(async (req: Request, res: Response) => {
+    const wf = req.body as Workflow;
+    if (!wf || typeof wf !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const err = validateWorkflow(wf);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    wf.steps = normalizeWorkflowSteps(wf.steps);
+
+    const row = await queryRow(
+      this.store.pool,
+      `INSERT INTO _workflows (name, trigger, context, steps, active)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [
+        wf.name,
+        JSON.stringify(wf.trigger),
+        JSON.stringify(wf.context ?? {}),
+        JSON.stringify(wf.steps),
+        wf.active ?? true,
+      ],
+    );
+    wf.id = row.id;
+
+    await reload(this.store.pool, this.registry);
+
+    res.status(201).json({ data: wf });
+  });
+
+  updateWorkflow = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(
+        this.store.pool,
+        "SELECT id FROM _workflows WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Workflow not found: ${id}`);
+    }
+
+    const wf = req.body as Workflow;
+    if (!wf || typeof wf !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    wf.id = id;
+
+    const err = validateWorkflow(wf);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    wf.steps = normalizeWorkflowSteps(wf.steps);
+
+    await exec(
+      this.store.pool,
+      `UPDATE _workflows SET name = $1, trigger = $2, context = $3, steps = $4, active = $5, updated_at = NOW() WHERE id = $6`,
+      [
+        wf.name,
+        JSON.stringify(wf.trigger),
+        JSON.stringify(wf.context ?? {}),
+        JSON.stringify(wf.steps),
+        wf.active ?? true,
+        id,
+      ],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: wf });
+  });
+
+  deleteWorkflow = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(
+        this.store.pool,
+        "SELECT id FROM _workflows WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Workflow not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _workflows WHERE id = $1", [id]);
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: { id, deleted: true } });
+  });
 }
 
 export function registerAdminRoutes(
@@ -489,6 +611,12 @@ export function registerAdminRoutes(
   admin.post("/state-machines", handler.createStateMachine);
   admin.put("/state-machines/:id", handler.updateStateMachine);
   admin.delete("/state-machines/:id", handler.deleteStateMachine);
+
+  admin.get("/workflows", handler.listWorkflows);
+  admin.get("/workflows/:id", handler.getWorkflow);
+  admin.post("/workflows", handler.createWorkflow);
+  admin.put("/workflows/:id", handler.updateWorkflow);
+  admin.delete("/workflows/:id", handler.deleteWorkflow);
 
   app.use("/api/_admin", admin);
 }
@@ -530,6 +658,40 @@ function validateStateMachine(
     sm.definition.transitions.length === 0
   )
     return "at least one transition is required";
+  return null;
+}
+
+function validateWorkflow(wf: Workflow): string | null {
+  if (!wf.name) return "workflow name is required";
+  if (!wf.trigger?.type) return "trigger type is required";
+  if (wf.trigger.type !== "state_change") return `unsupported trigger type: ${wf.trigger.type}`;
+  if (!wf.trigger.entity) return "trigger entity is required";
+  if (!wf.steps || wf.steps.length === 0) return "at least one step is required";
+
+  // Validate step IDs are unique
+  const stepIDs = new Set<string>();
+  for (const step of wf.steps) {
+    if (!step.id) return "step id is required";
+    if (stepIDs.has(step.id)) return `duplicate step id: ${step.id}`;
+    stepIDs.add(step.id);
+  }
+
+  // Validate step types and goto targets
+  const validTypes = new Set(["action", "condition", "approval"]);
+  for (const step of wf.steps) {
+    if (!validTypes.has(step.type)) return `invalid step type: ${step.type}`;
+
+    // Check goto targets reference valid step IDs or "end"
+    const gotos: any[] = [step.then, step.on_true, step.on_false, step.on_approve, step.on_reject, step.on_timeout];
+    for (const g of gotos) {
+      if (g == null) continue;
+      const target = typeof g === "string" ? g : g.goto;
+      if (target && target !== "end" && !stepIDs.has(target)) {
+        return `goto target '${target}' references unknown step`;
+      }
+    }
+  }
+
   return null;
 }
 

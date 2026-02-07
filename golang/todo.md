@@ -32,10 +32,18 @@
 - [x] State machine evaluation wired into write pipeline (after rules, before SQL)
 - [x] Unit tests (10) + integration tests (enforcement + CRUD)
 
-## Phase 3: Workflows
-- [ ] Workflow engine (approval steps, conditions, timeouts)
-- [ ] _workflow_instances table and scheduler
-- [ ] Approval endpoints
+## Phase 3: Workflows [DONE]
+- [x] `_workflows` + `_workflow_instances` system tables + bootstrap DDL
+- [x] Workflow metadata types (Workflow, WorkflowStep, StepGoto with custom JSON marshal)
+- [x] Registry integration (workflowsByTrigger, workflowsByName, GetWorkflowsForTrigger, GetWorkflow)
+- [x] Loader (loadWorkflows from _workflows table)
+- [x] Admin API for workflow CRUD (`/api/_admin/workflows`) with validation
+- [x] Workflow execution engine (TriggerWorkflows, advanceWorkflow, executeStep)
+- [x] Step types: action (set_field UPDATE), condition (expr-lang/expr), approval (pause + deadline)
+- [x] Post-commit workflow trigger hook in nested_write.go
+- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`)
+- [x] Background timeout scheduler (60s goroutine ticker)
+- [x] Unit tests (8 metadata + engine tests) + integration tests (11 tests: CRUD, trigger, approval, rejection, condition branching)
 
 ## Phase 4: Auth & Permissions
 - [ ] JWT login/refresh flow

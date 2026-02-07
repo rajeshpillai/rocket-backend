@@ -15,6 +15,7 @@ import {
 import { executeChildWrite } from "./diff.js";
 import { evaluateRules } from "./rules.js";
 import { evaluateStateMachines } from "./state-machine.js";
+import { triggerWorkflows } from "./workflow.js";
 
 export interface WritePlan {
   isCreate: boolean;
@@ -125,8 +126,22 @@ export async function executeWritePlan(
 
     await client.query("COMMIT");
 
-    // Fetch and return the full record
-    return fetchRecord(store.pool, plan.entity, parentID);
+    // Fetch the full record
+    const result = await fetchRecord(store.pool, plan.entity, parentID);
+
+    // Post-commit: trigger workflows for state transitions
+    const machines = registry.getStateMachinesForEntity(plan.entity.name);
+    for (const sm of machines) {
+      const oldState = old[sm.field] != null ? String(old[sm.field]) : "";
+      const newState = result[sm.field] != null ? String(result[sm.field]) : "";
+      if (oldState !== newState && newState !== "") {
+        triggerWorkflows(store, registry, plan.entity.name, sm.field, newState, result, parentID).catch((err) => {
+          console.error(`ERROR: triggering workflows for ${plan.entity.name}.${sm.field} -> ${newState}:`, err);
+        });
+      }
+    }
+
+    return result;
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

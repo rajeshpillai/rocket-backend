@@ -4,6 +4,8 @@ import type { Entity, Relation } from "./types.js";
 import type { Rule, RuleDefinition } from "./rule.js";
 import type { StateMachine, StateMachineDefinition } from "./state-machine.js";
 import { normalizeDefinition } from "./state-machine.js";
+import type { Workflow, WorkflowTrigger, WorkflowStep } from "./workflow.js";
+import { normalizeWorkflowSteps } from "./workflow.js";
 
 export async function loadAll(
   pool: Queryable,
@@ -19,8 +21,11 @@ export async function loadAll(
   const machines = await loadStateMachines(pool);
   registry.loadStateMachines(machines);
 
+  const workflows = await loadWorkflows(pool);
+  registry.loadWorkflows(workflows);
+
   console.log(
-    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines into registry`,
+    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines, ${workflows.length} workflows into registry`,
   );
 }
 
@@ -125,4 +130,38 @@ async function loadStateMachines(pool: Queryable): Promise<StateMachine[]> {
     }
   }
   return machines;
+}
+
+async function loadWorkflows(pool: Queryable): Promise<Workflow[]> {
+  const result = await pool.query(
+    "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name",
+  );
+  const workflows: Workflow[] = [];
+  for (const row of result.rows) {
+    try {
+      const trigger: WorkflowTrigger =
+        typeof row.trigger === "string"
+          ? JSON.parse(row.trigger)
+          : row.trigger;
+      const context: Record<string, string> =
+        typeof row.context === "string"
+          ? JSON.parse(row.context)
+          : (row.context ?? {});
+      const rawSteps: any[] =
+        typeof row.steps === "string"
+          ? JSON.parse(row.steps)
+          : (row.steps ?? []);
+      workflows.push({
+        id: row.id,
+        name: row.name,
+        trigger,
+        context,
+        steps: normalizeWorkflowSteps(rawSteps),
+        active: row.active,
+      });
+    } catch (err) {
+      console.warn(`WARN: skipping workflow ${row.name} (invalid JSON):`, err);
+    }
+  }
+  return workflows;
 }

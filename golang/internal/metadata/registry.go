@@ -12,6 +12,8 @@ type Registry struct {
 	relationsByName         map[string]*Relation         // keyed by relation name
 	rulesByEntity           map[string][]*Rule           // keyed by entity name, sorted by priority
 	stateMachinesByEntity   map[string][]*StateMachine   // keyed by entity name
+	workflowsByTrigger      map[string][]*Workflow       // keyed by "entity:field:toState"
+	workflowsByName         map[string]*Workflow         // keyed by workflow name
 }
 
 func NewRegistry() *Registry {
@@ -21,6 +23,8 @@ func NewRegistry() *Registry {
 		relationsByName:       make(map[string]*Relation),
 		rulesByEntity:         make(map[string][]*Rule),
 		stateMachinesByEntity: make(map[string][]*StateMachine),
+		workflowsByTrigger:    make(map[string][]*Workflow),
+		workflowsByName:       make(map[string]*Workflow),
 	}
 }
 
@@ -143,6 +147,44 @@ func (r *Registry) LoadStateMachines(machines []*StateMachine) {
 	r.stateMachinesByEntity = make(map[string][]*StateMachine)
 	for _, sm := range machines {
 		r.stateMachinesByEntity[sm.Entity] = append(r.stateMachinesByEntity[sm.Entity], sm)
+	}
+}
+
+// GetWorkflowsForTrigger returns active workflows matching the given trigger key.
+func (r *Registry) GetWorkflowsForTrigger(entity, field, toState string) []*Workflow {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	key := entity + ":" + field + ":" + toState
+	all := r.workflowsByTrigger[key]
+	var result []*Workflow
+	for _, wf := range all {
+		if wf.Active {
+			result = append(result, wf)
+		}
+	}
+	return result
+}
+
+// GetWorkflow returns a workflow by name, or nil.
+func (r *Registry) GetWorkflow(name string) *Workflow {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.workflowsByName[name]
+}
+
+// LoadWorkflows replaces all workflows in the registry.
+func (r *Registry) LoadWorkflows(workflows []*Workflow) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.workflowsByTrigger = make(map[string][]*Workflow)
+	r.workflowsByName = make(map[string]*Workflow, len(workflows))
+	for _, wf := range workflows {
+		r.workflowsByName[wf.Name] = wf
+		if wf.Trigger.Type == "state_change" {
+			key := wf.Trigger.Entity + ":" + wf.Trigger.Field + ":" + wf.Trigger.To
+			r.workflowsByTrigger[key] = append(r.workflowsByTrigger[key], wf)
+		}
 	}
 }
 

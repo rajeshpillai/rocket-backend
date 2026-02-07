@@ -9,6 +9,7 @@ import { loadAll, reload } from "../metadata/loader.js";
 import { Handler } from "./handler.js";
 import { registerDynamicRoutes } from "./router.js";
 import { AdminHandler, registerAdminRoutes } from "../admin/handler.js";
+import { WorkflowHandler, registerWorkflowRoutes } from "./workflow-handler.js";
 import { errorHandler } from "../middleware/error-handler.js";
 
 const ENTITY_NAME = "_test_unique_users";
@@ -20,6 +21,9 @@ function buildApp(store: Store, registry: Registry): express.Express {
   const migrator = new Migrator(store);
   const adminHandler = new AdminHandler(store, registry, migrator);
   registerAdminRoutes(app, adminHandler);
+
+  const workflowHandler = new WorkflowHandler(store, registry);
+  registerWorkflowRoutes(app, workflowHandler);
 
   const engineHandler = new Handler(store, registry);
   registerDynamicRoutes(app, engineHandler);
@@ -33,6 +37,7 @@ async function request(
   method: string,
   path: string,
   body?: any,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ status: number; body: any }> {
   const { default: http } = await import("node:http");
   const server = http.createServer(app);
@@ -49,6 +54,7 @@ async function request(
         headers: {
           "Content-Type": "application/json",
           ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
+          ...(extraHeaders ?? {}),
         },
       };
 
@@ -604,5 +610,554 @@ describe("unique constraint → 409 CONFLICT", () => {
     });
     assert.equal(resp2.status, 409, `expected 409, got ${resp2.status}: ${JSON.stringify(resp2.body)}`);
     assert.equal(resp2.body.error.code, "CONFLICT");
+  });
+});
+
+// --- Workflow Tests ---
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+describe("workflow CRUD", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  let workflowID: string;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+  });
+
+  after(async () => {
+    if (workflowID) {
+      await exec(store.pool, "DELETE FROM _workflows WHERE id = $1", [workflowID]);
+    }
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("creates a workflow", async () => {
+    const resp = await request(app, "POST", "/api/_admin/workflows", {
+      name: "_test_wf_crud",
+      trigger: { type: "state_change", entity: "orders", field: "status", to: "approved" },
+      context: { record_id: "trigger.record_id" },
+      steps: [
+        { id: "step1", type: "action", actions: [], then: "end" },
+      ],
+      active: true,
+    });
+    assert.equal(resp.status, 201, `create workflow failed: ${JSON.stringify(resp.body)}`);
+    workflowID = resp.body.data.id;
+    assert.ok(workflowID, "expected workflow ID");
+  });
+
+  it("lists workflows", async () => {
+    const resp = await request(app, "GET", "/api/_admin/workflows");
+    assert.equal(resp.status, 200);
+    assert.ok(resp.body.data.length > 0, "expected at least one workflow");
+  });
+
+  it("gets workflow by ID", async () => {
+    const resp = await request(app, "GET", `/api/_admin/workflows/${workflowID}`);
+    assert.equal(resp.status, 200);
+    assert.equal(resp.body.data.name, "_test_wf_crud");
+  });
+
+  it("updates a workflow", async () => {
+    const resp = await request(app, "PUT", `/api/_admin/workflows/${workflowID}`, {
+      name: "_test_wf_crud_updated",
+      trigger: { type: "state_change", entity: "orders", field: "status", to: "shipped" },
+      context: {},
+      steps: [
+        { id: "step1", type: "action", actions: [], then: "end" },
+        { id: "step2", type: "condition", expression: "true", on_true: "end", on_false: "end" },
+      ],
+      active: true,
+    });
+    assert.equal(resp.status, 200, `update workflow failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  it("deletes a workflow", async () => {
+    const resp = await request(app, "DELETE", `/api/_admin/workflows/${workflowID}`);
+    assert.equal(resp.status, 200);
+    workflowID = ""; // prevent double delete in after()
+  });
+
+  it("returns 404 for deleted workflow", async () => {
+    const resp = await request(app, "GET", "/api/_admin/workflows/00000000-0000-0000-0000-000000000000");
+    assert.equal(resp.status, 404);
+  });
+});
+
+describe("workflow trigger and execution", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_wf_trigger_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create entity
+    const entityResp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "amount", type: "decimal", precision: 2 },
+        { name: "approved_at", type: "string" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(entityResp.status, 201, `create entity failed: ${JSON.stringify(entityResp.body)}`);
+
+    // Create state machine
+    const smResp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "draft",
+        transitions: [
+          { from: "draft", to: "approved" },
+          { from: "approved", to: "completed" },
+        ],
+      },
+      active: true,
+    });
+    assert.equal(smResp.status, 201, `create SM failed: ${JSON.stringify(smResp.body)}`);
+
+    // Create workflow triggered by status → approved
+    const wfResp = await request(app, "POST", "/api/_admin/workflows", {
+      name: "_test_wf_trigger",
+      trigger: { type: "state_change", entity: entityName, field: "status", to: "approved" },
+      context: { record_id: "trigger.record_id", amount: "trigger.record.amount" },
+      steps: [
+        {
+          id: "set_approved_at",
+          type: "action",
+          actions: [
+            { type: "set_field", entity: entityName, record_id: "context.record_id", field: "approved_at", value: "now" },
+          ],
+          then: "end",
+        },
+      ],
+      active: true,
+    });
+    assert.equal(wfResp.status, 201, `create workflow failed: ${JSON.stringify(wfResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _workflow_instances WHERE workflow_name = '_test_wf_trigger'`);
+    await exec(store.pool, `DELETE FROM _workflows WHERE name = '_test_wf_trigger'`);
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("triggers workflow on state transition and executes action", async () => {
+    // Create record
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      amount: 500,
+      name: "Test Order",
+    });
+    assert.equal(createResp.status, 201, `create record failed: ${JSON.stringify(createResp.body)}`);
+    const id = createResp.body.data.id;
+
+    // Transition draft → approved (triggers workflow)
+    const updateResp = await request(app, "PUT", `/api/${entityName}/${id}`, {
+      status: "approved",
+    });
+    assert.equal(updateResp.status, 200, `update record failed: ${JSON.stringify(updateResp.body)}`);
+
+    // Wait briefly for async workflow to complete
+    await sleep(200);
+
+    // Verify approved_at was set by workflow action
+    const getResp = await request(app, "GET", `/api/${entityName}/${id}`);
+    assert.equal(getResp.status, 200);
+    assert.ok(getResp.body.data.approved_at, "expected approved_at to be set by workflow");
+  });
+});
+
+describe("workflow approval flow", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_wf_approval_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create entity
+    const entityResp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "amount", type: "decimal", precision: 2 },
+        { name: "approved_at", type: "string" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(entityResp.status, 201);
+
+    // Create state machine
+    const smResp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "draft",
+        transitions: [
+          { from: "draft", to: "submitted" },
+          { from: "submitted", to: "completed" },
+        ],
+      },
+      active: true,
+    });
+    assert.equal(smResp.status, 201);
+
+    // Create workflow: submitted → approval step → action step
+    const wfResp = await request(app, "POST", "/api/_admin/workflows", {
+      name: "_test_wf_approval",
+      trigger: { type: "state_change", entity: entityName, field: "status", to: "submitted" },
+      context: { record_id: "trigger.record_id" },
+      steps: [
+        {
+          id: "approval",
+          type: "approval",
+          assignee: { type: "role", role: "manager" },
+          timeout: "72h",
+          on_approve: { goto: "mark_approved" },
+          on_reject: "end",
+        },
+        {
+          id: "mark_approved",
+          type: "action",
+          actions: [
+            { type: "set_field", entity: entityName, record_id: "context.record_id", field: "approved_at", value: "now" },
+          ],
+          then: "end",
+        },
+      ],
+      active: true,
+    });
+    assert.equal(wfResp.status, 201, `create workflow failed: ${JSON.stringify(wfResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _workflow_instances WHERE workflow_name = '_test_wf_approval'`);
+    await exec(store.pool, `DELETE FROM _workflows WHERE name = '_test_wf_approval'`);
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("pauses at approval step and resumes on approve", async () => {
+    // Create + transition to submitted
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      amount: 1000,
+      name: "Approval Test",
+    });
+    assert.equal(createResp.status, 201);
+    const recordID = createResp.body.data.id;
+
+    const updateResp = await request(app, "PUT", `/api/${entityName}/${recordID}`, {
+      status: "submitted",
+    });
+    assert.equal(updateResp.status, 200);
+
+    await sleep(200);
+
+    // Check pending instances
+    const pendingResp = await request(app, "GET", "/api/_workflows/pending");
+    assert.equal(pendingResp.status, 200);
+    const pending = pendingResp.body.data.filter((i: any) => i.workflow_name === "_test_wf_approval");
+    assert.ok(pending.length > 0, "expected pending workflow instance");
+    const instanceID = pending[0].id;
+
+    // Approve
+    const approveResp = await request(app, "POST", `/api/_workflows/${instanceID}/approve`, undefined, {
+      "X-User-ID": "manager1",
+    });
+    assert.equal(approveResp.status, 200, `approve failed: ${JSON.stringify(approveResp.body)}`);
+    assert.equal(approveResp.body.data.status, "completed");
+
+    // Verify approved_at was set
+    const getResp = await request(app, "GET", `/api/${entityName}/${recordID}`);
+    assert.equal(getResp.status, 200);
+    assert.ok(getResp.body.data.approved_at, "expected approved_at to be set after approval");
+  });
+});
+
+describe("workflow rejection", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_wf_reject_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    const entityResp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "amount", type: "decimal", precision: 2 },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(entityResp.status, 201);
+
+    const smResp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "draft",
+        transitions: [{ from: "draft", to: "submitted" }],
+      },
+      active: true,
+    });
+    assert.equal(smResp.status, 201);
+
+    const wfResp = await request(app, "POST", "/api/_admin/workflows", {
+      name: "_test_wf_reject",
+      trigger: { type: "state_change", entity: entityName, field: "status", to: "submitted" },
+      context: { record_id: "trigger.record_id" },
+      steps: [
+        {
+          id: "approval",
+          type: "approval",
+          on_approve: "end",
+          on_reject: "end",
+        },
+      ],
+      active: true,
+    });
+    assert.equal(wfResp.status, 201);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _workflow_instances WHERE workflow_name = '_test_wf_reject'`);
+    await exec(store.pool, `DELETE FROM _workflows WHERE name = '_test_wf_reject'`);
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("completes workflow on rejection via on_reject path", async () => {
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      amount: 100,
+      name: "Reject Test",
+    });
+    assert.equal(createResp.status, 201);
+    const recordID = createResp.body.data.id;
+
+    await request(app, "PUT", `/api/${entityName}/${recordID}`, { status: "submitted" });
+    await sleep(200);
+
+    const pendingResp = await request(app, "GET", "/api/_workflows/pending");
+    const pending = pendingResp.body.data.filter((i: any) => i.workflow_name === "_test_wf_reject");
+    assert.ok(pending.length > 0, "expected pending instance");
+    const instanceID = pending[0].id;
+
+    const rejectResp = await request(app, "POST", `/api/_workflows/${instanceID}/reject`, undefined, {
+      "X-User-ID": "admin1",
+    });
+    assert.equal(rejectResp.status, 200);
+    assert.equal(rejectResp.body.data.status, "completed");
+
+    // Check history includes rejection
+    const getResp = await request(app, "GET", `/api/_workflows/${instanceID}`);
+    assert.equal(getResp.status, 200);
+    const history = getResp.body.data.history;
+    assert.ok(history.some((h: any) => h.status === "rejected"), "expected rejected entry in history");
+  });
+});
+
+describe("workflow condition branching", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_wf_condition_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    const entityResp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "amount", type: "decimal", precision: 2 },
+        { name: "approved_at", type: "string" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(entityResp.status, 201);
+
+    const smResp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "draft",
+        transitions: [{ from: "draft", to: "submitted" }],
+      },
+      active: true,
+    });
+    assert.equal(smResp.status, 201);
+
+    // Workflow: condition checks amount < 1000 → auto-approve, else → manual approval
+    const wfResp = await request(app, "POST", "/api/_admin/workflows", {
+      name: "_test_wf_condition",
+      trigger: { type: "state_change", entity: entityName, field: "status", to: "submitted" },
+      context: { record_id: "trigger.record_id", amount: "trigger.record.amount" },
+      steps: [
+        {
+          id: "check_amount",
+          type: "condition",
+          expression: "context.amount < 1000",
+          on_true: { goto: "auto_approve" },
+          on_false: { goto: "manual_approval" },
+        },
+        {
+          id: "auto_approve",
+          type: "action",
+          actions: [
+            { type: "set_field", entity: entityName, record_id: "context.record_id", field: "approved_at", value: "now" },
+          ],
+          then: "end",
+        },
+        {
+          id: "manual_approval",
+          type: "approval",
+          on_approve: "end",
+          on_reject: "end",
+        },
+      ],
+      active: true,
+    });
+    assert.equal(wfResp.status, 201, `create workflow failed: ${JSON.stringify(wfResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _workflow_instances WHERE workflow_name = '_test_wf_condition'`);
+    await exec(store.pool, `DELETE FROM _workflows WHERE name = '_test_wf_condition'`);
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("auto-approves small amounts via condition branch", async () => {
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      amount: 500,
+      name: "Small Order",
+    });
+    assert.equal(createResp.status, 201);
+    const id = createResp.body.data.id;
+
+    await request(app, "PUT", `/api/${entityName}/${id}`, { status: "submitted" });
+    await sleep(200);
+
+    // Verify auto-approved (approved_at set, no pending instance)
+    const getResp = await request(app, "GET", `/api/${entityName}/${id}`);
+    assert.equal(getResp.status, 200);
+    assert.ok(getResp.body.data.approved_at, "expected approved_at to be set for small amount");
+  });
+
+  it("requires manual approval for large amounts via condition branch", async () => {
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      amount: 5000,
+      name: "Large Order",
+    });
+    assert.equal(createResp.status, 201);
+    const id = createResp.body.data.id;
+
+    await request(app, "PUT", `/api/${entityName}/${id}`, { status: "submitted" });
+    await sleep(200);
+
+    // Should be paused at manual_approval step
+    const pendingResp = await request(app, "GET", "/api/_workflows/pending");
+    const pending = pendingResp.body.data.filter(
+      (i: any) => i.workflow_name === "_test_wf_condition" && i.current_step === "manual_approval",
+    );
+    assert.ok(pending.length > 0, "expected pending approval for large amount");
   });
 });

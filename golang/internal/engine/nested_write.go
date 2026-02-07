@@ -118,8 +118,28 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	// Fetch and return the full record
-	return fetchRecord(ctx, s.Pool, plan.Entity, parentID)
+	// Fetch the full record
+	record, err := fetchRecord(ctx, s.Pool, plan.Entity, parentID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Post-commit: trigger workflows for state transitions
+	for _, sm := range reg.GetStateMachinesForEntity(plan.Entity.Name) {
+		oldState := ""
+		if v, ok := old[sm.Field]; ok && v != nil {
+			oldState = fmt.Sprintf("%v", v)
+		}
+		newState := ""
+		if v, ok := plan.Fields[sm.Field]; ok && v != nil {
+			newState = fmt.Sprintf("%v", v)
+		}
+		if newState != "" && oldState != newState {
+			TriggerWorkflows(ctx, s, reg, plan.Entity.Name, sm.Field, newState, record, parentID)
+		}
+	}
+
+	return record, nil
 }
 
 func fetchRecord(ctx context.Context, q store.Querier, entity *metadata.Entity, id any) (map[string]any, error) {

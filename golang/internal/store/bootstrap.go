@@ -44,6 +44,30 @@ CREATE TABLE IF NOT EXISTS _state_machines (
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS _workflows (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        TEXT NOT NULL UNIQUE,
+    trigger     JSONB NOT NULL,
+    context     JSONB NOT NULL DEFAULT '{}',
+    steps       JSONB NOT NULL DEFAULT '[]',
+    active      BOOLEAN NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS _workflow_instances (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id           UUID NOT NULL REFERENCES _workflows(id) ON DELETE CASCADE,
+    workflow_name         TEXT NOT NULL,
+    status                TEXT NOT NULL DEFAULT 'running',
+    current_step          TEXT,
+    current_step_deadline TIMESTAMPTZ,
+    context               JSONB NOT NULL DEFAULT '{}',
+    history               JSONB NOT NULL DEFAULT '[]',
+    created_at            TIMESTAMPTZ DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ DEFAULT NOW()
+);
 `
 
 func (s *Store) Bootstrap(ctx context.Context) error {

@@ -5,6 +5,8 @@ const navItems = [
   { href: "/relations", label: "Relations", icon: "⇄" },
   { href: "/rules", label: "Rules", icon: "✓" },
   { href: "/state-machines", label: "State Machines", icon: "⇆" },
+  { href: "/workflows", label: "Workflows", icon: "⟳" },
+  { href: "/workflow-monitor", label: "Workflow Monitor", icon: "▶" },
   { href: "/data", label: "Data Browser", icon: "▤" },
 ];
 

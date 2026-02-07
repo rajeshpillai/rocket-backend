@@ -58,6 +58,8 @@ func testApp(t *testing.T, s *store.Store, reg *metadata.Registry) *fiber.App {
 	migrator := store.NewMigrator(s)
 	adminH := admin.NewHandler(s, reg, migrator)
 	admin.RegisterAdminRoutes(app, adminH)
+	wfH := engine.NewWorkflowHandler(s, reg)
+	engine.RegisterWorkflowRoutes(app, wfH)
 	engineH := engine.NewHandler(s, reg)
 	engine.RegisterDynamicRoutes(app, engineH)
 	return app
@@ -676,5 +678,650 @@ func TestRulesCRUD(t *testing.T) {
 	resp = doRequest(t, app, "GET", "/api/_admin/rules/"+ruleID, nil)
 	if resp.StatusCode != 404 {
 		t.Fatalf("get deleted rule: expected 404, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestWorkflowCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// 1. Create workflow
+	wfDef := map[string]any{
+		"name": "test_wf_crud",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": "order", "field": "status", "to": "pending",
+		},
+		"context": map[string]any{"id": "trigger.record_id"},
+		"steps": []any{
+			map[string]any{
+				"id": "auto_approve", "type": "action",
+				"actions": []any{},
+				"then":    "end",
+			},
+		},
+		"active": true,
+	}
+	resp := doRequest(t, app, "POST", "/api/_admin/workflows", wfDef)
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create workflow: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var createResp map[string]any
+	json.Unmarshal(body, &createResp)
+	data := createResp["data"].(map[string]any)
+	wfID := data["id"].(string)
+	if wfID == "" {
+		t.Fatal("expected workflow ID")
+	}
+
+	// 2. List workflows
+	resp = doRequest(t, app, "GET", "/api/_admin/workflows", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list workflows: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 3. Get workflow by ID
+	resp = doRequest(t, app, "GET", "/api/_admin/workflows/"+wfID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get workflow: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 4. Update workflow
+	resp = doRequest(t, app, "PUT", "/api/_admin/workflows/"+wfID, map[string]any{
+		"name": "test_wf_crud",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": "order", "field": "status", "to": "approved",
+		},
+		"context": map[string]any{"id": "trigger.record_id"},
+		"steps": []any{
+			map[string]any{
+				"id": "auto_approve", "type": "action",
+				"actions": []any{},
+				"then":    "end",
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("update workflow: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 5. Delete workflow
+	resp = doRequest(t, app, "DELETE", "/api/_admin/workflows/"+wfID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("delete workflow: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 6. Verify deleted
+	resp = doRequest(t, app, "GET", "/api/_admin/workflows/"+wfID, nil)
+	if resp.StatusCode != 404 {
+		t.Fatalf("get deleted workflow: expected 404, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
+func TestWorkflowTriggerAndExecution(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_wf_trigger"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// 1. Create entity with status and reviewed fields
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "total", "type": "decimal", "precision": 2},
+			map[string]any{"name": "reviewed", "type": "boolean"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 2. Create state machine: draft → pending_approval
+	resp = doRequest(t, app, "POST", "/api/_admin/state-machines", map[string]any{
+		"entity": entityName, "field": "status",
+		"definition": map[string]any{
+			"initial": "draft",
+			"transitions": []any{
+				map[string]any{"from": "draft", "to": "pending_approval"},
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create sm: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 3. Create workflow: on status→pending_approval, set reviewed=true
+	resp = doRequest(t, app, "POST", "/api/_admin/workflows", map[string]any{
+		"name": "test_auto_review",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": entityName, "field": "status", "to": "pending_approval",
+		},
+		"context": map[string]any{
+			"record_id": "trigger.record_id",
+		},
+		"steps": []any{
+			map[string]any{
+				"id": "set_reviewed", "type": "action",
+				"actions": []any{
+					map[string]any{
+						"type": "set_field", "entity": entityName,
+						"record_id": "context.record_id", "field": "reviewed", "value": true,
+					},
+				},
+				"then": "end",
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create workflow: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 4. Create record with status=draft
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft", "total": 100, "name": "PO 1",
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create record: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var createResp map[string]any
+	json.Unmarshal(body, &createResp)
+	recordID := createResp["data"].(map[string]any)["id"].(string)
+
+	// 5. Transition to pending_approval → should trigger workflow
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, map[string]any{
+		"status": "pending_approval",
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("transition: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	// 6. Verify reviewed was set to true by workflow
+	resp = doRequest(t, app, "GET", "/api/"+entityName+"/"+recordID, nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get record: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var getResp map[string]any
+	json.Unmarshal(body, &getResp)
+	reviewed := getResp["data"].(map[string]any)["reviewed"]
+	if reviewed != true {
+		t.Fatalf("expected reviewed=true, got %v", reviewed)
+	}
+
+	// 7. Verify workflow instance was created and completed
+	resp = doRequest(t, app, "GET", "/api/_workflows/pending", nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list pending: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestWorkflowApprovalFlow(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_wf_approval"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// 1. Create entity
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "total", "type": "decimal", "precision": 2},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 2. Create state machine: draft → pending
+	resp = doRequest(t, app, "POST", "/api/_admin/state-machines", map[string]any{
+		"entity": entityName, "field": "status",
+		"definition": map[string]any{
+			"initial": "draft",
+			"transitions": []any{
+				map[string]any{"from": "draft", "to": "pending"},
+				map[string]any{"from": "pending", "to": "approved"},
+				map[string]any{"from": "pending", "to": "rejected"},
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create sm: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 3. Create workflow: approval step → on approve: set status=approved → end
+	resp = doRequest(t, app, "POST", "/api/_admin/workflows", map[string]any{
+		"name": "test_approval",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": entityName, "field": "status", "to": "pending",
+		},
+		"context": map[string]any{
+			"record_id": "trigger.record_id",
+		},
+		"steps": []any{
+			map[string]any{
+				"id": "mgr_approval", "type": "approval",
+				"assignee":   map[string]any{"type": "role", "role": "manager"},
+				"timeout":    "72h",
+				"on_approve": map[string]any{"goto": "do_approve"},
+				"on_reject":  map[string]any{"goto": "do_reject"},
+			},
+			map[string]any{
+				"id": "do_approve", "type": "action",
+				"actions": []any{
+					map[string]any{
+						"type": "set_field", "entity": entityName,
+						"record_id": "context.record_id", "field": "status", "value": "approved",
+					},
+				},
+				"then": "end",
+			},
+			map[string]any{
+				"id": "do_reject", "type": "action",
+				"actions": []any{
+					map[string]any{
+						"type": "set_field", "entity": entityName,
+						"record_id": "context.record_id", "field": "status", "value": "rejected",
+					},
+				},
+				"then": "end",
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create workflow: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 4. Create record and transition to pending
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft", "total": 100, "name": "PO 1",
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create record: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+	var createResp map[string]any
+	json.Unmarshal(body, &createResp)
+	recordID := createResp["data"].(map[string]any)["id"].(string)
+
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, map[string]any{
+		"status": "pending",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("transition to pending: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 5. Verify workflow is paused at approval step
+	resp = doRequest(t, app, "GET", "/api/_workflows/pending", nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list pending: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var pendingResp map[string]any
+	json.Unmarshal(body, &pendingResp)
+	pendingData := pendingResp["data"].([]any)
+	if len(pendingData) == 0 {
+		t.Fatal("expected at least 1 pending workflow instance")
+	}
+
+	instanceID := pendingData[0].(map[string]any)["id"].(string)
+	currentStep := pendingData[0].(map[string]any)["current_step"].(string)
+	if currentStep != "mgr_approval" {
+		t.Fatalf("expected current_step=mgr_approval, got %s", currentStep)
+	}
+
+	// 6. Get instance details
+	resp = doRequest(t, app, "GET", "/api/_workflows/"+instanceID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get instance: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 7. Approve
+	resp = doRequest(t, app, "POST", "/api/_workflows/"+instanceID+"/approve", nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("approve: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var approveResp map[string]any
+	json.Unmarshal(body, &approveResp)
+	instanceData := approveResp["data"].(map[string]any)
+	if instanceData["status"].(string) != "completed" {
+		t.Fatalf("expected status=completed, got %s", instanceData["status"])
+	}
+
+	// 8. Verify record status was set to "approved"
+	resp = doRequest(t, app, "GET", "/api/"+entityName+"/"+recordID, nil)
+	body = readBody(t, resp)
+	var getResp map[string]any
+	json.Unmarshal(body, &getResp)
+	finalStatus := getResp["data"].(map[string]any)["status"].(string)
+	if finalStatus != "approved" {
+		t.Fatalf("expected record status=approved, got %s", finalStatus)
+	}
+}
+
+func TestWorkflowRejection(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_wf_reject"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// Create entity + state machine + workflow (same as approval test)
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	doRequest(t, app, "POST", "/api/_admin/state-machines", map[string]any{
+		"entity": entityName, "field": "status",
+		"definition": map[string]any{
+			"initial": "draft",
+			"transitions": []any{
+				map[string]any{"from": "draft", "to": "pending"},
+				map[string]any{"from": "pending", "to": "rejected"},
+			},
+		},
+		"active": true,
+	})
+
+	doRequest(t, app, "POST", "/api/_admin/workflows", map[string]any{
+		"name": "test_rejection",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": entityName, "field": "status", "to": "pending",
+		},
+		"context": map[string]any{"record_id": "trigger.record_id"},
+		"steps": []any{
+			map[string]any{
+				"id": "review", "type": "approval",
+				"on_approve": map[string]any{"goto": "end"},
+				"on_reject":  map[string]any{"goto": "do_reject"},
+			},
+			map[string]any{
+				"id": "do_reject", "type": "action",
+				"actions": []any{
+					map[string]any{
+						"type": "set_field", "entity": entityName,
+						"record_id": "context.record_id", "field": "status", "value": "rejected",
+					},
+				},
+				"then": "end",
+			},
+		},
+		"active": true,
+	})
+
+	// Create and transition
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft", "name": "PO Reject Test",
+	})
+	body := readBody(t, resp)
+	var cr map[string]any
+	json.Unmarshal(body, &cr)
+	recordID := cr["data"].(map[string]any)["id"].(string)
+
+	doRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, map[string]any{
+		"status": "pending",
+	})
+
+	// Find pending instance
+	resp = doRequest(t, app, "GET", "/api/_workflows/pending", nil)
+	body = readBody(t, resp)
+	var pr map[string]any
+	json.Unmarshal(body, &pr)
+	instances := pr["data"].([]any)
+	if len(instances) == 0 {
+		t.Fatal("expected pending instance")
+	}
+	instanceID := instances[0].(map[string]any)["id"].(string)
+
+	// Reject
+	resp = doRequest(t, app, "POST", "/api/_workflows/"+instanceID+"/reject", nil)
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("reject: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var rr map[string]any
+	json.Unmarshal(body, &rr)
+	if rr["data"].(map[string]any)["status"].(string) != "completed" {
+		t.Fatal("expected completed after rejection")
+	}
+
+	// Verify record status was set to "rejected"
+	resp = doRequest(t, app, "GET", "/api/"+entityName+"/"+recordID, nil)
+	body = readBody(t, resp)
+	var gr map[string]any
+	json.Unmarshal(body, &gr)
+	if gr["data"].(map[string]any)["status"].(string) != "rejected" {
+		t.Fatal("expected record status=rejected")
+	}
+}
+
+func TestWorkflowConditionBranching(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_wf_cond"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// Create entity
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "amount", "type": "decimal", "precision": 2},
+			map[string]any{"name": "approved", "type": "boolean"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// State machine: draft → review
+	doRequest(t, app, "POST", "/api/_admin/state-machines", map[string]any{
+		"entity": entityName, "field": "status",
+		"definition": map[string]any{
+			"initial": "draft",
+			"transitions": []any{
+				map[string]any{"from": "draft", "to": "review"},
+			},
+		},
+		"active": true,
+	})
+
+	// Workflow: condition (amount > 10000) → true: approval step, false: auto-approve (set approved=true)
+	doRequest(t, app, "POST", "/api/_admin/workflows", map[string]any{
+		"name": "test_condition",
+		"trigger": map[string]any{
+			"type": "state_change", "entity": entityName, "field": "status", "to": "review",
+		},
+		"context": map[string]any{
+			"record_id": "trigger.record_id",
+			"amount":    "trigger.record.amount",
+		},
+		"steps": []any{
+			map[string]any{
+				"id": "check_amount", "type": "condition",
+				"expression": "context.amount > 10000",
+				"on_true":    map[string]any{"goto": "needs_approval"},
+				"on_false":   map[string]any{"goto": "auto_approve"},
+			},
+			map[string]any{
+				"id": "needs_approval", "type": "approval",
+				"on_approve": map[string]any{"goto": "auto_approve"},
+				"on_reject":  map[string]any{"goto": "end"},
+			},
+			map[string]any{
+				"id": "auto_approve", "type": "action",
+				"actions": []any{
+					map[string]any{
+						"type": "set_field", "entity": entityName,
+						"record_id": "context.record_id", "field": "approved", "value": true,
+					},
+				},
+				"then": "end",
+			},
+		},
+		"active": true,
+	})
+
+	// Test 1: Small amount (5000) → should skip approval and auto-approve
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft", "amount": 5000, "name": "Small PO",
+	})
+	body := readBody(t, resp)
+	var cr map[string]any
+	json.Unmarshal(body, &cr)
+	smallID := cr["data"].(map[string]any)["id"].(string)
+
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+smallID, map[string]any{
+		"status": "review",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("small transition: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify approved=true (auto-approved, no approval step)
+	resp = doRequest(t, app, "GET", "/api/"+entityName+"/"+smallID, nil)
+	body = readBody(t, resp)
+	var gr map[string]any
+	json.Unmarshal(body, &gr)
+	if gr["data"].(map[string]any)["approved"] != true {
+		t.Fatalf("expected approved=true for small amount, got %v", gr["data"].(map[string]any)["approved"])
+	}
+
+	// Test 2: Large amount (50000) → should pause at approval step
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft", "amount": 50000, "name": "Big PO",
+	})
+	body = readBody(t, resp)
+	json.Unmarshal(body, &cr)
+	bigID := cr["data"].(map[string]any)["id"].(string)
+
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+bigID, map[string]any{
+		"status": "review",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("big transition: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// Verify paused at approval step
+	resp = doRequest(t, app, "GET", "/api/_workflows/pending", nil)
+	body = readBody(t, resp)
+	var pr map[string]any
+	json.Unmarshal(body, &pr)
+	pending := pr["data"].([]any)
+
+	found := false
+	for _, p := range pending {
+		inst := p.(map[string]any)
+		if inst["current_step"].(string) == "needs_approval" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a pending instance at needs_approval step")
 	}
 }

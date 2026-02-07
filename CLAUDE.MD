@@ -6,12 +6,12 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 
 ## Current Status
 
-**Phase 0–2 are complete** in two languages. Both share the same Postgres database.
+**Phase 0–3 are complete** in two languages. Both share the same Postgres database.
 
 | Implementation | Directory | Framework | Driver | Status |
 |----------------|-----------|-----------|--------|--------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Phase 2 done |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 2 done |
+| Go | `golang/` | Fiber v2 | pgx v5 | Phase 3 done |
+| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 3 done |
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -23,10 +23,9 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Validation (required fields, enums)
 - Standard error format with codes and field-level details
 
-**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, and data browsing.
+**Admin UI** is in `admin/` — SolidJS + Vite + Tailwind. Covers entity CRUD, relation editing, rules management, state machine management, workflow builder, workflow monitor, and data browsing.
 
 **Not yet built (future phases):**
-- Workflows
 - Auth (JWT + permissions)
 - Webhooks
 - Audit log
@@ -65,9 +64,9 @@ rocket-backend/
 │   ├── cmd/server/main.go
 │   └── internal/
 │       ├── config/config.go
-│       ├── metadata/{field,entity,relation,registry,loader}.go
+│       ├── metadata/{field,entity,relation,registry,loader,rule,state_machine,workflow}.go
 │       ├── store/{postgres,bootstrap,migrator}.go
-│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router}.go
+│       ├── engine/{query,errors,soft_delete,writer,diff,nested_write,includes,handler,router,rules,state_machine,workflow,workflow_handler,workflow_scheduler}.go
 │       └── admin/handler.go
 └── expressjs/                   # Express.js implementation
     ├── app.yaml                 # Config (port 8080, db on 5433)
@@ -76,9 +75,9 @@ rocket-backend/
     └── src/
         ├── index.ts
         ├── config/index.ts
-        ├── metadata/{types,registry,loader}.ts
+        ├── metadata/{types,registry,loader,rule,state-machine,workflow}.ts
         ├── store/{postgres,bootstrap,migrator,schema}.ts
-        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router}.ts
+        ├── engine/{query,errors,soft-delete,writer,diff,nested-write,includes,handler,router,rules,state-machine,workflow,workflow-handler,workflow-scheduler}.ts
         ├── admin/handler.ts
         └── middleware/error-handler.ts
 ```
@@ -94,6 +93,8 @@ _entities    — name (PK), table_name, definition (JSONB), created_at, updated_
 _relations   — name (PK), source (FK), target (FK), definition (JSONB), created_at, updated_at
 _rules            — id (UUID PK), entity (FK), hook, type, definition (JSONB), priority, active, created_at, updated_at
 _state_machines   — id (UUID PK), entity (FK), field, definition (JSONB), active, created_at, updated_at
+_workflows        — id (UUID PK), name (UNIQUE), trigger (JSONB), context (JSONB), steps (JSONB), active, created_at, updated_at
+_workflow_instances — id (UUID PK), workflow_id (FK), workflow_name, status, current_step, current_step_deadline, context (JSONB), history (JSONB), created_at, updated_at
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -124,6 +125,16 @@ GET/POST       /api/_admin/rules
 GET/PUT/DELETE /api/_admin/rules/:id
 GET/POST       /api/_admin/state-machines
 GET/PUT/DELETE /api/_admin/state-machines/:id
+GET/POST       /api/_admin/workflows
+GET/PUT/DELETE /api/_admin/workflows/:id
+```
+
+### Workflow Runtime
+```
+GET  /api/_workflows/pending       # List paused instances
+GET  /api/_workflows/:id           # Get instance details
+POST /api/_workflows/:id/approve   # Approve current step
+POST /api/_workflows/:id/reject    # Reject current step
 ```
 
 ### Dynamic (per entity)

@@ -46,6 +46,12 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler) {
 	admin.Post("/state-machines", h.CreateStateMachine)
 	admin.Put("/state-machines/:id", h.UpdateStateMachine)
 	admin.Delete("/state-machines/:id", h.DeleteStateMachine)
+
+	admin.Get("/workflows", h.ListWorkflows)
+	admin.Get("/workflows/:id", h.GetWorkflow)
+	admin.Post("/workflows", h.CreateWorkflow)
+	admin.Put("/workflows/:id", h.UpdateWorkflow)
+	admin.Delete("/workflows/:id", h.DeleteWorkflow)
 }
 
 // --- Entity Endpoints ---
@@ -529,6 +535,134 @@ func (h *Handler) DeleteStateMachine(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
 }
 
+// --- Workflow Endpoints ---
+
+func (h *Handler) ListWorkflows(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows ORDER BY name")
+	if err != nil {
+		return fmt.Errorf("list workflows: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetWorkflow(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateWorkflow(c *fiber.Ctx) error {
+	var wf metadata.Workflow
+	if err := c.BodyParser(&wf); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if err := validateWorkflow(&wf, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	triggerJSON, err := json.Marshal(wf.Trigger)
+	if err != nil {
+		return fmt.Errorf("marshal workflow trigger: %w", err)
+	}
+	contextJSON, err := json.Marshal(wf.Context)
+	if err != nil {
+		return fmt.Errorf("marshal workflow context: %w", err)
+	}
+	stepsJSON, err := json.Marshal(wf.Steps)
+	if err != nil {
+		return fmt.Errorf("marshal workflow steps: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		wf.Name, triggerJSON, contextJSON, stepsJSON, wf.Active)
+	if err != nil {
+		return fmt.Errorf("insert workflow: %w", err)
+	}
+	wf.ID = fmt.Sprintf("%v", row["id"])
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": wf})
+}
+
+func (h *Handler) UpdateWorkflow(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _workflows WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
+	}
+
+	var wf metadata.Workflow
+	if err := c.BodyParser(&wf); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+	wf.ID = id
+
+	if err := validateWorkflow(&wf, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	triggerJSON, err := json.Marshal(wf.Trigger)
+	if err != nil {
+		return fmt.Errorf("marshal workflow trigger: %w", err)
+	}
+	contextJSON, err := json.Marshal(wf.Context)
+	if err != nil {
+		return fmt.Errorf("marshal workflow context: %w", err)
+	}
+	stepsJSON, err := json.Marshal(wf.Steps)
+	if err != nil {
+		return fmt.Errorf("marshal workflow steps: %w", err)
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"UPDATE _workflows SET name = $1, trigger = $2, context = $3, steps = $4, active = $5, updated_at = NOW() WHERE id = $6",
+		wf.Name, triggerJSON, contextJSON, stepsJSON, wf.Active, id)
+	if err != nil {
+		return fmt.Errorf("update workflow: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": wf})
+}
+
+func (h *Handler) DeleteWorkflow(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _workflows WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _workflows WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete workflow %s: %w", id, err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
 // --- Validation ---
 
 func validateEntity(e *metadata.Entity) error {
@@ -579,6 +713,72 @@ func validateStateMachine(sm *metadata.StateMachine, reg *metadata.Registry) err
 	if len(sm.Definition.Transitions) == 0 {
 		return fmt.Errorf("at least one transition is required")
 	}
+	return nil
+}
+
+func validateWorkflow(wf *metadata.Workflow, reg *metadata.Registry) error {
+	if wf.Name == "" {
+		return fmt.Errorf("workflow name is required")
+	}
+	if wf.Trigger.Type == "" {
+		return fmt.Errorf("trigger type is required")
+	}
+	if wf.Trigger.Entity == "" {
+		return fmt.Errorf("trigger entity is required")
+	}
+	if len(wf.Steps) == 0 {
+		return fmt.Errorf("at least one step is required")
+	}
+
+	// Validate step IDs are unique and types are valid
+	stepIDs := make(map[string]bool, len(wf.Steps))
+	for _, s := range wf.Steps {
+		if s.ID == "" {
+			return fmt.Errorf("step id is required")
+		}
+		if stepIDs[s.ID] {
+			return fmt.Errorf("duplicate step id: %s", s.ID)
+		}
+		stepIDs[s.ID] = true
+		if s.Type != "action" && s.Type != "condition" && s.Type != "approval" {
+			return fmt.Errorf("invalid step type: %s (must be action, condition, or approval)", s.Type)
+		}
+	}
+
+	// Validate goto targets reference valid step IDs or "end"
+	validTarget := func(sg *metadata.StepGoto) error {
+		if sg == nil {
+			return nil
+		}
+		if sg.Goto == "end" {
+			return nil
+		}
+		if !stepIDs[sg.Goto] {
+			return fmt.Errorf("goto target not found: %s", sg.Goto)
+		}
+		return nil
+	}
+	for _, s := range wf.Steps {
+		if err := validTarget(s.Then); err != nil {
+			return err
+		}
+		if err := validTarget(s.OnTrue); err != nil {
+			return err
+		}
+		if err := validTarget(s.OnFalse); err != nil {
+			return err
+		}
+		if err := validTarget(s.OnApprove); err != nil {
+			return err
+		}
+		if err := validTarget(s.OnReject); err != nil {
+			return err
+		}
+		if err := validTarget(s.OnTimeout); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

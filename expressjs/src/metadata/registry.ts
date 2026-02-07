@@ -1,6 +1,7 @@
 import type { Entity, Relation } from "./types.js";
 import type { Rule } from "./rule.js";
 import type { StateMachine } from "./state-machine.js";
+import type { Workflow } from "./workflow.js";
 
 export class Registry {
   private entities = new Map<string, Entity>();
@@ -8,6 +9,8 @@ export class Registry {
   private relationsByName = new Map<string, Relation>();
   private rulesByEntity = new Map<string, Rule[]>();
   private stateMachinesByEntity = new Map<string, StateMachine[]>();
+  private workflowsByTrigger = new Map<string, Workflow[]>();
+  private workflowsByName = new Map<string, Workflow>();
 
   getEntity(name: string): Entity | undefined {
     return this.entities.get(name);
@@ -65,6 +68,30 @@ export class Registry {
       const existing = this.stateMachinesByEntity.get(sm.entity) ?? [];
       existing.push(sm);
       this.stateMachinesByEntity.set(sm.entity, existing);
+    }
+  }
+
+  getWorkflowsForTrigger(entity: string, field: string, toState: string): Workflow[] {
+    const key = `${entity}:${field}:${toState}`;
+    return this.workflowsByTrigger.get(key) ?? [];
+  }
+
+  getWorkflow(name: string): Workflow | undefined {
+    return this.workflowsByName.get(name);
+  }
+
+  loadWorkflows(workflows: Workflow[]): void {
+    this.workflowsByTrigger = new Map();
+    this.workflowsByName = new Map();
+    for (const wf of workflows) {
+      if (!wf.active) continue;
+      this.workflowsByName.set(wf.name, wf);
+      if (wf.trigger.type === "state_change" && wf.trigger.entity && wf.trigger.field && wf.trigger.to) {
+        const key = `${wf.trigger.entity}:${wf.trigger.field}:${wf.trigger.to}`;
+        const existing = this.workflowsByTrigger.get(key) ?? [];
+        existing.push(wf);
+        this.workflowsByTrigger.set(key, existing);
+      }
     }
   }
 
