@@ -30,8 +30,8 @@ The same backend is implemented in multiple languages, all sharing a single Post
 
 | Language | Directory | Framework | Status |
 |----------|-----------|-----------|--------|
-| Go | [golang/](golang/) | Fiber v2 + pgx | Phase 0 complete |
-| TypeScript | [expressjs/](expressjs/) | Express + pg | Phase 0 complete |
+| Go | [golang/](golang/) | Fiber v2 + pgx | Phase 2 complete |
+| TypeScript | [expressjs/](expressjs/) | Express + pg | Phase 2 complete |
 
 ## Quick Start
 
@@ -64,7 +64,17 @@ npx tsx src/index.ts
 
 Both start on port `8080` by default.
 
-### 3. Create an entity
+### 3. Start the Admin UI
+
+```bash
+cd admin
+npm install
+npm run dev
+```
+
+Opens at [http://localhost:5173/admin](http://localhost:5173/admin). The dev server proxies API requests to `localhost:8080`, so make sure a backend is running.
+
+### 4. Create an entity
 
 ```bash
 curl -X POST http://localhost:8080/api/_admin/entities \
@@ -84,7 +94,7 @@ curl -X POST http://localhost:8080/api/_admin/entities \
   }'
 ```
 
-### 4. Use it
+### 5. Use it
 
 ```bash
 # Create
@@ -112,21 +122,19 @@ curl -X DELETE http://localhost:8080/api/customer/<id>
 ```
 rocket-backend/
 ├── docker-compose.yml          # Shared Postgres 15
-├── docs/                       # Technical documentation
-│   ├── dynamic-rest-api.md
-│   ├── metadata-schemas.md
-│   ├── nested-writes.md
-│   ├── database.md
-│   ├── auth-and-permissions.md
-│   ├── rules-and-workflows.md
-│   └── admin-ui.md
+├── docs/                       # Shared technical documentation
+├── admin/                      # SolidJS admin UI (Vite + Tailwind)
+│   ├── package.json
+│   └── src/
 ├── golang/                     # Go implementation
 │   ├── app.yaml
 │   ├── cmd/server/main.go
+│   ├── docs/                   # Go-specific implementation docs
 │   └── internal/
 └── expressjs/                  # Express.js implementation
     ├── app.yaml
     ├── package.json
+    ├── docs/                   # Express-specific implementation docs
     └── src/
 ```
 
@@ -143,7 +151,16 @@ rocket-backend/
 | DELETE | `/api/_admin/entities/:name` | Delete entity |
 | GET | `/api/_admin/relations` | List all relations |
 | POST | `/api/_admin/relations` | Create relation |
+| PUT | `/api/_admin/relations/:name` | Update relation |
 | DELETE | `/api/_admin/relations/:name` | Delete relation |
+| GET | `/api/_admin/rules` | List all rules |
+| POST | `/api/_admin/rules` | Create validation rule |
+| PUT | `/api/_admin/rules/:id` | Update rule |
+| DELETE | `/api/_admin/rules/:id` | Delete rule |
+| GET | `/api/_admin/state-machines` | List all state machines |
+| POST | `/api/_admin/state-machines` | Create state machine |
+| PUT | `/api/_admin/state-machines/:id` | Update state machine |
+| DELETE | `/api/_admin/state-machines/:id` | Delete state machine |
 
 ### Dynamic Entity Endpoints
 
@@ -171,10 +188,10 @@ rocket-backend/
 
 ## Roadmap
 
-- [ ] Field validation rules (min, max, pattern)
-- [ ] Expression rules
-- [ ] State machines
+- [x] Field validation rules (min, max, pattern)
+- [x] Expression rules & computed fields
+- [x] State machines (transitions, guards, actions)
+- [x] SolidJS admin UI
 - [ ] Workflows
 - [ ] Auth (JWT) & permissions
 - [ ] Webhooks
-- [ ] SolidJS admin UI
