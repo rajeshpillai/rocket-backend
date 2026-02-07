@@ -1,11 +1,13 @@
 import type { Entity, Relation } from "./types.js";
 import type { Rule } from "./rule.js";
+import type { StateMachine } from "./state-machine.js";
 
 export class Registry {
   private entities = new Map<string, Entity>();
   private relationsBySource = new Map<string, Relation[]>();
   private relationsByName = new Map<string, Relation>();
   private rulesByEntity = new Map<string, Rule[]>();
+  private stateMachinesByEntity = new Map<string, StateMachine[]>();
 
   getEntity(name: string): Entity | undefined {
     return this.entities.get(name);
@@ -50,6 +52,20 @@ export class Registry {
   getRulesForEntity(entityName: string, hook: string): Rule[] {
     const all = this.rulesByEntity.get(entityName) ?? [];
     return all.filter((r) => r.active && r.hook === hook);
+  }
+
+  getStateMachinesForEntity(entityName: string): StateMachine[] {
+    const all = this.stateMachinesByEntity.get(entityName) ?? [];
+    return all.filter((sm) => sm.active);
+  }
+
+  loadStateMachines(machines: StateMachine[]): void {
+    this.stateMachinesByEntity = new Map();
+    for (const sm of machines) {
+      const existing = this.stateMachinesByEntity.get(sm.entity) ?? [];
+      existing.push(sm);
+      this.stateMachinesByEntity.set(sm.entity, existing);
+    }
   }
 
   loadRules(rules: Rule[]): void {

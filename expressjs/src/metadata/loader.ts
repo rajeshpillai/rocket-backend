@@ -2,6 +2,8 @@ import type { Queryable } from "../store/postgres.js";
 import type { Registry } from "./registry.js";
 import type { Entity, Relation } from "./types.js";
 import type { Rule, RuleDefinition } from "./rule.js";
+import type { StateMachine, StateMachineDefinition } from "./state-machine.js";
+import { normalizeDefinition } from "./state-machine.js";
 
 export async function loadAll(
   pool: Queryable,
@@ -14,8 +16,11 @@ export async function loadAll(
   const rules = await loadRules(pool);
   registry.loadRules(rules);
 
+  const machines = await loadStateMachines(pool);
+  registry.loadStateMachines(machines);
+
   console.log(
-    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules into registry`,
+    `Loaded ${entities.length} entities, ${relations.length} relations, ${rules.length} rules, ${machines.length} state machines into registry`,
   );
 }
 
@@ -92,4 +97,32 @@ async function loadRules(pool: Queryable): Promise<Rule[]> {
     }
   }
   return rules;
+}
+
+async function loadStateMachines(pool: Queryable): Promise<StateMachine[]> {
+  const result = await pool.query(
+    "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity",
+  );
+  const machines: StateMachine[] = [];
+  for (const row of result.rows) {
+    try {
+      const def =
+        typeof row.definition === "string"
+          ? JSON.parse(row.definition)
+          : row.definition;
+      machines.push({
+        id: row.id,
+        entity: row.entity,
+        field: row.field,
+        definition: normalizeDefinition(def as StateMachineDefinition),
+        active: row.active,
+      });
+    } catch (err) {
+      console.warn(
+        `WARN: skipping state machine ${row.id} (invalid JSON):`,
+        err,
+      );
+    }
+  }
+  return machines;
 }

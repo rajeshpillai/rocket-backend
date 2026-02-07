@@ -40,6 +40,12 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler) {
 	admin.Post("/rules", h.CreateRule)
 	admin.Put("/rules/:id", h.UpdateRule)
 	admin.Delete("/rules/:id", h.DeleteRule)
+
+	admin.Get("/state-machines", h.ListStateMachines)
+	admin.Get("/state-machines/:id", h.GetStateMachine)
+	admin.Post("/state-machines", h.CreateStateMachine)
+	admin.Put("/state-machines/:id", h.UpdateStateMachine)
+	admin.Delete("/state-machines/:id", h.DeleteStateMachine)
 }
 
 // --- Entity Endpoints ---
@@ -411,6 +417,118 @@ func (h *Handler) DeleteRule(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
 }
 
+// --- State Machine Endpoints ---
+
+func (h *Handler) ListStateMachines(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines ORDER BY entity")
+	if err != nil {
+		return fmt.Errorf("list state machines: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetStateMachine(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateStateMachine(c *fiber.Ctx) error {
+	var sm metadata.StateMachine
+	if err := c.BodyParser(&sm); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if err := validateStateMachine(&sm, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	defJSON, err := json.Marshal(sm.Definition)
+	if err != nil {
+		return fmt.Errorf("marshal state machine definition: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4) RETURNING id",
+		sm.Entity, sm.Field, defJSON, sm.Active)
+	if err != nil {
+		return fmt.Errorf("insert state machine: %w", err)
+	}
+	sm.ID = fmt.Sprintf("%v", row["id"])
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": sm})
+}
+
+func (h *Handler) UpdateStateMachine(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _state_machines WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
+	}
+
+	var sm metadata.StateMachine
+	if err := c.BodyParser(&sm); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+	sm.ID = id
+
+	if err := validateStateMachine(&sm, h.registry); err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": err.Error()}})
+	}
+
+	defJSON, err := json.Marshal(sm.Definition)
+	if err != nil {
+		return fmt.Errorf("marshal state machine definition: %w", err)
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"UPDATE _state_machines SET entity = $1, field = $2, definition = $3, active = $4, updated_at = NOW() WHERE id = $5",
+		sm.Entity, sm.Field, defJSON, sm.Active, id)
+	if err != nil {
+		return fmt.Errorf("update state machine: %w", err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": sm})
+}
+
+func (h *Handler) DeleteStateMachine(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _state_machines WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _state_machines WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete state machine %s: %w", id, err)
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+		return fmt.Errorf("reload registry: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
 // --- Validation ---
 
 func validateEntity(e *metadata.Entity) error {
@@ -444,6 +562,22 @@ func validateRule(r *metadata.Rule, reg *metadata.Registry) error {
 	}
 	if r.Type != "field" && r.Type != "expression" && r.Type != "computed" {
 		return fmt.Errorf("invalid rule type: %s (must be field, expression, or computed)", r.Type)
+	}
+	return nil
+}
+
+func validateStateMachine(sm *metadata.StateMachine, reg *metadata.Registry) error {
+	if sm.Entity == "" {
+		return fmt.Errorf("entity is required")
+	}
+	if reg.GetEntity(sm.Entity) == nil {
+		return fmt.Errorf("entity not found: %s", sm.Entity)
+	}
+	if sm.Field == "" {
+		return fmt.Errorf("field is required")
+	}
+	if len(sm.Definition.Transitions) == 0 {
+		return fmt.Errorf("at least one transition is required")
 	}
 	return nil
 }

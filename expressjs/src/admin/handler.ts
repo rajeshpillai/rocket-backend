@@ -6,6 +6,8 @@ import type { Migrator } from "../store/migrator.js";
 import type { Entity, Relation } from "../metadata/types.js";
 import { hasField, isManyToMany } from "../metadata/types.js";
 import type { Rule } from "../metadata/rule.js";
+import type { StateMachine } from "../metadata/state-machine.js";
+import { normalizeDefinition } from "../metadata/state-machine.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
 
@@ -349,6 +351,113 @@ export class AdminHandler {
 
     res.json({ data: { id, deleted: true } });
   });
+
+  // --- State Machine Endpoints ---
+
+  listStateMachines = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines ORDER BY entity",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getStateMachine = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `State machine not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createStateMachine = asyncHandler(async (req: Request, res: Response) => {
+    const sm = req.body as StateMachine;
+    if (!sm || typeof sm !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const err = validateStateMachine(sm, this.registry);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    sm.definition = normalizeDefinition(sm.definition);
+
+    const row = await queryRow(
+      this.store.pool,
+      "INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4) RETURNING id",
+      [sm.entity, sm.field, JSON.stringify(sm.definition), sm.active ?? true],
+    );
+    sm.id = row.id;
+
+    await reload(this.store.pool, this.registry);
+
+    res.status(201).json({ data: sm });
+  });
+
+  updateStateMachine = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(
+        this.store.pool,
+        "SELECT id FROM _state_machines WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `State machine not found: ${id}`);
+    }
+
+    const sm = req.body as StateMachine;
+    if (!sm || typeof sm !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+    sm.id = id;
+
+    const err = validateStateMachine(sm, this.registry);
+    if (err) {
+      throw new AppError("VALIDATION_FAILED", 422, err);
+    }
+
+    sm.definition = normalizeDefinition(sm.definition);
+
+    await exec(
+      this.store.pool,
+      "UPDATE _state_machines SET entity = $1, field = $2, definition = $3, active = $4, updated_at = NOW() WHERE id = $5",
+      [sm.entity, sm.field, JSON.stringify(sm.definition), sm.active ?? true, id],
+    );
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: sm });
+  });
+
+  deleteStateMachine = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(
+        this.store.pool,
+        "SELECT id FROM _state_machines WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `State machine not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _state_machines WHERE id = $1", [
+      id,
+    ]);
+
+    await reload(this.store.pool, this.registry);
+
+    res.json({ data: { id, deleted: true } });
+  });
 }
 
 export function registerAdminRoutes(
@@ -375,6 +484,12 @@ export function registerAdminRoutes(
   admin.put("/rules/:id", handler.updateRule);
   admin.delete("/rules/:id", handler.deleteRule);
 
+  admin.get("/state-machines", handler.listStateMachines);
+  admin.get("/state-machines/:id", handler.getStateMachine);
+  admin.post("/state-machines", handler.createStateMachine);
+  admin.put("/state-machines/:id", handler.updateStateMachine);
+  admin.delete("/state-machines/:id", handler.deleteStateMachine);
+
   app.use("/api/_admin", admin);
 }
 
@@ -399,6 +514,22 @@ function validateRule(r: Rule, registry: Registry): string | null {
     return `invalid hook: ${r.hook} (must be before_write or before_delete)`;
   if (!["field", "expression", "computed"].includes(r.type))
     return `invalid rule type: ${r.type} (must be field, expression, or computed)`;
+  return null;
+}
+
+function validateStateMachine(
+  sm: StateMachine,
+  registry: Registry,
+): string | null {
+  if (!sm.entity) return "entity is required";
+  if (!registry.getEntity(sm.entity))
+    return `entity not found: ${sm.entity}`;
+  if (!sm.field) return "field is required";
+  if (
+    !sm.definition?.transitions ||
+    sm.definition.transitions.length === 0
+  )
+    return "at least one transition is required";
   return null;
 }
 

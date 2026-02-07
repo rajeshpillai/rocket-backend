@@ -314,6 +314,268 @@ func TestComputedFieldEnforcement(t *testing.T) {
 	}
 }
 
+func TestStateMachineEnforcement(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_sm_entity"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// 1. Create entity with status and total fields
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "total", "type": "decimal", "precision": 2},
+			map[string]any{"name": "sent_at", "type": "string"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 2. Create state machine: draft → sent (guard: total > 0, action: set sent_at = now)
+	resp = doRequest(t, app, "POST", "/api/_admin/state-machines", map[string]any{
+		"entity": entityName,
+		"field":  "status",
+		"definition": map[string]any{
+			"initial": "draft",
+			"transitions": []any{
+				map[string]any{
+					"from":  "draft",
+					"to":    "sent",
+					"guard": "record.total > 0",
+					"actions": []any{
+						map[string]any{"type": "set_field", "field": "sent_at", "value": "now"},
+					},
+				},
+				map[string]any{
+					"from": "sent",
+					"to":   "paid",
+				},
+			},
+		},
+		"active": true,
+	})
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create state machine: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	// 3. POST record with status=draft → 201
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft",
+		"total":  100,
+		"name":   "Invoice 1",
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create with status=draft: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var createResp map[string]any
+	json.Unmarshal(body, &createResp)
+	data := createResp["data"].(map[string]any)
+	recordID := data["id"].(string)
+
+	// 4. PUT record with status=sent, total=100 → 200 (sent_at populated)
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, map[string]any{
+		"status": "sent",
+		"total":  100,
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 200 {
+		t.Fatalf("transition draft→sent: expected 200, got %d: %s", resp.StatusCode, body)
+	}
+
+	var updateResp map[string]any
+	json.Unmarshal(body, &updateResp)
+	updatedData := updateResp["data"].(map[string]any)
+	sentAt, ok := updatedData["sent_at"]
+	if !ok || sentAt == nil || sentAt == "" {
+		t.Fatal("expected sent_at to be populated by set_field action")
+	}
+
+	// 5. PUT record with status=paid from sent → 200 (valid transition, no guard)
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+recordID, map[string]any{
+		"status": "paid",
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("transition sent→paid: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 6. Create another record to test guard failure and invalid transition
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "draft",
+		"total":  0,
+		"name":   "Invoice 2",
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create second record: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	json.Unmarshal(body, &createResp)
+	data = createResp["data"].(map[string]any)
+	record2ID := data["id"].(string)
+
+	// 7. PUT with status=sent, total=0 → 422 (guard: total > 0 fails)
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+record2ID, map[string]any{
+		"status": "sent",
+		"total":  0,
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 422 {
+		t.Fatalf("guard fail: expected 422, got %d: %s", resp.StatusCode, body)
+	}
+
+	var errResp engine.ErrorResponse
+	json.Unmarshal(body, &errResp)
+	if errResp.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("expected VALIDATION_FAILED, got %s", errResp.Error.Code)
+	}
+
+	// 8. PUT with status=paid (direct draft→paid) → 422 (invalid transition)
+	resp = doRequest(t, app, "PUT", "/api/"+entityName+"/"+record2ID, map[string]any{
+		"status": "paid",
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 422 {
+		t.Fatalf("invalid transition: expected 422, got %d: %s", resp.StatusCode, body)
+	}
+	json.Unmarshal(body, &errResp)
+	if errResp.Error.Code != "VALIDATION_FAILED" {
+		t.Fatalf("expected VALIDATION_FAILED, got %s", errResp.Error.Code)
+	}
+
+	// 9. POST with invalid initial state → 422
+	resp = doRequest(t, app, "POST", "/api/"+entityName, map[string]any{
+		"status": "sent",
+		"total":  50,
+		"name":   "Invoice Bad",
+	})
+	body = readBody(t, resp)
+	if resp.StatusCode != 422 {
+		t.Fatalf("invalid initial state: expected 422, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestStateMachineCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+	defer s.Close()
+
+	reg := metadata.NewRegistry()
+	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	app := testApp(t, s, reg)
+
+	const entityName = "_test_sm_crud_entity"
+
+	// Cleanup
+	defer func() {
+		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.Pool, reg)
+	}()
+
+	// Create test entity
+	resp := doRequest(t, app, "POST", "/api/_admin/entities", map[string]any{
+		"name": entityName, "table": entityName,
+		"primary_key": map[string]any{"field": "id", "type": "uuid", "generated": true},
+		"fields": []any{
+			map[string]any{"name": "id", "type": "uuid"},
+			map[string]any{"name": "status", "type": "string"},
+			map[string]any{"name": "name", "type": "string", "required": true},
+		},
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create entity: expected 201, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 1. Create state machine
+	smDef := map[string]any{
+		"entity": entityName,
+		"field":  "status",
+		"definition": map[string]any{
+			"initial": "new",
+			"transitions": []any{
+				map[string]any{"from": "new", "to": "active"},
+			},
+		},
+		"active": true,
+	}
+	resp = doRequest(t, app, "POST", "/api/_admin/state-machines", smDef)
+	body := readBody(t, resp)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create sm: expected 201, got %d: %s", resp.StatusCode, body)
+	}
+
+	var createResp map[string]any
+	json.Unmarshal(body, &createResp)
+	data := createResp["data"].(map[string]any)
+	smID := data["id"].(string)
+	if smID == "" {
+		t.Fatal("expected state machine ID in response")
+	}
+
+	// 2. List state machines
+	resp = doRequest(t, app, "GET", "/api/_admin/state-machines", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list sms: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 3. Get state machine by ID
+	resp = doRequest(t, app, "GET", "/api/_admin/state-machines/"+smID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get sm: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 4. Update state machine
+	resp = doRequest(t, app, "PUT", "/api/_admin/state-machines/"+smID, map[string]any{
+		"entity": entityName,
+		"field":  "status",
+		"definition": map[string]any{
+			"initial": "new",
+			"transitions": []any{
+				map[string]any{"from": "new", "to": "active"},
+				map[string]any{"from": "active", "to": "closed"},
+			},
+		},
+		"active": true,
+	})
+	if resp.StatusCode != 200 {
+		t.Fatalf("update sm: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 5. Delete state machine
+	resp = doRequest(t, app, "DELETE", "/api/_admin/state-machines/"+smID, nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("delete sm: expected 200, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	// 6. Verify deleted
+	resp = doRequest(t, app, "GET", "/api/_admin/state-machines/"+smID, nil)
+	if resp.StatusCode != 404 {
+		t.Fatalf("get deleted sm: expected 404, got %d: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
 func TestRulesCRUD(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

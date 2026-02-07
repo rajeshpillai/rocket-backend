@@ -29,7 +29,14 @@ func LoadAll(ctx context.Context, pool *pgxpool.Pool, reg *Registry) error {
 	}
 	reg.LoadRules(rules)
 
-	log.Printf("Loaded %d entities, %d relations, %d rules into registry", len(entities), len(relations), len(rules))
+	machines, err := loadStateMachines(ctx, pool)
+	if err != nil {
+		return fmt.Errorf("load state machines: %w", err)
+	}
+	reg.LoadStateMachines(machines)
+
+	log.Printf("Loaded %d entities, %d relations, %d rules, %d state machines into registry",
+		len(entities), len(relations), len(rules), len(machines))
 	return nil
 }
 
@@ -110,4 +117,28 @@ func loadRules(ctx context.Context, pool *pgxpool.Pool) ([]*Rule, error) {
 		rules = append(rules, &r)
 	}
 	return rules, rows.Err()
+}
+
+func loadStateMachines(ctx context.Context, pool *pgxpool.Pool) ([]*StateMachine, error) {
+	rows, err := pool.Query(ctx,
+		"SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var machines []*StateMachine
+	for rows.Next() {
+		var sm StateMachine
+		var defJSON []byte
+		if err := rows.Scan(&sm.ID, &sm.Entity, &sm.Field, &defJSON, &sm.Active); err != nil {
+			return nil, fmt.Errorf("scan state machine row: %w", err)
+		}
+		if err := json.Unmarshal(defJSON, &sm.Definition); err != nil {
+			log.Printf("WARN: skipping state machine %s (invalid JSON): %v", sm.ID, err)
+			continue
+		}
+		machines = append(machines, &sm)
+	}
+	return machines, rows.Err()
 }

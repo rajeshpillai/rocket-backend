@@ -6,19 +6,21 @@ import (
 )
 
 type Registry struct {
-	mu                sync.RWMutex
-	entities          map[string]*Entity
-	relationsBySource map[string][]*Relation // keyed by source entity name
-	relationsByName   map[string]*Relation   // keyed by relation name
-	rulesByEntity     map[string][]*Rule     // keyed by entity name, sorted by priority
+	mu                      sync.RWMutex
+	entities                map[string]*Entity
+	relationsBySource       map[string][]*Relation       // keyed by source entity name
+	relationsByName         map[string]*Relation         // keyed by relation name
+	rulesByEntity           map[string][]*Rule           // keyed by entity name, sorted by priority
+	stateMachinesByEntity   map[string][]*StateMachine   // keyed by entity name
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		entities:          make(map[string]*Entity),
-		relationsBySource: make(map[string][]*Relation),
-		relationsByName:   make(map[string]*Relation),
-		rulesByEntity:     make(map[string][]*Rule),
+		entities:              make(map[string]*Entity),
+		relationsBySource:     make(map[string][]*Relation),
+		relationsByName:       make(map[string]*Relation),
+		rulesByEntity:         make(map[string][]*Rule),
+		stateMachinesByEntity: make(map[string][]*StateMachine),
 	}
 }
 
@@ -116,6 +118,31 @@ func (r *Registry) Load(entities []*Entity, relations []*Relation) {
 	for _, rel := range relations {
 		r.relationsByName[rel.Name] = rel
 		r.relationsBySource[rel.Source] = append(r.relationsBySource[rel.Source], rel)
+	}
+}
+
+// GetStateMachinesForEntity returns active state machines for an entity.
+func (r *Registry) GetStateMachinesForEntity(entityName string) []*StateMachine {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	all := r.stateMachinesByEntity[entityName]
+	var result []*StateMachine
+	for _, sm := range all {
+		if sm.Active {
+			result = append(result, sm)
+		}
+	}
+	return result
+}
+
+// LoadStateMachines replaces all state machines in the registry.
+func (r *Registry) LoadStateMachines(machines []*StateMachine) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.stateMachinesByEntity = make(map[string][]*StateMachine)
+	for _, sm := range machines {
+		r.stateMachinesByEntity[sm.Entity] = append(r.stateMachinesByEntity[sm.Entity], sm)
 	}
 }
 

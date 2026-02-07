@@ -79,6 +79,12 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		return nil, ValidationError(ruleErrs)
 	}
 
+	// Evaluate state machines (after rules, before SQL write)
+	smErrs := EvaluateStateMachines(reg, plan.Entity.Name, plan.Fields, old, plan.IsCreate)
+	if len(smErrs) > 0 {
+		return nil, ValidationError(smErrs)
+	}
+
 	var parentID any
 
 	if plan.IsCreate {

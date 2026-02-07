@@ -14,6 +14,7 @@ import {
 } from "./writer.js";
 import { executeChildWrite } from "./diff.js";
 import { evaluateRules } from "./rules.js";
+import { evaluateStateMachines } from "./state-machine.js";
 
 export interface WritePlan {
   isCreate: boolean;
@@ -90,6 +91,18 @@ export async function executeWritePlan(
     );
     if (ruleErrs.length > 0) {
       throw validationError(ruleErrs);
+    }
+
+    // Evaluate state machines (after rules, before SQL write)
+    const smErrs = evaluateStateMachines(
+      registry,
+      plan.entity.name,
+      plan.fields,
+      old,
+      plan.isCreate,
+    );
+    if (smErrs.length > 0) {
+      throw validationError(smErrs);
     }
 
     let parentID: any;

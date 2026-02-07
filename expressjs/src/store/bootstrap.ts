@@ -29,6 +29,16 @@ CREATE TABLE IF NOT EXISTS _rules (
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS _state_machines (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity      TEXT NOT NULL REFERENCES _entities(name) ON DELETE CASCADE,
+    field       TEXT NOT NULL,
+    definition  JSONB NOT NULL,
+    active      BOOLEAN NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
 `;
 
 export async function bootstrap(pool: Queryable): Promise<void> {

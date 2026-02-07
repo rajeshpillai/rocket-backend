@@ -4,6 +4,7 @@ const navItems = [
   { href: "/entities", label: "Entities", icon: "□" },
   { href: "/relations", label: "Relations", icon: "⇄" },
   { href: "/rules", label: "Rules", icon: "✓" },
+  { href: "/state-machines", label: "State Machines", icon: "⇆" },
   { href: "/data", label: "Data Browser", icon: "▤" },
 ];
 

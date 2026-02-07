@@ -311,6 +311,242 @@ describe("rules CRUD", () => {
   });
 });
 
+describe("state machine enforcement", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_sm_entity";
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create entity with status and total fields
+    const resp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "total", type: "decimal", precision: 2 },
+        { name: "sent_at", type: "string" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+
+    // Create state machine: draft → sent (guard: total > 0, action: set sent_at = now), sent → paid
+    const smResp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "draft",
+        transitions: [
+          {
+            from: "draft",
+            to: "sent",
+            guard: "record.total > 0",
+            actions: [{ type: "set_field", field: "sent_at", value: "now" }],
+          },
+          { from: "sent", to: "paid" },
+        ],
+      },
+      active: true,
+    });
+    assert.equal(smResp.status, 201, `create state machine failed: ${JSON.stringify(smResp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("allows creating record with valid initial state", async () => {
+    const resp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      total: 100,
+      name: "Invoice 1",
+    });
+    assert.equal(resp.status, 201, `expected 201, got ${resp.status}: ${JSON.stringify(resp.body)}`);
+  });
+
+  it("rejects creating record with invalid initial state", async () => {
+    const resp = await request(app, "POST", `/api/${entityName}`, {
+      status: "sent",
+      total: 50,
+      name: "Invoice Bad",
+    });
+    assert.equal(resp.status, 422, `expected 422, got ${resp.status}: ${JSON.stringify(resp.body)}`);
+  });
+
+  it("allows valid transition with guard passing and executes actions", async () => {
+    // Create record
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      total: 100,
+      name: "Invoice 2",
+    });
+    assert.equal(createResp.status, 201);
+    const id = createResp.body.data.id;
+
+    // Transition draft → sent (total=100 > 0, guard passes)
+    const updateResp = await request(app, "PUT", `/api/${entityName}/${id}`, {
+      status: "sent",
+      total: 100,
+    });
+    assert.equal(updateResp.status, 200, `expected 200, got ${updateResp.status}: ${JSON.stringify(updateResp.body)}`);
+
+    // sent_at should be populated by set_field action
+    assert.ok(updateResp.body.data.sent_at, "expected sent_at to be set by action");
+  });
+
+  it("rejects transition when guard fails", async () => {
+    // Create record with total=0
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      total: 0,
+      name: "Invoice 3",
+    });
+    assert.equal(createResp.status, 201);
+    const id = createResp.body.data.id;
+
+    // Transition draft → sent (total=0, guard fails)
+    const updateResp = await request(app, "PUT", `/api/${entityName}/${id}`, {
+      status: "sent",
+      total: 0,
+    });
+    assert.equal(updateResp.status, 422, `expected 422, got ${updateResp.status}: ${JSON.stringify(updateResp.body)}`);
+    assert.equal(updateResp.body.error.code, "VALIDATION_FAILED");
+  });
+
+  it("rejects invalid transition", async () => {
+    // Create record
+    const createResp = await request(app, "POST", `/api/${entityName}`, {
+      status: "draft",
+      total: 50,
+      name: "Invoice 4",
+    });
+    assert.equal(createResp.status, 201);
+    const id = createResp.body.data.id;
+
+    // Attempt direct draft → paid (not allowed)
+    const updateResp = await request(app, "PUT", `/api/${entityName}/${id}`, {
+      status: "paid",
+    });
+    assert.equal(updateResp.status, 422, `expected 422, got ${updateResp.status}: ${JSON.stringify(updateResp.body)}`);
+    assert.equal(updateResp.body.error.code, "VALIDATION_FAILED");
+  });
+});
+
+describe("state machine CRUD", () => {
+  let store: Store;
+  let registry: Registry;
+  let app: express.Express;
+  const entityName = "_test_sm_crud_entity";
+  let smID: string;
+
+  before(async () => {
+    store = await Store.connect({
+      host: "localhost",
+      port: 5433,
+      user: "rocket",
+      password: "rocket",
+      name: "rocket",
+      pool_size: 2,
+    });
+    await bootstrap(store.pool);
+    registry = new Registry();
+    await loadAll(store.pool, registry);
+    app = buildApp(store, registry);
+
+    // Create test entity
+    const resp = await request(app, "POST", "/api/_admin/entities", {
+      name: entityName,
+      table: entityName,
+      primary_key: { field: "id", type: "uuid", generated: true },
+      fields: [
+        { name: "id", type: "uuid" },
+        { name: "status", type: "string" },
+        { name: "name", type: "string", required: true },
+      ],
+    });
+    assert.equal(resp.status, 201, `create entity failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  after(async () => {
+    await exec(store.pool, `DELETE FROM _state_machines WHERE entity = $1`, [entityName]);
+    await exec(store.pool, `DROP TABLE IF EXISTS ${entityName}`);
+    await exec(store.pool, "DELETE FROM _entities WHERE name = $1", [entityName]);
+    await reload(store.pool, registry);
+    await store.close();
+  });
+
+  it("creates a state machine", async () => {
+    const resp = await request(app, "POST", "/api/_admin/state-machines", {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "new",
+        transitions: [{ from: "new", to: "active" }],
+      },
+      active: true,
+    });
+    assert.equal(resp.status, 201, `create sm failed: ${JSON.stringify(resp.body)}`);
+    smID = resp.body.data.id;
+    assert.ok(smID, "expected state machine ID");
+  });
+
+  it("lists state machines", async () => {
+    const resp = await request(app, "GET", "/api/_admin/state-machines");
+    assert.equal(resp.status, 200);
+  });
+
+  it("gets state machine by ID", async () => {
+    const resp = await request(app, "GET", `/api/_admin/state-machines/${smID}`);
+    assert.equal(resp.status, 200);
+  });
+
+  it("updates a state machine", async () => {
+    const resp = await request(app, "PUT", `/api/_admin/state-machines/${smID}`, {
+      entity: entityName,
+      field: "status",
+      definition: {
+        initial: "new",
+        transitions: [
+          { from: "new", to: "active" },
+          { from: "active", to: "closed" },
+        ],
+      },
+      active: true,
+    });
+    assert.equal(resp.status, 200, `update sm failed: ${JSON.stringify(resp.body)}`);
+  });
+
+  it("deletes a state machine", async () => {
+    const resp = await request(app, "DELETE", `/api/_admin/state-machines/${smID}`);
+    assert.equal(resp.status, 200);
+  });
+
+  it("returns 404 for deleted state machine", async () => {
+    const resp = await request(app, "GET", `/api/_admin/state-machines/${smID}`);
+    assert.equal(resp.status, 404);
+  });
+});
+
 describe("unique constraint → 409 CONFLICT", () => {
   let store: Store;
   let registry: Registry;
