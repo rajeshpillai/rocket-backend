@@ -117,3 +117,91 @@
 - [x] `Export` method in admin handler — queries all 7 metadata tables, returns clean JSON (no IDs/timestamps)
 - [x] `Import` method in admin handler — dependency-ordered import with idempotent dedup per table
 - [x] Routes wired in both standalone (`admin/handler.go`) and multiapp (`app_routes.go`)
+
+---
+
+## Phase 8: Audit Log
+- [ ] `_audit_logs` system table (id, entity, record_id, action, old_data JSONB, new_data JSONB, changed_fields TEXT[], user_id, user_email, ip_address, timestamp)
+- [ ] Audit log capture in write pipeline (create, update, delete — record before/after snapshots)
+- [ ] Automatic diff computation (which fields changed, old vs new values)
+- [ ] User context (who, from where) attached to every audit entry
+- [ ] Query API (`GET /api/:app/_admin/audit-logs`) with filters (?entity, ?record_id, ?user_id, ?action, ?from, ?to)
+- [ ] Pagination + sorting on audit log queries
+- [ ] Record history endpoint (`GET /api/:app/:entity/:id/history`) — all changes for a single record
+- [ ] Configurable per-entity (opt-in/opt-out via entity definition)
+- [ ] Sensitive field masking (password fields, PII) in audit entries
+- [ ] Admin UI: Audit log viewer page with filters and record timeline view
+
+## Phase 9: Notifications & Email
+- [ ] `_notification_channels` system table (id, type [email/webhook/in_app], config JSONB, active)
+- [ ] `_notifications` system table (id, channel_id, recipient, subject, body, status, metadata JSONB, created_at, sent_at)
+- [ ] Notification engine (pluggable channels: email via SMTP, in-app, webhook)
+- [ ] SMTP email provider (configurable in app.yaml: host, port, from address, credentials)
+- [ ] Template system for notification bodies (entity fields, workflow context, approval links)
+- [ ] Workflow integration: notify assigned approvers when approval step is reached
+- [ ] Workflow integration: notify initiator on approval/rejection/completion
+- [ ] Notification on workflow timeout/escalation
+- [ ] Metadata-driven notification rules (entity + hook → send notification to channel)
+- [ ] Admin API for notification channel CRUD
+- [ ] Admin API for notification log/history query
+- [ ] Admin UI: Notification channel management + notification log viewer
+
+## Phase 10: Comments & Activity Stream
+- [ ] `_comments` system table (id, entity, record_id, user_id, user_email, body, parent_id, created_at, updated_at)
+- [ ] `_activity` system table (id, entity, record_id, type [comment/state_change/workflow/field_update], summary, user_id, metadata JSONB, created_at)
+- [ ] Comment CRUD endpoints (`POST/GET/PUT/DELETE /api/:app/:entity/:id/comments`)
+- [ ] Threaded comments (parent_id for replies)
+- [ ] Auto-generated activity entries (state machine transitions, workflow step changes, field updates)
+- [ ] Activity stream endpoint (`GET /api/:app/:entity/:id/activity`) — merged timeline of comments + system events
+- [ ] Mention support (@user references in comment body)
+- [ ] Permission-aware (comment visibility respects entity read permissions)
+- [ ] Admin UI: Activity/comment panel on data record detail view
+
+## Phase 11: Parallel & Advanced Workflows
+- [ ] Parallel approval gates: AND (all must approve), OR (any one approves), N-of-M (quorum)
+- [ ] Multi-approver step type (roles/users list, approval threshold)
+- [ ] Delegation: user A delegates approval authority to user B (time-bounded)
+- [ ] Escalation rules: if no response within deadline, escalate to next role/user
+- [ ] Workflow step forms: per-step field definitions (collect rejection reason, approval notes, extra data)
+- [ ] Workflow variables: step outputs feed into subsequent step inputs
+- [ ] Sub-workflows: a step can trigger another workflow and wait for completion
+- [ ] Cancel/abort workflow instance endpoint
+- [ ] Reassign approval step to different user
+- [ ] Admin UI: Enhanced workflow builder with parallel gates, delegation config, step forms
+
+## Phase 12: Field-Level Permissions & Conditional Visibility
+- [ ] Field-level permission rules in `_permissions` (fields array: include/exclude per role+action)
+- [ ] Read filtering: strip restricted fields from API responses based on user role
+- [ ] Write filtering: reject writes to restricted fields with field-level error details
+- [ ] Conditional field visibility rules (show/hide based on record state, role, or expression)
+- [ ] Field masking (partial display: last 4 digits of SSN, masked email)
+- [ ] Admin UI: Field permission matrix editor (role × field × action grid)
+
+## Phase 13: SSO & External Auth
+- [ ] OAuth 2.0 / OpenID Connect provider support (authorization code flow)
+- [ ] SAML 2.0 SP implementation (for enterprise IdPs like Okta, Azure AD, OneLogin)
+- [ ] LDAP/Active Directory bind authentication
+- [ ] Configurable auth providers per app (in app settings or `_auth_providers` table)
+- [ ] Auto-provisioning: create local user on first SSO login (JIT provisioning)
+- [ ] Role mapping: map IdP groups/claims to Rocket roles
+- [ ] Session management (SSO sessions, single logout)
+- [ ] Admin UI: Auth provider configuration page
+
+## Phase 14: Reporting & Dashboards
+- [ ] Aggregate query endpoint (`GET /api/:app/:entity/_aggregate`) — count, sum, avg, min, max, group_by
+- [ ] Workflow KPI queries: avg approval time, bottleneck steps, SLA breach counts, pending by approver
+- [ ] Dashboard metadata (`_dashboards` table) — saved dashboard definitions with widget configs
+- [ ] Widget types: counter, bar chart data, table, timeline
+- [ ] Data export endpoint (CSV/JSON download for filtered queries)
+- [ ] Scheduled reports (cron-based, email delivery via notification channels)
+- [ ] Admin UI: Dashboard builder + KPI overview page
+
+## Phase 15: Bulk Operations & API Hardening
+- [ ] Bulk create endpoint (`POST /api/:app/:entity/_bulk` — array of records, transactional)
+- [ ] Bulk update endpoint (`PUT /api/:app/:entity/_bulk` — array of {id, ...fields}, transactional)
+- [ ] Bulk delete endpoint (`DELETE /api/:app/:entity/_bulk` — array of IDs)
+- [ ] Bulk approve/reject for workflow instances
+- [ ] API rate limiting (per-user, per-app, configurable in app.yaml)
+- [ ] Request size limits + payload validation hardening
+- [ ] API key authentication (alternative to JWT for service-to-service calls)
+- [ ] Admin UI: Bulk import page (CSV/JSON upload with field mapping)
