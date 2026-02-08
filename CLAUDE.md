@@ -301,3 +301,4 @@ None currently.
 - Create/update docs in golang and express respective docs folder for technical implementation details
 - After implementing each backend feature, the admin UI in `admin/` must be updated to expose that feature
 - Update man-days.md with efforts
+- Bump up the version number after each major feature, revisons, patch etc

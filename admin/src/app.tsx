@@ -15,6 +15,8 @@ import { UsersList } from "./pages/users-list";
 import { PermissionsList } from "./pages/permissions-list";
 import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
+import { HelpIndex } from "./pages/help-docs/help-index";
+import { HelpTopicPage } from "./pages/help-docs/help-layout";
 import { isAuthenticated } from "./stores/auth";
 import { selectedApp } from "./stores/app";
 import { ToastContainer } from "./components/toast";
@@ -36,7 +38,7 @@ function AppRoot(props: ParentProps) {
       navigate("/login", { replace: true });
       return;
     }
-    if (!selectedApp() && !APP_FREE_PATHS.includes(path)) {
+    if (!selectedApp() && !APP_FREE_PATHS.includes(path) && !path.startsWith("/admin/help")) {
       navigate("/apps", { replace: true });
     }
   });
@@ -74,6 +76,8 @@ export function App() {
       <Route path="/permissions" component={PermissionsList} />
       <Route path="/webhooks" component={WebhooksList} />
       <Route path="/webhook-logs" component={WebhookLogs} />
+      <Route path="/help" component={HelpIndex} />
+      <Route path="/help/:topic" component={HelpTopicPage} />
     </Router>
   );
 }

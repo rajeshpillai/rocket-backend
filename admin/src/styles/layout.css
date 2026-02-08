@@ -6,11 +6,36 @@
   .sidebar {
     @apply w-64 bg-gray-900 text-gray-100 flex flex-col
            fixed inset-y-0 left-0 z-30;
+    transition: width 0.2s ease;
+  }
+
+  .sidebar-collapsed {
+    width: 3.5rem;
+  }
+
+  .sidebar-header {
+    @apply flex items-center border-b border-gray-800;
+    min-height: 3.5rem;
+  }
+
+  .sidebar-collapsed .sidebar-header {
+    @apply justify-center;
   }
 
   .sidebar-title {
-    @apply px-6 py-5 text-xl font-bold tracking-tight
-           border-b border-gray-800;
+    @apply flex-1 px-6 py-4 text-xl font-bold tracking-tight cursor-pointer;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-toggle {
+    @apply flex items-center justify-center flex-shrink-0
+           text-gray-400 hover:text-white bg-transparent border-none
+           cursor-pointer p-3 transition-colors;
+  }
+
+  .sidebar-scroll-area {
+    @apply flex-1 overflow-y-auto overflow-x-hidden;
   }
 
   .sidebar-nav {
@@ -20,6 +45,13 @@
   .nav-link {
     @apply flex items-center gap-3 px-6 py-3 text-sm text-gray-300
            hover:bg-gray-800 hover:text-white transition-colors;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-collapsed .nav-link {
+    @apply justify-center px-0;
+    gap: 0;
   }
 
   .nav-link-active {
@@ -27,7 +59,38 @@
   }
 
   .content-area {
-    @apply ml-64 flex-1 p-8 bg-gray-50 min-h-screen;
+    @apply ml-64 flex-1 p-8 bg-gray-50;
+    min-height: calc(100vh - 1.75rem);
+    padding-bottom: 3rem;
+    transition: margin-left 0.2s ease;
+  }
+
+  .content-area-collapsed {
+    margin-left: 3.5rem;
+  }
+
+  /* ── Status bar ── */
+  .status-bar {
+    @apply fixed bottom-0 right-0 flex items-center justify-between
+           px-4 bg-gray-800 text-gray-400 text-xs z-20;
+    left: 16rem;
+    height: 1.75rem;
+    transition: left 0.2s ease;
+  }
+
+  .status-bar-collapsed {
+    left: 3.5rem;
+  }
+
+  .status-bar-version {
+    @apply select-none;
+  }
+
+  .status-bar-help {
+    @apply flex items-center justify-center w-5 h-5
+           rounded-full bg-gray-700 text-gray-300
+           no-underline font-bold text-xs
+           hover:bg-blue-600 hover:text-white transition-colors;
   }
 
   .page-header {
@@ -54,12 +117,20 @@
     @apply mt-auto px-4 py-4 border-t border-gray-800;
   }
 
+  .sidebar-collapsed .sidebar-footer {
+    @apply px-2 flex flex-col items-center;
+  }
+
   .sidebar-user {
     @apply text-xs text-gray-400 truncate mb-2 px-2;
   }
 
   .sidebar-logout {
     @apply w-full text-center;
+  }
+
+  .sidebar-collapsed .sidebar-logout {
+    @apply w-auto px-2;
   }
 
   .login-container {
