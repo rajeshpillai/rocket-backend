@@ -174,6 +174,32 @@ export function EntitiesList() {
         </div>
       </div>
 
+      <Show when={importing()}>
+        <div class="card" style={{
+          "margin-bottom": "1rem",
+          display: "flex",
+          "align-items": "center",
+          gap: "0.75rem",
+          padding: "1rem 1.25rem",
+          "background-color": "var(--color-info-bg, #eff6ff)",
+          "border": "1px solid var(--color-info-border, #bfdbfe)",
+        }}>
+          <svg
+            style={{ width: "1.25rem", height: "1.25rem", "flex-shrink": "0" }}
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle cx="12" cy="12" r="10" stroke="var(--color-primary, #3b82f6)" stroke-width="3" stroke-dasharray="31.4 31.4" stroke-linecap="round">
+              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+            </circle>
+          </svg>
+          <span style={{ "font-size": "0.9rem", color: "var(--color-primary, #3b82f6)", "font-weight": "500" }}>
+            Importing schema... This may take a moment.
+          </span>
+        </div>
+      </Show>
+
       <Show when={importResult()}>
         {(result) => (
           <div class="card" style={{ "margin-bottom": "1rem" }}>

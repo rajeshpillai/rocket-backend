@@ -14,6 +14,7 @@ export function AppsList() {
   const [name, setName] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
   const [creating, setCreating] = createSignal(false);
+  const [deleting, setDeleting] = createSignal<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -61,6 +62,7 @@ export function AppsList() {
     if (!confirm(`Delete app "${appName}"? This will drop the database and cannot be undone.`)) {
       return;
     }
+    setDeleting(appName);
     try {
       await deleteApp(appName);
       addToast("success", `App "${appName}" deleted`);
@@ -71,6 +73,8 @@ export function AppsList() {
       } else {
         addToast("error", "Failed to delete app");
       }
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -179,8 +183,9 @@ export function AppsList() {
                       <button
                         class="btn-danger btn-sm"
                         onClick={() => handleDelete(app.name)}
+                        disabled={deleting() === app.name}
                       >
-                        Delete
+                        {deleting() === app.name ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   </td>
