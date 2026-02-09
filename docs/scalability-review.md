@@ -343,110 +343,359 @@ func (s *S3Storage) GetURL(fileID string) string {
 
 ### 🟢 Throughput Improvements
 
-#### 3.1 Message Queue for Webhooks
+#### 3.1 Tiered Queue Architecture for Webhooks & Async Work
 
-**Current:** Fire webhooks in background goroutines/tasks
+**Current:** Fire webhooks in background goroutines/tasks with in-process retry scheduler.
 
 **Problem:**
-- No guaranteed delivery
-- No retry visibility
-- Memory pressure on high volume
+- No guaranteed delivery if the process crashes mid-dispatch
+- In-process retry scheduler is single-node (lost on restart)
+- No backpressure — unbounded goroutines under high webhook volume
+- Memory pressure at high RPS (each pending webhook holds payload in memory)
 
-**Solution: Message Queue (RabbitMQ, SQS, Kafka)**
-```
-┌──────────┐
-│  Write   │
-│ Pipeline │
-└────┬─────┘
-     │ Publish webhook event
-     ▼
-┌──────────────┐
-│ Message Queue│
-└──────┬───────┘
-       │ Consume
-       ▼
-┌──────────────┐
-│   Webhook    │ ← Dedicated workers
-│   Workers    │   (auto-scale based on queue depth)
-└──────────────┘
+**Solution: Tiered queue progression — start with zero new infra, scale up only when needed**
+
+The right queue depends on throughput requirements, which vary per app. Rather than mandating RabbitMQ or Kafka for every deployment, Rocket should support a tiered progression:
+
+| Tier | Backend | Throughput | New Infra | When to Use |
+|------|---------|-----------|-----------|-------------|
+| **Tier 0** | In-process bounded pool | ~500/s | None | Default — development, low-traffic apps |
+| **Tier 1** | PostgreSQL `SKIP LOCKED` | ~5K/s | None | Medium traffic — already have Postgres |
+| **Tier 2** | Redis Streams | ~50K/s | Redis | High traffic — if Redis already deployed for caching |
+| **Tier 3** | RabbitMQ | ~100K/s | RabbitMQ | Extreme throughput — dedicated message infrastructure |
+
+**Configuration (app.yaml):**
+```yaml
+# Per-app queue configuration
+queue:
+  driver: postgres        # postgres (default) | redis | rabbitmq
+  workers: 4              # Consumer concurrency
+  batch_size: 50          # Dequeue batch size
+  poll_interval: 500ms    # Polling interval (postgres/redis only)
+
+  # Redis-specific (only if driver: redis)
+  redis:
+    url: redis://localhost:6379
+    stream: rocket_jobs
+    consumer_group: rocket_workers
+
+  # RabbitMQ-specific (only if driver: rabbitmq)
+  rabbitmq:
+    url: amqp://guest:guest@localhost:5672/
+    exchange: rocket
+    queue: rocket_jobs
 ```
 
-**Implementation:**
+---
+
+**Tier 0: In-Process Bounded Worker Pool (Default)**
+
+Already covered in section 3.7. Uses a fixed-size goroutine pool with buffered channel. Good for development and low-traffic apps. No durability — jobs lost on crash.
+
+---
+
+**Tier 1: PostgreSQL Queue with `SKIP LOCKED` (Recommended Default for Production)**
+
+Zero new infrastructure — uses the existing Postgres database as a job queue. The `SKIP LOCKED` clause (Postgres 9.5+) enables safe concurrent dequeue without conflicts.
+
+```
+┌──────────┐     ┌─────────────┐     ┌──────────┐
+│  Write   │────▶│  _job_queue │────▶│ Workers  │
+│ Pipeline │     │  (Postgres) │     │ (N=4)    │
+└──────────┘     └─────────────┘     └──────────┘
+     │                                     │
+     │ INSERT job row                      │ SELECT ... FOR UPDATE SKIP LOCKED
+     │ (non-blocking)                      │ Process → DELETE
+     ▼                                     ▼
+  Respond 200                         Background
+```
+
+**System table (`_job_queue`):**
+```sql
+CREATE TABLE _job_queue (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    queue       TEXT NOT NULL DEFAULT 'default',  -- 'webhooks', 'audit', 'workflows'
+    payload     JSONB NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',  -- pending, processing, failed
+    attempts    INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 5,
+    run_after   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    error       TEXT
+);
+
+CREATE INDEX idx_job_queue_dequeue
+    ON _job_queue (queue, run_after)
+    WHERE status = 'pending';
+```
+
+**Dequeue query (safe for concurrent workers):**
+```sql
+-- Each worker runs this atomically — SKIP LOCKED prevents contention
+WITH next_jobs AS (
+    SELECT id FROM _job_queue
+    WHERE queue = $1
+      AND status = 'pending'
+      AND run_after <= now()
+    ORDER BY created_at
+    LIMIT $2               -- batch_size (e.g., 50)
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE _job_queue
+SET status = 'processing', attempts = attempts + 1
+WHERE id IN (SELECT id FROM next_jobs)
+RETURNING *;
+```
+
+**Go implementation:**
 ```go
-// Publish webhook event
-func (w *WebhookEngine) Dispatch(hook *Webhook, payload map[string]any) {
-    event := WebhookEvent{
-        HookID:    hook.ID,
-        URL:       hook.URL,
-        Payload:   payload,
-        Timestamp: time.Now(),
-    }
-    w.queue.Publish("webhooks", event)
+type PgQueue struct {
+    db          *pgxpool.Pool
+    workers     int
+    batchSize   int
+    pollInterval time.Duration
+    handlers    map[string]JobHandler  // queue name → handler func
 }
 
-// Worker consumes events
-func (w *WebhookWorker) Start() {
-    w.queue.Subscribe("webhooks", func(event WebhookEvent) {
-        w.sendHTTP(event.URL, event.Payload)
-    })
+type JobHandler func(payload map[string]any) error
+
+// Enqueue — non-blocking, just inserts a row
+func (q *PgQueue) Enqueue(ctx context.Context, queue string, payload map[string]any) error {
+    _, err := q.db.Exec(ctx,
+        `INSERT INTO _job_queue (queue, payload) VALUES ($1, $2)`,
+        queue, payload)
+    return err
+}
+
+// Start N workers polling the queue
+func (q *PgQueue) Start(ctx context.Context) {
+    for i := 0; i < q.workers; i++ {
+        go q.worker(ctx, i)
+    }
+}
+
+func (q *PgQueue) worker(ctx context.Context, id int) {
+    ticker := time.NewTicker(q.pollInterval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            q.processBatch(ctx)
+        }
+    }
+}
+
+func (q *PgQueue) processBatch(ctx context.Context) {
+    // Dequeue batch with SKIP LOCKED
+    rows, _ := q.db.Query(ctx, dequeueSQL, "webhooks", q.batchSize)
+    defer rows.Close()
+
+    for rows.Next() {
+        var job Job
+        rows.Scan(&job.ID, &job.Queue, &job.Payload, /* ... */)
+
+        handler := q.handlers[job.Queue]
+        if err := handler(job.Payload); err != nil {
+            // Retry with exponential backoff
+            retryAfter := time.Duration(math.Pow(2, float64(job.Attempts))) * 30 * time.Second
+            q.db.Exec(ctx,
+                `UPDATE _job_queue SET status='pending', run_after=$1, error=$2 WHERE id=$3`,
+                time.Now().Add(retryAfter), err.Error(), job.ID)
+        } else {
+            // Success — remove from queue
+            q.db.Exec(ctx, `DELETE FROM _job_queue WHERE id=$1`, job.ID)
+        }
+    }
 }
 ```
 
-**Benefits:**
-- Guaranteed delivery (at-least-once)
-- Backpressure handling (queue buffers spikes)
-- Horizontal scaling (add more workers)
-- Visibility (queue depth metrics)
+**Why PostgreSQL before Redis/RabbitMQ:**
+- Zero new infrastructure — you already have Postgres
+- ACID guarantees — jobs survive crashes (in-process pool doesn't)
+- `SKIP LOCKED` provides ~5K dequeues/s with 4 workers — sufficient for most apps
+- Built-in retry with exponential backoff (just update `run_after`)
+- Observability for free (`SELECT count(*) FROM _job_queue WHERE status='failed'`)
+- No new client library, no new deployment concern
+
+**Limitations:**
+- Postgres is not a purpose-built queue — at >5K/s sustained, row churn causes vacuum pressure
+- Polling introduces latency (configurable `poll_interval`, default 500ms)
+- Not suitable for sub-millisecond latency requirements
+
+---
+
+**Tier 2: Redis Streams (When Postgres Queue Bottlenecks)**
+
+If Redis is already deployed for caching (section 2.1), Redis Streams provide a purpose-built queue with consumer groups, acknowledgments, and ~50K/s throughput.
+
+```go
+// Redis Streams enqueue
+func (q *RedisQueue) Enqueue(ctx context.Context, queue string, payload map[string]any) error {
+    data, _ := json.Marshal(payload)
+    return q.rdb.XAdd(ctx, &redis.XAddArgs{
+        Stream: "rocket:" + queue,
+        Values: map[string]any{"payload": data},
+    }).Err()
+}
+
+// Redis Streams consumer group
+func (q *RedisQueue) Start(ctx context.Context) {
+    // Create consumer group (idempotent)
+    q.rdb.XGroupCreateMkStream(ctx, "rocket:webhooks", "rocket_workers", "0")
+
+    for i := 0; i < q.workers; i++ {
+        go q.consume(ctx, fmt.Sprintf("worker-%d", i))
+    }
+}
+
+func (q *RedisQueue) consume(ctx context.Context, consumer string) {
+    for {
+        results, _ := q.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+            Group:    "rocket_workers",
+            Consumer: consumer,
+            Streams:  []string{"rocket:webhooks", ">"},
+            Count:    int64(q.batchSize),
+            Block:    5 * time.Second,  // Block instead of polling
+        }).Result()
+
+        for _, msg := range results[0].Messages {
+            // Process and acknowledge
+            handler(msg.Values["payload"])
+            q.rdb.XAck(ctx, "rocket:webhooks", "rocket_workers", msg.ID)
+        }
+    }
+}
+```
+
+**When to upgrade from Postgres to Redis:**
+- Sustained webhook volume >5K/s
+- Redis already deployed for cache/sessions
+- Need sub-second processing latency (Redis blocks instead of polling)
+
+---
+
+**Tier 3: RabbitMQ (Extreme Throughput)**
+
+Only for deployments requiring >50K/s sustained throughput or advanced routing (topic exchanges, dead-letter queues, priority queues).
+
+```go
+// RabbitMQ enqueue
+func (q *RabbitQueue) Enqueue(ctx context.Context, queue string, payload map[string]any) error {
+    data, _ := json.Marshal(payload)
+    return q.channel.Publish("rocket", queue, false, false,
+        amqp.Publishing{
+            ContentType:  "application/json",
+            Body:         data,
+            DeliveryMode: amqp.Persistent,
+        })
+}
+
+// RabbitMQ consumer
+func (q *RabbitQueue) Start(ctx context.Context) {
+    msgs, _ := q.channel.Consume("rocket_webhooks", "", false, false, false, false, nil)
+    for i := 0; i < q.workers; i++ {
+        go func() {
+            for msg := range msgs {
+                handler(msg.Body)
+                msg.Ack(false)
+            }
+        }()
+    }
+}
+```
+
+**When to upgrade from Redis to RabbitMQ:**
+- Sustained volume >50K/s
+- Need dead-letter queues for failed message inspection
+- Need priority queues (urgent webhooks processed first)
+- Multiple services consuming the same events (fanout exchanges)
+- Note: Kafka is not recommended — its complexity (partitions, consumer groups, offset management, ZooKeeper/KRaft) is overkill for Rocket's use case. RabbitMQ provides equivalent throughput with simpler operations.
+
+---
+
+**Queue interface (all tiers implement this):**
+```go
+type Queue interface {
+    Enqueue(ctx context.Context, queue string, payload map[string]any) error
+    Start(ctx context.Context)                       // Start consuming
+    Stop() error                                     // Graceful shutdown
+    Stats(ctx context.Context) (QueueStats, error)   // Depth, failed count
+}
+```
+
+**Benefits of the tiered approach:**
+- Start simple — default Postgres queue requires zero new infrastructure
+- Scale incrementally — upgrade queue driver per-app as needed, not globally
+- Same application code — only the `queue.driver` config changes
+- Production-ready at every tier — each tier has durability and retry
 
 #### 3.2 Event-Driven Workflows
 
-**Current:** Polling scheduler checks every 60s
+**Current:** Polling scheduler checks every 60s for timed-out workflow instances.
 
 **Problem:**
-- High latency (up to 60s delay)
-- Inefficient (queries all instances every tick)
+- High latency (up to 60s delay for timeout detection)
+- Inefficient (queries all instances every tick even when none are due)
 
-**Solution: Event-Driven**
+**Solution: Use the same tiered queue (section 3.1) for workflow events**
+
+Workflow events (approval, rejection, timeout) are enqueued to the same queue infrastructure. No separate event system needed.
+
 ```
 ┌──────────┐
 │ Approval │
 │  Action  │
 └────┬─────┘
-     │ Publish event
+     │ Enqueue workflow event
      ▼
 ┌──────────────┐
-│ Event Stream │ (Kafka, NATS)
+│ Queue (3.1)  │ ← Same Postgres/Redis/RabbitMQ queue
 └──────┬───────┘
-       │ Subscribe
+       │ Worker picks up
        ▼
 ┌──────────────┐
-│  Workflow    │ ← Reacts to events
-│   Engine     │   (no polling)
+│  Workflow    │ ← Advances instance
+│   Engine     │
 └──────────────┘
 ```
 
-**Implementation:**
+**Implementation (uses the Queue interface from 3.1):**
 ```go
-// Publish approval event
+// On approval action — enqueue instead of direct call
 func (w *WorkflowHandler) Approve(instanceID string) {
-    w.events.Publish("workflow.approved", WorkflowEvent{
-        InstanceID: instanceID,
-        Timestamp:  time.Now(),
+    w.queue.Enqueue(ctx, "workflows", map[string]any{
+        "action":      "advance",
+        "instance_id": instanceID,
+        "timestamp":   time.Now(),
     })
 }
 
-// Workflow engine subscribes
-func (e *WorkflowEngine) Start() {
-    e.events.Subscribe("workflow.approved", func(event WorkflowEvent) {
-        e.advanceWorkflow(event.InstanceID)
-    })
+// Worker handler for workflow queue
+func workflowJobHandler(payload map[string]any) error {
+    instanceID := payload["instance_id"].(string)
+    return workflowEngine.AdvanceWorkflow(instanceID)
+}
+
+// Timeout scheduling — enqueue with delayed run_after
+func (w *WorkflowEngine) ScheduleTimeout(instanceID string, deadline time.Time) {
+    // For Postgres queue: INSERT with run_after = deadline
+    // For Redis: use XADD with a delay wrapper
+    // For RabbitMQ: use message TTL + dead-letter exchange
+    w.queue.EnqueueDelayed(ctx, "workflows", map[string]any{
+        "action":      "timeout",
+        "instance_id": instanceID,
+    }, deadline)
 }
 ```
 
 **Benefits:**
-- Near-instant reaction (no polling delay)
-- Reduced database load (no periodic queries)
-- Event sourcing (audit trail built-in)
+- Near-instant reaction (no polling delay — workers process immediately)
+- Reduced database load (no periodic queries scanning all instances)
+- Unified infrastructure — workflows use the same queue as webhooks
+- Timeouts become scheduled jobs, not polling-discovered events
 
 #### 3.3 Batch Processing
 
@@ -573,7 +822,8 @@ writeBuffer.Enqueue(webhookLogSQL, webhookLogArgs, "_webhook_logs")
 | Table | Current | Buffered? | Why |
 |-------|---------|-----------|-----|
 | `_webhook_logs` | Sync INSERT per dispatch | Yes | Client doesn't need log confirmation |
-| `_audit_logs` (Phase 8) | N/A (not built yet) | Yes | Non-critical for response, write-heavy |
+| `_events` (Phase 8) | N/A (not built yet) | Yes | High-volume instrumentation data, fire-and-forget |
+| `_audit_logs` (Phase 9) | N/A (not built yet) | Yes | Non-critical for response, write-heavy |
 | `_workflow_instances` history | Sync JSONB append | Partial | History append can be deferred |
 | Business tables | Sync INSERT/UPDATE | No | Client needs confirmation |
 
@@ -1230,22 +1480,25 @@ k6 run --vus 1000 --duration 5m load-test.js
 8. [ ] PostgreSQL write tuning (`synchronous_commit = off` for log tables, COPY for batch flush)
 9. [ ] Add load shedding middleware (503 when queue > 80% full)
 
+### Short-term (Month 1) — continued
+10. [ ] Add PostgreSQL-based job queue (`_job_queue` table with `SKIP LOCKED`) — Tier 1 queue for webhooks, workflows, audit
+11. [ ] Migrate webhook dispatch + workflow events to queue interface
+
 ### Medium-term (Quarter 1)
-10. [ ] Move to message queue for webhooks (RabbitMQ / SQS / Kafka)
-11. [ ] Set up read replicas
-12. [ ] Implement query result cache
-13. [ ] Add rate limiting
-14. [ ] 202 Accepted pattern for bulk operations
-15. [ ] Idempotency key enforcement for at-least-once delivery
+12. [ ] Set up read replicas
+13. [ ] Implement query result cache
+14. [ ] Add rate limiting
+15. [ ] 202 Accepted pattern for bulk operations
+16. [ ] Idempotency key enforcement for at-least-once delivery
+17. [ ] Add `queue.driver` config — support Redis Streams (Tier 2) for high-throughput apps
 
 ### Long-term (Year 1)
-16. [ ] Implement CQRS for high-traffic entities
-17. [ ] Within-app sharding (database-per-app already exists)
-18. [ ] Move files to S3 + CDN
-19. [ ] Event-driven workflows (replace polling schedulers)
-20. [ ] GraphQL federation
-21. [ ] Edge computing deployment
-22. [ ] Advanced monitoring/tracing
+18. [ ] Add RabbitMQ queue driver (Tier 3) for extreme throughput deployments
+19. [ ] Implement CQRS for high-traffic entities
+20. [ ] Within-app sharding (database-per-app already exists)
+21. [ ] Move files to S3 + CDN
+22. [ ] GraphQL federation
+23. [ ] Advanced monitoring/tracing
 
 ---
 
@@ -1253,17 +1506,18 @@ k6 run --vus 1000 --duration 5m load-test.js
 
 ### Infrastructure Costs (10K RPS)
 
-| Component | Current | Scaled | Monthly Cost |
-|-----------|---------|--------|--------------|
-| **App Servers** | 1 × $50 | 5 × $50 | $250 |
-| **Database** | 1 × $100 | 1 primary + 3 replicas × $100 | $400 |
-| **Redis** | - | 1 cluster × $50 | $50 |
-| **Message Queue** | - | 1 × $30 | $30 |
-| **S3 + CDN** | - | ~$100/TB | $100 |
-| **Load Balancer** | - | 1 × $20 | $20 |
-| **Total** | $150 | | **$850** |
+| Component | Current | Scaled | Monthly Cost | Notes |
+|-----------|---------|--------|--------------|-------|
+| **App Servers** | 1 × $50 | 5 × $50 | $250 | |
+| **Database** | 1 × $100 | 1 primary + 3 replicas × $100 | $400 | Includes Postgres queue (Tier 1) at no extra cost |
+| **Redis** | - | 1 cluster × $50 | $50 | Optional: cache + Tier 2 queue |
+| **Message Queue** | - | 1 × $30 | $30 | Optional: RabbitMQ (Tier 3) — only if >50K/s |
+| **S3 + CDN** | - | ~$100/TB | $100 | |
+| **Load Balancer** | - | 1 × $20 | $20 | |
+| **Total (minimal)** | $150 | Postgres queue only | **$770** | No Redis, no RabbitMQ |
+| **Total (full)** | $150 | All tiers | **$850** | |
 
-**ROI:** 10× capacity increase for 5.6× cost increase
+**ROI:** 10× capacity increase for 5.1-5.6× cost increase (depending on queue tier)
 
 ---
 
@@ -1273,10 +1527,11 @@ The Rocket Backend has a **solid foundation** but requires significant enhanceme
 
 ### Critical Path
 1. **Fire-and-forget optimization** (write buffer, bounded worker pools, circuit breakers)
-2. **Database optimization** (read replicas, connection pooling, write tuning)
-3. **Caching layer** (Redis for metadata + query results)
-4. **Async processing** (message queues for webhooks, 202 pattern for bulk ops)
-5. **Horizontal scaling** (load balancer + stateless servers)
+2. **PostgreSQL job queue** (`_job_queue` + `SKIP LOCKED` — zero new infra, replaces in-process schedulers)
+3. **Database optimization** (read replicas, connection pooling, write tuning)
+4. **Caching layer** (Redis for metadata + query results)
+5. **Queue tier upgrade** (Redis Streams or RabbitMQ — only for apps exceeding ~5K/s sustained)
+6. **Horizontal scaling** (load balancer + stateless servers)
 
 ### Expected Results
 - **10-100× RPS increase** (1K → 10K-100K RPS)

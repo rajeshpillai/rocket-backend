@@ -401,26 +401,27 @@ No common issues / FAQ section.
 10. **API Versioning** — Plan for future breaking changes
 11. **OpenAPI Spec** — Auto-generate from metadata
 12. **Metrics Collection** — Prometheus or similar
-13. **Rate Limiting** — Prevent abuse (already planned for Phase 15)
+13. **Rate Limiting** — Prevent abuse (already planned for Phase 16)
 
 ---
 
-## Phase 8-15 Roadmap Review
+## Phase 8-16 Roadmap Review
 
 The planned phases are well-prioritized:
 
 | Phase | Feature | Priority | Notes |
 |-------|---------|----------|-------|
-| **Phase 8** | Audit Log | 🟢 High | Essential for compliance |
-| **Phase 9** | Notifications | 🟢 High | Workflow integration critical |
-| **Phase 10** | Comments | 🟡 Medium | Nice for collaboration |
-| **Phase 11** | Advanced Workflows | 🟡 Medium | Parallel approvals useful |
-| **Phase 12** | Field-Level Permissions | 🟢 High | Security enhancement |
-| **Phase 13** | SSO | 🟢 High | Enterprise requirement |
-| **Phase 14** | Reporting | 🟡 Medium | Analytics useful |
-| **Phase 15** | Bulk Ops | 🟡 Medium | Performance optimization |
+| **Phase 8** | Instrumentation & Events | 🟢 High | Built-in APM, trace-span model, auto-instrumented system events |
+| **Phase 9** | Audit Log | 🟢 High | Essential for compliance |
+| **Phase 10** | Notifications | 🟢 High | Workflow integration critical |
+| **Phase 11** | Comments | 🟡 Medium | Nice for collaboration |
+| **Phase 12** | Advanced Workflows | 🟡 Medium | Parallel approvals useful |
+| **Phase 13** | Field-Level Permissions | 🟢 High | Security enhancement |
+| **Phase 14** | SSO | 🟢 High | Enterprise requirement |
+| **Phase 15** | Reporting | 🟡 Medium | Analytics useful |
+| **Phase 16** | Bulk Ops | 🟡 Medium | Performance optimization |
 
-**Recommendation:** Prioritize Phase 8 (Audit Log) and Phase 13 (SSO) for enterprise readiness.
+**Recommendation:** Prioritize Phase 8 (Instrumentation) for observability, Phase 9 (Audit Log) for compliance, and Phase 14 (SSO) for enterprise readiness.
 
 ---
 
@@ -458,9 +459,10 @@ The Rocket Backend project is a **high-quality codebase with strong architecture
 
 1. **Fix Express.js expression engine security** — Replace `new Function()` with safe evaluator
 2. **Address remaining high-priority recommendations** (config validation, CORS, default credentials)
-3. **Complete Phase 8 (Audit Log)** — Essential for compliance
-4. **Add deployment documentation** — Production setup guide
-5. **Plan Phase 13 (SSO)** — Enterprise requirement
+3. **Complete Phase 8 (Instrumentation & Events)** — Built-in observability and tracing
+4. **Complete Phase 9 (Audit Log)** — Essential for compliance
+5. **Add deployment documentation** — Production setup guide
+6. **Plan Phase 14 (SSO)** — Enterprise requirement
 
 ---
 

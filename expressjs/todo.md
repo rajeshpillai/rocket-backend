@@ -122,7 +122,36 @@
 
 ---
 
-## Phase 8: Audit Log
+## Phase 8: Instrumentation & Events
+- [ ] `_events` system table (id UUID, trace_id UUID, span_id UUID, parent_span_id UUID, event_type TEXT, source TEXT, component TEXT, action TEXT, entity TEXT, record_id TEXT, user_id UUID, duration_ms DOUBLE PRECISION, status TEXT, metadata JSONB, created_at TIMESTAMPTZ)
+- [ ] Indexes: trace_id, entity+created_at DESC, created_at DESC, event_type+source
+- [ ] Instrumenter interface: `startSpan(source, component, action) → Span`, `emitBusinessEvent(action, entity, recordID, metadata)`
+- [ ] Span type: `end()`, `setStatus()`, `setMetadata()`, `traceId`, `spanId`
+- [ ] Trace ID propagation via `AsyncLocalStorage` — generate UUID per request or accept `X-Trace-ID` header
+- [ ] Auto-instrumented system events:
+  - [ ] HTTP middleware: request.start, request.end (method, path, status, latency)
+  - [ ] Auth middleware: auth.validate, auth.login, auth.denied
+  - [ ] Permission engine: permission.check, permission.denied
+  - [ ] DB query wrapper: query.execute (SQL fingerprint, duration, rows affected)
+  - [ ] Write pipeline stages: write.validate, write.rules, write.state_machine, write.insert, write.update, write.delete
+  - [ ] Nested writes: nested_write.plan, nested_write.child (per child op)
+  - [ ] Webhook dispatch: webhook.match, webhook.dispatch, webhook.success, webhook.fail, webhook.circuit_open
+  - [ ] Workflow engine: workflow.trigger, workflow.advance, workflow.approve, workflow.reject, workflow.timeout
+  - [ ] File storage: file.upload, file.serve, file.delete
+- [ ] Fire-and-forget event writes via async write buffer (batch flush with setInterval)
+- [ ] Business event API:
+  - [ ] `POST /api/:app/_events` — emit custom business events (entity, action, metadata)
+  - [ ] `GET /api/:app/_events` — query events (?source, ?entity, ?trace_id, ?user_id, ?status, ?from, ?to, page, per_page)
+  - [ ] `GET /api/:app/_events/trace/:trace_id` — full trace waterfall (all spans for a trace)
+  - [ ] `GET /api/:app/_events/stats` — aggregate stats (count, avg latency by source/entity/action, error rate)
+- [ ] Config in app.yaml: `instrumentation.enabled` (default true), `instrumentation.retention_days` (default 7), `instrumentation.sampling_rate` (default 1.0)
+- [ ] Background retention cleanup job (delete events older than retention period)
+- [ ] Multi-app support: events scoped per-app database, scheduler iterates all apps for cleanup
+- [ ] Admin UI: Event stream page (filterable table, color-coded by source)
+- [ ] Admin UI: Trace waterfall view (nested span timeline for a single trace_id)
+- [ ] Admin UI: Stats overview dashboard (request count, avg latency, error rate, slowest traces)
+
+## Phase 9: Audit Log
 - [ ] `_audit_logs` system table (id, entity, record_id, action, old_data JSONB, new_data JSONB, changed_fields TEXT[], user_id, user_email, ip_address, timestamp)
 - [ ] Audit log capture in write pipeline (create, update, delete — record before/after snapshots)
 - [ ] Automatic diff computation (which fields changed, old vs new values)
@@ -134,7 +163,7 @@
 - [ ] Sensitive field masking (password fields, PII) in audit entries
 - [ ] Admin UI: Audit log viewer page with filters and record timeline view
 
-## Phase 9: Notifications & Email
+## Phase 10: Notifications & Email
 - [ ] `_notification_channels` system table (id, type [email/webhook/in_app], config JSONB, active)
 - [ ] `_notifications` system table (id, channel_id, recipient, subject, body, status, metadata JSONB, created_at, sent_at)
 - [ ] Notification engine (pluggable channels: email via SMTP, in-app, webhook)
@@ -148,7 +177,7 @@
 - [ ] Admin API for notification log/history query
 - [ ] Admin UI: Notification channel management + notification log viewer
 
-## Phase 10: Comments & Activity Stream
+## Phase 11: Comments & Activity Stream
 - [ ] `_comments` system table (id, entity, record_id, user_id, user_email, body, parent_id, created_at, updated_at)
 - [ ] `_activity` system table (id, entity, record_id, type [comment/state_change/workflow/field_update], summary, user_id, metadata JSONB, created_at)
 - [ ] Comment CRUD endpoints (`POST/GET/PUT/DELETE /api/:app/:entity/:id/comments`)
@@ -159,7 +188,7 @@
 - [ ] Permission-aware (comment visibility respects entity read permissions)
 - [ ] Admin UI: Activity/comment panel on data record detail view
 
-## Phase 11: Parallel & Advanced Workflows
+## Phase 12: Parallel & Advanced Workflows
 - [ ] Parallel approval gates: AND (all must approve), OR (any one approves), N-of-M (quorum)
 - [ ] Multi-approver step type (roles/users list, approval threshold)
 - [ ] Delegation: user A delegates approval authority to user B (time-bounded)
@@ -171,7 +200,7 @@
 - [ ] Reassign approval step to different user
 - [ ] Admin UI: Enhanced workflow builder with parallel gates, delegation config, step forms
 
-## Phase 12: Field-Level Permissions & Conditional Visibility
+## Phase 13: Field-Level Permissions & Conditional Visibility
 - [ ] Field-level permission rules in `_permissions` (fields array: include/exclude per role+action)
 - [ ] Read filtering: strip restricted fields from API responses based on user role
 - [ ] Write filtering: reject writes to restricted fields with field-level error details
@@ -179,7 +208,7 @@
 - [ ] Field masking (partial display: last 4 digits of SSN, masked email)
 - [ ] Admin UI: Field permission matrix editor (role × field × action grid)
 
-## Phase 13: SSO & External Auth
+## Phase 14: SSO & External Auth
 - [ ] OAuth 2.0 / OpenID Connect provider support (authorization code flow)
 - [ ] SAML 2.0 SP implementation (for enterprise IdPs like Okta, Azure AD, OneLogin)
 - [ ] LDAP/Active Directory bind authentication
@@ -189,7 +218,7 @@
 - [ ] Session management (SSO sessions, single logout)
 - [ ] Admin UI: Auth provider configuration page
 
-## Phase 14: Reporting & Dashboards
+## Phase 15: Reporting & Dashboards
 - [ ] Aggregate query endpoint (`GET /api/:app/:entity/_aggregate`) — count, sum, avg, min, max, group_by
 - [ ] Workflow KPI queries: avg approval time, bottleneck steps, SLA breach counts, pending by approver
 - [ ] Dashboard metadata (`_dashboards` table) — saved dashboard definitions with widget configs
@@ -198,7 +227,7 @@
 - [ ] Scheduled reports (cron-based, email delivery via notification channels)
 - [ ] Admin UI: Dashboard builder + KPI overview page
 
-## Phase 15: Bulk Operations & API Hardening
+## Phase 16: Bulk Operations & API Hardening
 - [ ] Bulk create endpoint (`POST /api/:app/:entity/_bulk` — array of records, transactional)
 - [ ] Bulk update endpoint (`PUT /api/:app/:entity/_bulk` — array of {id, ...fields}, transactional)
 - [ ] Bulk delete endpoint (`DELETE /api/:app/:entity/_bulk` — array of IDs)

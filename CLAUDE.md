@@ -76,7 +76,8 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 - Admin UI: Export/Import buttons on the Entities page (download JSON file / upload JSON file with results summary)
 
 **Not yet built (future phases):**
-- Audit log
+- Instrumentation & event tracing (Phase 8)
+- Audit log (Phase 9)
 
 ## Project Structure
 
@@ -166,6 +167,7 @@ _permissions        — id (UUID PK), entity, action, roles (TEXT[]), conditions
 _webhooks           — id (UUID PK), entity, hook, url, method, headers (JSONB), condition, async, retry (JSONB), active, created_at, updated_at
 _webhook_logs       — id (UUID PK), webhook_id (FK→_webhooks), entity, hook, url, method, request_headers (JSONB), request_body (JSONB), response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at
 _files              — id (UUID PK), filename, storage_path, mime_type, size (BIGINT), uploaded_by (UUID), created_at
+_events             — id (UUID PK), trace_id (UUID), span_id (UUID), parent_span_id (UUID), event_type, source, component, action, entity, record_id, user_id (UUID), duration_ms, status, metadata (JSONB), created_at  [Phase 8]
 ```
 
 Business tables are created dynamically by the migrator when entities are defined.
@@ -247,6 +249,14 @@ GET  /api/:app/_workflows/pending       # List paused instances
 GET  /api/:app/_workflows/:id           # Get instance details
 POST /api/:app/_workflows/:id/approve   # Approve current step
 POST /api/:app/_workflows/:id/reject    # Reject current step
+```
+
+### App-Scoped Events (Phase 8)
+```
+POST /api/:app/_events                  # Emit custom business event
+GET  /api/:app/_events                  # Query events (filters: source, entity, trace_id, user_id, status, from, to)
+GET  /api/:app/_events/trace/:trace_id  # Full trace waterfall (all spans for a trace)
+GET  /api/:app/_events/stats            # Aggregate stats (count, avg latency, error rate)
 ```
 
 ### App-Scoped Dynamic (per entity)
