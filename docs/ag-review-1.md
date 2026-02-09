@@ -153,7 +153,8 @@ end
 Evidence of integration tests:
 - `handler_integration_test.go` (Go)
 - `handler.integration.test.ts` (Express)
-- Test coverage for CRUD, auth, permissions, workflows
+- Elixir: No test files found in the codebase — test coverage relies on Go and Express integration tests validating API contract parity
+- Test coverage for CRUD, auth, permissions, workflows (Go and Express)
 
 ---
 
@@ -197,13 +198,13 @@ Logging varies across implementations:
 **Recommendation:** Standardize on structured logging (JSON format) for easier parsing in production.
 
 #### 5. **File Upload Size Limits**
-File upload max size is configurable but not enforced consistently:
+File upload max size is configurable and enforced across all three implementations:
 ```yaml
 storage:
   max_file_size: 10485760  # 10MB
 ```
 
-**Recommendation:** Ensure all implementations enforce this limit at the HTTP layer (before reading the entire file into memory).
+All three backends read the `max_file_size` from `app.yaml` config and reject uploads exceeding the limit with `FILE_TOO_LARGE` / 413. However, the file is still read into memory before the size check — consider enforcing at the HTTP layer (e.g., `Content-Length` header check or streaming with early abort) to prevent memory exhaustion from very large uploads.
 
 ---
 
@@ -278,11 +279,11 @@ Password: changeme
 **Recommendation:** Force password change on first login or generate a random password on first boot and log it.
 
 #### 3. **CORS Configuration**
-No CORS configuration visible in the codebase.
+No CORS middleware is configured in any of the three backend implementations.
 
-**Concern:** Admin UI at `localhost:5173` needs CORS headers from backend at `localhost:8080`.
+**Mitigating factor:** The admin UI's Vite dev server proxies API requests to the backend (via `vite.config.ts` proxy), which avoids CORS in development. However, a production deployment serving the frontend from a different origin would require CORS headers.
 
-**Recommendation:** Add CORS middleware with configurable allowed origins.
+**Recommendation:** Add CORS middleware with configurable allowed origins for production deployments.
 
 #### 4. **Input Validation**
 Field validation is metadata-driven (min, max, pattern), but no sanitization:
@@ -290,9 +291,20 @@ Field validation is metadata-driven (min, max, pattern), but no sanitization:
 {"name": "email", "type": "string", "pattern": "^[^@]+@[^@]+$"}
 ```
 
-**Concern:** No HTML/script tag sanitization for user-generated content.
+**Context:** Since this is a JSON API backend (no HTML rendering), XSS prevention is primarily the frontend's responsibility. Stripping HTML at the API layer could corrupt legitimate data (e.g., a CMS entity storing rich HTML content).
 
-**Recommendation:** Add input sanitization for string fields (strip HTML tags, escape special characters).
+**Recommendation:** Rather than blanket HTML stripping, consider adding an optional `sanitize: true` field flag for entities where user-generated content is expected to be rendered as HTML. For most use cases, the current parameterized SQL approach already prevents SQL injection — the primary backend concern.
+
+#### 5. **Expression Engine Security**
+The three implementations use different expression evaluation approaches:
+
+- **Go:** `expr-lang/expr` — compiles to bytecode, sandboxed (no side effects, type-checked). **Safe.**
+- **Express.js:** `new Function()` — effectively `eval()`, can execute arbitrary JavaScript. **Security risk** if user-controlled expressions are accepted (e.g., via admin API rule definitions). An attacker with admin access could execute arbitrary code on the server.
+- **Elixir:** Custom tokenizer/parser/AST evaluator — sandboxed by design (only supports defined operators and functions). **Safe.**
+
+**Concern:** Express.js uses `new Function()` in rules (`rules.ts`), state machine guards (`state-machine.ts`), workflow conditions (`workflow.ts`), and webhook conditions (`webhook.ts`). While admin access is required to define these expressions, a compromised admin account could lead to remote code execution.
+
+**Recommendation:** Replace `new Function()` in the Express.js implementation with a safe expression evaluator (e.g., `expr-eval`, `mathjs`, or a custom parser matching the Elixir approach).
 
 ---
 
@@ -371,24 +383,25 @@ No common issues / FAQ section.
 
 ### High Priority
 
-1. **Add Config Validation** — Validate required fields on startup
-2. **Enforce File Upload Limits** — Prevent memory exhaustion
+1. **Replace `new Function()` in Express.js** — Expression engine uses `eval()`-equivalent; replace with safe evaluator to prevent RCE via admin-defined expressions
+2. **Add Config Validation** — Validate required fields on startup
 3. **Change Default Credentials** — Force password change on first login
-4. **Add CORS Middleware** — Configure allowed origins for admin UI
+4. **Add CORS Middleware** — Configure allowed origins for production deployments
 
 ### Medium Priority
 
-5. **Improve Error Messages** — Include more context in validation errors
-6. **Add Unit Tests** — Cover core algorithms (diff, query builder, permissions)
-7. **Structured Logging** — Use JSON format for easier parsing
-8. **Add Deployment Docs** — Production setup guide
+5. **Enforce File Upload Limits at HTTP Layer** — All three implementations check size after reading into memory; add `Content-Length` pre-check or streaming abort
+6. **Improve Error Messages** — Include more context in validation errors
+7. **Add Unit Tests** — Cover core algorithms (diff, query builder, permissions); add Elixir test suite
+8. **Structured Logging** — Use JSON format for easier parsing
+9. **Add Deployment Docs** — Production setup guide
 
 ### Low Priority
 
-9. **API Versioning** — Plan for future breaking changes
-10. **OpenAPI Spec** — Auto-generate from metadata
-11. **Metrics Collection** — Prometheus or similar
-12. **Rate Limiting** — Prevent abuse (already planned for Phase 15)
+10. **API Versioning** — Plan for future breaking changes
+11. **OpenAPI Spec** — Auto-generate from metadata
+12. **Metrics Collection** — Prometheus or similar
+13. **Rate Limiting** — Prevent abuse (already planned for Phase 15)
 
 ---
 
@@ -413,9 +426,9 @@ The planned phases are well-prioritized:
 
 ## Conclusion
 
-### Overall Assessment: **Excellent** ⭐⭐⭐⭐⭐
+### Overall Assessment: **Very Good** ⭐⭐⭐⭐
 
-The Rocket Backend project is a **high-quality, production-ready codebase** with:
+The Rocket Backend project is a **high-quality codebase with strong architecture**, ready for production with the caveats noted above (expression engine security in Express.js, missing CORS, default credentials):
 
 ✅ Clean architecture  
 ✅ Consistent implementation across three languages  
@@ -434,19 +447,21 @@ The Rocket Backend project is a **high-quality, production-ready codebase** with
 
 ### Areas to Address
 
-1. Add config validation and enforce file upload limits
+1. Replace `new Function()` in Express.js expression engine (security risk)
 2. Change default credentials or force password reset
-3. Add CORS middleware for admin UI
-4. Improve unit test coverage
-5. Add deployment and troubleshooting documentation
+3. Add CORS middleware for production deployments
+4. Add config validation on startup
+5. Add Elixir test suite and improve unit test coverage across all implementations
+6. Add deployment and troubleshooting documentation
 
 ### Next Steps
 
-1. **Address high-priority recommendations** (config validation, CORS, default credentials)
-2. **Complete Phase 8 (Audit Log)** — Essential for compliance
-3. **Add deployment documentation** — Production setup guide
-4. **Plan Phase 13 (SSO)** — Enterprise requirement
+1. **Fix Express.js expression engine security** — Replace `new Function()` with safe evaluator
+2. **Address remaining high-priority recommendations** (config validation, CORS, default credentials)
+3. **Complete Phase 8 (Audit Log)** — Essential for compliance
+4. **Add deployment documentation** — Production setup guide
+5. **Plan Phase 13 (SSO)** — Enterprise requirement
 
 ---
 
-**Overall Grade: A** (Excellent work! Minor improvements recommended.)
+**Overall Grade: A-** (Strong architecture and implementation. Address expression engine security and testing gaps to reach A+.)

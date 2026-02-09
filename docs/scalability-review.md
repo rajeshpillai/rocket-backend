@@ -45,7 +45,7 @@ app_pool_size: 10  # Per-app database pool
 ```
 
 **Problem:** At 1,000 RPS with 100ms avg query time:
-- Concurrent queries: 1,000 × 0.1 = 100
+- Concurrent queries: 1,000 × 0.1 = 100 (assuming 1 query/request; real requests often run 2-5 queries in a transaction, so actual concurrency is higher)
 - Pool size: 10
 - **Result:** Connection starvation, request queuing
 
@@ -108,13 +108,15 @@ func (s *Store) Exec(ctx context.Context, sql string, args ...any) {
 #### 1.3 Query Optimization
 
 **Current Issues:**
-- No prepared statement caching
-- N+1 queries in includes
-- Full table scans on filters
+- No explicit prepared statement caching (note: Go's pgx driver has implicit prepared statement caching built-in; this is more relevant for Express.js using the `pg` driver)
+- Includes already batch by parent IDs (`WHERE source_key = ANY($1)`), but further optimization is possible (e.g., multi-relation batch loading in a single round-trip)
+- Full table scans on filters (no automatic indexing of filterable fields)
 
 **Solutions:**
 
-**A. Prepared Statement Cache**
+**A. Prepared Statement Cache (Express.js / Elixir)**
+
+Go's pgx driver handles this automatically. For Express.js and Elixir, consider explicit statement preparation for hot-path queries:
 ```go
 type PreparedStmtCache struct {
     cache map[string]*pgconn.StatementDescription
@@ -129,17 +131,18 @@ func (c *PreparedStmtCache) Get(sql string) (*pgconn.StatementDescription, bool)
 }
 ```
 
-**B. Batch Includes (Fix N+1)**
-```go
-// Current: N+1 queries
-for _, parent := range parents {
-    children := queryChildren(parent.ID)  // N queries
-}
+**B. Optimize Includes (reduce round-trips)**
 
-// Optimized: 1 query
-parentIDs := extractIDs(parents)
-children := queryChildrenBatch(parentIDs)  // 1 query with IN clause
-groupByParent(children)
+Includes already batch correctly — each relation fires one query with `WHERE key = ANY(parentIDs)`. Further optimization could combine multiple relation includes into a single database round-trip:
+```go
+// Current: 1 query per included relation (already batched by parent IDs)
+// e.g., include=items,tags → 2 queries (one for items, one for tags)
+
+// Further optimization: pipeline multiple relation queries
+pipeline := pgx.Pipeline{}
+pipeline.Queue(itemsSQL, parentIDs)
+pipeline.Queue(tagsSQL, parentIDs)
+results := pipeline.Execute()  // 1 round-trip for all relations
 ```
 
 **C. Automatic Indexing**
@@ -158,30 +161,34 @@ func (m *Migrator) EnsureIndexes(entity *Entity) error {
 
 #### 1.4 Database Sharding (10K+ RPS)
 
-**When:** Single database can't handle write load
+**When:** Single database can't handle write load within a single app
 
-**Strategy: Shard by App**
+**Current state:** The project already uses database-per-app isolation (Phase 6) — each app gets its own PostgreSQL database (`rocket_{appname}`). This provides natural fault isolation and independent scaling per app.
+
+**Next step: Within-app sharding** for apps that outgrow a single database:
 ```
-App "crm"     → Database: rocket_crm_shard_0
-App "helpdesk" → Database: rocket_helpdesk_shard_0
-App "ecommerce" → Database: rocket_ecommerce_shard_1
+App "ecommerce" (high volume) →
+  rocket_ecommerce_shard_0  (customers A-M)
+  rocket_ecommerce_shard_1  (customers N-Z)
 ```
 
 **Implementation:**
 ```go
 type ShardRouter struct {
-    shards map[string]*Store  // app_name → shard
+    shards map[string][]*Store  // app_name → shard list
 }
 
-func (r *ShardRouter) GetShard(appName string) *Store {
-    return r.shards[appName]
+func (r *ShardRouter) GetShard(appName string, shardKey string) *Store {
+    shards := r.shards[appName]
+    idx := hash(shardKey) % len(shards)
+    return shards[idx]
 }
 ```
 
 **Benefits:**
-- Horizontal write scaling
-- Fault isolation (one app's load doesn't affect others)
-- Independent backups/maintenance
+- Horizontal write scaling within a single high-traffic app
+- Fault isolation already exists at the app level (database-per-app)
+- Independent backups/maintenance per shard
 
 ---
 
@@ -517,27 +524,31 @@ app.Get("/health", func(c *fiber.Ctx) error {
 
 **Current:** JWT (stateless) ✅
 
-**Optimization: Session Cache**
+**Optimization: Token Revocation Cache**
+
+Note: HS256 signature verification is a single HMAC operation (~microseconds), so caching decoded JWTs for performance provides negligible benefit and adds a Redis network round-trip. The real value of a session cache is **centralized token revocation** — the ability to invalidate a token before it expires (e.g., on password change, account lock, or logout).
+
 ```go
-// Cache decoded JWT to avoid repeated validation
+// Cache for token revocation checks (not for JWT validation speed)
 type SessionCache struct {
     cache *redis.Client
 }
 
 func (s *SessionCache) ValidateToken(token string) (*UserContext, error) {
-    // Check cache
-    key := fmt.Sprintf("session:%s", hash(token))
-    if cached, err := s.cache.Get(key).Result(); err == nil {
-        return unmarshal(cached), nil
+    // Check if token has been revoked
+    key := fmt.Sprintf("revoked:%s", hash(token))
+    if _, err := s.cache.Get(key).Result(); err == nil {
+        return nil, ErrTokenRevoked
     }
-    
-    // Validate JWT
+
+    // Validate JWT (fast — local HMAC operation)
     user := validateJWT(token)
-    
-    // Cache for token lifetime
-    s.cache.Set(key, marshal(user), 15*time.Minute)
-    
     return user, nil
+}
+
+func (s *SessionCache) RevokeToken(token string, ttl time.Duration) {
+    key := fmt.Sprintf("revoked:%s", hash(token))
+    s.cache.Set(key, "1", ttl)  // TTL matches token expiry
 }
 ```
 
@@ -718,27 +729,27 @@ k6 run --vus 1000 --duration 5m load-test.js
 ## Implementation Priority
 
 ### Immediate (Week 1-2)
-1. ✅ Add database connection pool metrics
-2. ✅ Implement prepared statement cache
-3. ✅ Fix N+1 queries in includes
-4. ✅ Add Redis for metadata cache
+1. [ ] Add database connection pool metrics
+2. [ ] Implement prepared statement cache (Express.js / Elixir — pgx handles this for Go)
+3. [ ] Add Redis for metadata cache
+4. [ ] Add automatic indexing for filterable/sortable fields
 
 ### Short-term (Month 1)
-5. ✅ Set up read replicas
-6. ✅ Implement query result cache
-7. ✅ Add rate limiting
-8. ✅ Move to message queue for webhooks
+5. [ ] Set up read replicas
+6. [ ] Implement query result cache
+7. [ ] Add rate limiting
+8. [ ] Move to message queue for webhooks
 
 ### Medium-term (Quarter 1)
-9. ✅ Implement CQRS for high-traffic entities
-10. ✅ Add database sharding
-11. ✅ Move files to S3 + CDN
-12. ✅ Event-driven workflows
+9. [ ] Implement CQRS for high-traffic entities
+10. [ ] Within-app sharding (database-per-app already exists)
+11. [ ] Move files to S3 + CDN
+12. [ ] Event-driven workflows
 
 ### Long-term (Year 1)
-13. ✅ GraphQL federation
-14. ✅ Edge computing deployment
-15. ✅ Advanced monitoring/tracing
+13. [ ] GraphQL federation
+14. [ ] Edge computing deployment
+15. [ ] Advanced monitoring/tracing
 
 ---
 
@@ -780,5 +791,11 @@ The Rocket Backend has a **solid foundation** but requires significant enhanceme
 2. Implement Phase 1 (database optimization)
 3. Add monitoring/alerting
 4. Load test and iterate
+
+### Language-Specific Scaling Notes
+
+- **Go (Fiber):** Goroutine-based concurrency handles high connection counts well. pgx connection pooling and implicit prepared statements are built-in advantages. Consider `GOMAXPROCS` tuning for multi-core.
+- **Express.js (Node):** Single-threaded event loop; use `cluster` module or PM2 to utilize multiple cores. The `pg` driver lacks implicit prepared statement caching — add explicit caching for hot queries. `new Function()` used in expression evaluation is a security concern at scale (see ag-review-1.md).
+- **Elixir (Phoenix):** BEAM VM provides unique scaling properties — lightweight processes, built-in distribution (clustering via `libcluster`), and fault tolerance via supervision trees. The polling schedulers (workflow timeouts, webhook retries) could be replaced with `Process.send_after/3` for more efficient per-instance timers. Phoenix PubSub can replace Redis Pub/Sub for metadata cache invalidation across nodes.
 
 **The architecture is scalable — it just needs the right infrastructure and patterns applied.**
