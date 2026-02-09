@@ -17,8 +17,9 @@ The current Rocket Backend architecture is **excellent for small-to-medium deplo
 | **Database** | Single Postgres per app | Write contention, connection exhaustion |
 | **Metadata Registry** | In-memory cache | No distributed cache, cold starts |
 | **File Storage** | Local disk | No shared storage, single point of failure |
-| **Webhooks** | Background goroutines/tasks | No guaranteed delivery, no backpressure |
+| **Webhooks** | Background goroutines/tasks | No guaranteed delivery, no backpressure, unbounded concurrency |
 | **Workflows** | Polling scheduler (60s) | Inefficient, high latency |
+| **Write Pipeline** | Synchronous (validate → write → log → respond) | Non-critical writes (audit, webhook logs) block the response path |
 | **Auth** | JWT validation on every request | CPU overhead, no session cache |
 
 ---
@@ -470,13 +471,498 @@ func (h *Handler) processBatch(records []map[string]any) {
     // Single transaction for entire batch
     tx := h.store.Begin()
     defer tx.Rollback()
-    
+
     for _, record := range records {
         h.insertRecord(tx, record)
     }
-    
+
     tx.Commit()
 }
+```
+
+#### 3.4 Async Write Buffer (Write-Behind Pattern)
+
+**Current:** Every write operation in the pipeline is synchronous — the HTTP response waits for all database writes to complete, including non-critical ones like webhook logs and (future) audit logs.
+
+**Problem at high RPS:**
+- Webhook log INSERT blocks the response even though the client doesn't need it
+- Future audit logs will add another synchronous INSERT per write
+- At 10K RPS, these "fire-and-forget" writes double the connection pool pressure
+
+**Solution: In-memory write buffer that flushes to the database in batches**
+
+```
+┌──────────┐     ┌─────────────┐     ┌──────────┐
+│  Write   │────▶│ Write Buffer│────▶│ Postgres │
+│ Pipeline │     │ (in-memory) │     │ (batch)  │
+└──────────┘     └─────────────┘     └──────────┘
+     │                  │
+     │ Respond 200      │ Flush every 100ms
+     │ immediately      │ or every 500 rows
+     ▼                  ▼
+  Client             Background
+```
+
+**Implementation:**
+```go
+type WriteBuffer struct {
+    mu      sync.Mutex
+    items   []BufferedWrite
+    maxSize int           // Flush at this count (e.g., 500)
+    maxAge  time.Duration // Flush at this interval (e.g., 100ms)
+    store   *Store
+}
+
+type BufferedWrite struct {
+    SQL    string
+    Args   []any
+    Table  string
+}
+
+// Non-blocking enqueue — caller doesn't wait for DB write
+func (b *WriteBuffer) Enqueue(sql string, args []any, table string) {
+    b.mu.Lock()
+    b.items = append(b.items, BufferedWrite{SQL: sql, Args: args, Table: table})
+    shouldFlush := len(b.items) >= b.maxSize
+    b.mu.Unlock()
+
+    if shouldFlush {
+        go b.Flush()
+    }
+}
+
+// Batch flush — single transaction for all buffered writes
+func (b *WriteBuffer) Flush() {
+    b.mu.Lock()
+    if len(b.items) == 0 {
+        b.mu.Unlock()
+        return
+    }
+    batch := b.items
+    b.items = make([]BufferedWrite, 0, b.maxSize)
+    b.mu.Unlock()
+
+    tx := b.store.Begin()
+    defer tx.Rollback()
+
+    for _, w := range batch {
+        tx.Exec(w.SQL, w.Args...)
+    }
+    tx.Commit()
+}
+
+// Background ticker — ensures data is written even under low load
+func (b *WriteBuffer) Start() {
+    ticker := time.NewTicker(b.maxAge)
+    for range ticker.C {
+        b.Flush()
+    }
+}
+```
+
+**Usage in the write pipeline:**
+```go
+// Before (synchronous — blocks response):
+LogWebhookDelivery(ctx, db, webhook, payload, result)  // INSERT INTO _webhook_logs
+
+// After (fire-and-forget — response returns immediately):
+writeBuffer.Enqueue(webhookLogSQL, webhookLogArgs, "_webhook_logs")
+```
+
+**Applicable to these tables:**
+| Table | Current | Buffered? | Why |
+|-------|---------|-----------|-----|
+| `_webhook_logs` | Sync INSERT per dispatch | Yes | Client doesn't need log confirmation |
+| `_audit_logs` (Phase 8) | N/A (not built yet) | Yes | Non-critical for response, write-heavy |
+| `_workflow_instances` history | Sync JSONB append | Partial | History append can be deferred |
+| Business tables | Sync INSERT/UPDATE | No | Client needs confirmation |
+
+**Benefits:**
+- **5-10× fewer DB round-trips** (500 individual INSERTs → 1 batched transaction)
+- **Response latency drops** (no waiting for non-critical writes)
+- **Connection pool pressure reduced** (batch uses 1 connection instead of 500)
+
+**Elixir-specific:** Use `GenServer` with `handle_cast` for the buffer + `Process.send_after` for periodic flush. BEAM's message passing gives you natural backpressure.
+
+**Express.js-specific:** Use an in-process array with `setInterval` for periodic flush. Consider `pg`'s `COPY` stream API for bulk inserts.
+
+#### 3.5 202 Accepted Pattern (Deferred Processing)
+
+**Use Case:** Writes where the client doesn't need the final result immediately — bulk imports, webhook-triggered side effects, report generation.
+
+**Current:** All writes are synchronous — the response includes the created/updated record.
+
+**Solution: Accept immediately, process asynchronously, provide status endpoint**
+
+```
+Client                    Server                     Background
+  │                         │                           │
+  │  POST /api/app/entity   │                           │
+  │ ───────────────────────▶│                           │
+  │                         │ Validate payload          │
+  │                         │ Enqueue job               │
+  │  202 Accepted           │                           │
+  │  {job_id: "abc123"}     │                           │
+  │ ◀───────────────────────│                           │
+  │                         │ ────▶ Process write ──────▶│
+  │                         │                           │ INSERT/UPDATE
+  │  GET /api/app/_jobs/abc │                           │
+  │ ───────────────────────▶│                           │
+  │  {status: "completed",  │                           │
+  │   result: {...}}        │                           │
+  │ ◀───────────────────────│                           │
+```
+
+**Implementation:**
+```go
+func (h *Handler) AsyncCreate(c *fiber.Ctx) error {
+    entity := h.resolveEntity(c)
+    body := c.Body()
+
+    // Fast validation (schema check, required fields) — synchronous
+    if err := h.validatePayload(entity, body); err != nil {
+        return c.Status(422).JSON(err)
+    }
+
+    // Enqueue for background processing
+    jobID := uuid.New().String()
+    h.queue.Publish("writes", WriteJob{
+        ID:     jobID,
+        Entity: entity.Name,
+        Action: "create",
+        Body:   body,
+        UserID: getUserID(c),
+    })
+
+    // Respond immediately
+    return c.Status(202).JSON(fiber.Map{
+        "job_id": jobID,
+        "status": "accepted",
+        "poll":   fmt.Sprintf("/api/%s/_jobs/%s", getApp(c), jobID),
+    })
+}
+```
+
+**When to use 202 vs 200:**
+| Scenario | Response | Why |
+|----------|----------|-----|
+| Single record create/update | 200 (sync) | Client typically needs the created ID |
+| Bulk import (100+ records) | 202 (async) | Processing takes too long for a single request |
+| Webhook-triggered writes | 202 (async) | External caller just needs acknowledgment |
+| Report generation | 202 (async) | Computation-heavy, results polled later |
+
+#### 3.6 Circuit Breaker (External Service Protection)
+
+**Current:** Webhook dispatch retries indefinitely with exponential backoff. If a downstream service is down, every webhook attempt opens a connection, waits for timeout, and fails.
+
+**Problem at high RPS:**
+- 1,000 webhooks/s to a down service = 1,000 connections held until timeout
+- Goroutine/task leak (each attempt blocks for timeout duration)
+- Connection pool starvation for other work
+
+**Solution: Circuit breaker per webhook URL**
+
+```
+┌──────────┐
+│  Closed  │ ← Normal operation (requests pass through)
+│          │
+└────┬─────┘
+     │ N failures in window
+     ▼
+┌──────────┐
+│   Open   │ ← Fail fast (no HTTP call, immediate error)
+│          │   Duration: 30s-5min
+└────┬─────┘
+     │ Timer expires
+     ▼
+┌──────────┐
+│Half-Open │ ← Allow 1 probe request
+│          │   Success → Closed, Failure → Open
+└──────────┘
+```
+
+**Implementation:**
+```go
+type CircuitBreaker struct {
+    mu           sync.Mutex
+    state        string // "closed", "open", "half_open"
+    failures     int
+    threshold    int           // Open after N failures (e.g., 5)
+    resetTimeout time.Duration // How long to stay open (e.g., 60s)
+    lastFailure  time.Time
+}
+
+func (cb *CircuitBreaker) Allow() bool {
+    cb.mu.Lock()
+    defer cb.mu.Unlock()
+
+    switch cb.state {
+    case "closed":
+        return true
+    case "open":
+        if time.Since(cb.lastFailure) > cb.resetTimeout {
+            cb.state = "half_open"
+            return true // Allow probe
+        }
+        return false // Fail fast
+    case "half_open":
+        return false // Only one probe at a time
+    }
+    return false
+}
+
+func (cb *CircuitBreaker) RecordSuccess() {
+    cb.mu.Lock()
+    cb.state = "closed"
+    cb.failures = 0
+    cb.mu.Unlock()
+}
+
+func (cb *CircuitBreaker) RecordFailure() {
+    cb.mu.Lock()
+    cb.failures++
+    cb.lastFailure = time.Now()
+    if cb.failures >= cb.threshold {
+        cb.state = "open"
+    }
+    cb.mu.Unlock()
+}
+
+// Usage in webhook dispatch
+func (w *WebhookEngine) dispatchWithCircuitBreaker(hook *Webhook, payload map[string]any) {
+    cb := w.getBreaker(hook.URL) // One breaker per destination URL
+
+    if !cb.Allow() {
+        // Log as "circuit_open", don't attempt HTTP call
+        w.logSkipped(hook, "circuit_open")
+        return
+    }
+
+    result := w.sendHTTP(hook.URL, payload)
+    if result.Success {
+        cb.RecordSuccess()
+    } else {
+        cb.RecordFailure()
+    }
+}
+```
+
+**Benefits:**
+- Prevents connection/goroutine leak to down services
+- Fail-fast (microseconds instead of 30s timeout)
+- Auto-recovery when downstream service comes back
+- Metrics visibility (circuit state per URL)
+
+#### 3.7 Bounded Worker Pool with Backpressure
+
+**Current:** Async webhooks spawn unbounded goroutines (`go func()`) / tasks (`Task.start`). Under high load, this can exhaust memory.
+
+**Problem:**
+```go
+// Current: unbounded — 10K webhooks = 10K goroutines
+for _, wh := range matchingWebhooks {
+    go func(wh *Webhook) {
+        dispatchWebhook(wh, payload)  // Each holds a connection + memory
+    }(wh)
+}
+```
+
+**Solution: Fixed-size worker pool with buffered channel**
+
+```go
+type WorkerPool struct {
+    jobs    chan func()
+    workers int
+    metrics *PoolMetrics
+}
+
+func NewWorkerPool(workers, queueSize int) *WorkerPool {
+    pool := &WorkerPool{
+        jobs:    make(chan func(), queueSize),
+        workers: workers,
+        metrics: &PoolMetrics{},
+    }
+    for i := 0; i < workers; i++ {
+        go pool.worker()
+    }
+    return pool
+}
+
+func (p *WorkerPool) worker() {
+    for job := range p.jobs {
+        job()
+    }
+}
+
+// Submit returns false if queue is full (backpressure signal)
+func (p *WorkerPool) Submit(job func()) bool {
+    select {
+    case p.jobs <- job:
+        return true
+    default:
+        p.metrics.Rejected++
+        return false // Queue full — caller can log, retry later, or drop
+    }
+}
+
+// Usage:
+webhookPool := NewWorkerPool(50, 10000) // 50 workers, 10K queue depth
+
+for _, wh := range matchingWebhooks {
+    hook := wh
+    if !webhookPool.Submit(func() { dispatchWebhook(hook, payload) }) {
+        // Queue full — log to _webhook_logs as "deferred" for retry scheduler
+        logDeferredWebhook(hook, payload)
+    }
+}
+```
+
+**Sizing guidelines:**
+
+| Scenario | Workers | Queue Depth | Rationale |
+|----------|---------|-------------|-----------|
+| Webhook dispatch | 50 | 10,000 | Each worker holds 1 HTTP connection; 50 concurrent outbound calls |
+| Audit log writes | 10 | 50,000 | Batched, low latency per write |
+| Notification dispatch | 20 | 5,000 | SMTP can be slow; limit concurrency |
+
+**Elixir-specific:** Use `Task.Supervisor` with `max_children` for bounded concurrency. BEAM's scheduler provides natural backpressure via process mailbox limits.
+
+**Express.js-specific:** Use `p-limit` or `p-queue` for bounded concurrency, since Node.js is single-threaded and unbounded `Promise.all` can exhaust event loop time.
+
+#### 3.8 PostgreSQL Write Throughput Tuning
+
+**For fire-and-forget tables** (webhook logs, audit logs, activity streams) where durability guarantees can be relaxed:
+
+**A. `synchronous_commit = off` (per-transaction)**
+
+By default, PostgreSQL waits for WAL flush to disk before confirming a commit. For non-critical tables, disable this per-transaction to get 2-5× write throughput:
+
+```go
+func (b *WriteBuffer) FlushAsync() {
+    tx := b.store.Begin()
+    defer tx.Rollback()
+
+    // Relax durability for this transaction only
+    // Data may be lost on server crash (last ~200ms of writes)
+    tx.Exec("SET LOCAL synchronous_commit = off")
+
+    for _, w := range batch {
+        tx.Exec(w.SQL, w.Args...)
+    }
+    tx.Commit()
+}
+```
+
+**Risk:** If PostgreSQL crashes (not the app — the database server itself), up to ~200ms of committed transactions may be lost. Acceptable for logs, not for business data.
+
+**B. COPY protocol for bulk inserts**
+
+PostgreSQL's `COPY` is 5-10× faster than individual INSERTs for batch operations:
+
+```go
+// Instead of 500 individual INSERTs:
+func (b *WriteBuffer) FlushWithCopy(rows []WebhookLog) {
+    conn := b.store.Acquire()
+    defer conn.Release()
+
+    _, err := conn.CopyFrom(
+        ctx,
+        pgx.Identifier{"_webhook_logs"},
+        []string{"webhook_id", "entity", "hook", "url", "status", "created_at"},
+        pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
+            r := rows[i]
+            return []any{r.WebhookID, r.Entity, r.Hook, r.URL, r.Status, r.CreatedAt}, nil
+        }),
+    )
+}
+```
+
+**C. Unlogged tables (extreme throughput)**
+
+For truly ephemeral data (e.g., real-time metrics, session scratch):
+```sql
+CREATE UNLOGGED TABLE _metrics_buffer (...);
+-- No WAL writes, not replicated, lost on crash. 10-20× faster writes.
+```
+
+**When to use each approach:**
+
+| Technique | Speedup | Data Loss Risk | Use For |
+|-----------|---------|----------------|---------|
+| Normal INSERT | 1× | None | Business records |
+| `synchronous_commit = off` | 2-5× | ~200ms on DB crash | Webhook logs, audit logs |
+| COPY protocol | 5-10× | None (just faster) | Batch imports, buffer flush |
+| Unlogged tables | 10-20× | All data on crash | Metrics buffers, scratch tables |
+
+#### 3.9 Idempotency for At-Least-Once Delivery
+
+**Problem:** Fire-and-forget with retries can cause duplicate processing. If a webhook dispatch succeeds but the log write fails, the retry scheduler will re-dispatch.
+
+**Current:** `_webhook_logs` has an `idempotency_key` column but it's not used as a dedup mechanism.
+
+**Solution: Check idempotency key before processing**
+
+```go
+func (w *WebhookWorker) Process(event WebhookEvent) {
+    // Dedup check — skip if already processed
+    key := fmt.Sprintf("%s:%s:%s", event.HookID, event.Entity, event.RecordID)
+    if w.store.Exists("SELECT 1 FROM _webhook_logs WHERE idempotency_key = $1 AND status = 'delivered'", key) {
+        return // Already delivered, skip
+    }
+
+    result := w.sendHTTP(event.URL, event.Payload)
+    w.logDelivery(event, result, key)
+}
+```
+
+**For business writes via 202 pattern:**
+```go
+func (h *Handler) AsyncCreate(c *fiber.Ctx) error {
+    // Client provides idempotency key via header
+    idempotencyKey := c.Get("Idempotency-Key")
+    if idempotencyKey != "" {
+        if existing := h.getJobByKey(idempotencyKey); existing != nil {
+            return c.Status(200).JSON(existing) // Return cached result
+        }
+    }
+    // ... enqueue job with idempotency key
+}
+```
+
+#### 3.10 Load Shedding
+
+**Problem:** When queue depth exceeds capacity, continuing to accept requests degrades performance for everyone. Better to reject early than to queue indefinitely.
+
+**Implementation:**
+```go
+func loadSheddingMiddleware(pool *WorkerPool) fiber.Handler {
+    return func(c *fiber.Ctx) error {
+        queueDepth := len(pool.jobs)
+        queueCapacity := cap(pool.jobs)
+        utilization := float64(queueDepth) / float64(queueCapacity)
+
+        // Shed load when queue is >80% full
+        if utilization > 0.8 {
+            return c.Status(503).JSON(fiber.Map{
+                "error": fiber.Map{
+                    "code":    "SERVICE_OVERLOADED",
+                    "message": "Server is at capacity, please retry later",
+                },
+            })
+        }
+
+        // Add queue depth to response headers for client visibility
+        c.Set("X-Queue-Depth", fmt.Sprintf("%d", queueDepth))
+        c.Set("X-Queue-Capacity", fmt.Sprintf("%d", queueCapacity))
+
+        return c.Next()
+    }
+}
+```
+
+**Client-side retry with backoff:**
+```
+Retry-After: 5  ← Server hints when to retry (seconds)
 ```
 
 ---
@@ -710,9 +1196,12 @@ alerts:
 |--------|---------|-------------------|
 | **RPS per server** | ~1,000 | 10,000+ |
 | **p95 Latency** | ~200ms | <50ms |
+| **p95 Latency (fire-and-forget writes)** | ~200ms | <10ms (async buffer) |
 | **Database connections** | 10/app | 50/app + replicas |
+| **DB writes per webhook** | 1 INSERT/dispatch | 1 batch INSERT/500 dispatches |
 | **Cache hit rate** | 0% (no cache) | >90% |
-| **Webhook throughput** | ~100/s | 10,000/s (queue) |
+| **Webhook throughput** | ~100/s (unbounded goroutines) | 10,000/s (bounded pool + queue) |
+| **Webhook failure mode** | Timeout (30s hold) | Circuit breaker (fail-fast <1ms) |
 
 ### Load Testing
 
@@ -730,26 +1219,33 @@ k6 run --vus 1000 --duration 5m load-test.js
 
 ### Immediate (Week 1-2)
 1. [ ] Add database connection pool metrics
-2. [ ] Implement prepared statement cache (Express.js / Elixir — pgx handles this for Go)
-3. [ ] Add Redis for metadata cache
-4. [ ] Add automatic indexing for filterable/sortable fields
+2. [ ] Implement bounded worker pool for webhooks (replace unbounded `go func()` / `Task.start`)
+3. [ ] Add async write buffer for `_webhook_logs` (write-behind pattern)
+4. [ ] Add circuit breaker for webhook dispatch
 
 ### Short-term (Month 1)
-5. [ ] Set up read replicas
-6. [ ] Implement query result cache
-7. [ ] Add rate limiting
-8. [ ] Move to message queue for webhooks
+5. [ ] Implement prepared statement cache (Express.js / Elixir — pgx handles this for Go)
+6. [ ] Add Redis for metadata cache
+7. [ ] Add automatic indexing for filterable/sortable fields
+8. [ ] PostgreSQL write tuning (`synchronous_commit = off` for log tables, COPY for batch flush)
+9. [ ] Add load shedding middleware (503 when queue > 80% full)
 
 ### Medium-term (Quarter 1)
-9. [ ] Implement CQRS for high-traffic entities
-10. [ ] Within-app sharding (database-per-app already exists)
-11. [ ] Move files to S3 + CDN
-12. [ ] Event-driven workflows
+10. [ ] Move to message queue for webhooks (RabbitMQ / SQS / Kafka)
+11. [ ] Set up read replicas
+12. [ ] Implement query result cache
+13. [ ] Add rate limiting
+14. [ ] 202 Accepted pattern for bulk operations
+15. [ ] Idempotency key enforcement for at-least-once delivery
 
 ### Long-term (Year 1)
-13. [ ] GraphQL federation
-14. [ ] Edge computing deployment
-15. [ ] Advanced monitoring/tracing
+16. [ ] Implement CQRS for high-traffic entities
+17. [ ] Within-app sharding (database-per-app already exists)
+18. [ ] Move files to S3 + CDN
+19. [ ] Event-driven workflows (replace polling schedulers)
+20. [ ] GraphQL federation
+21. [ ] Edge computing deployment
+22. [ ] Advanced monitoring/tracing
 
 ---
 
@@ -776,10 +1272,11 @@ k6 run --vus 1000 --duration 5m load-test.js
 The Rocket Backend has a **solid foundation** but requires significant enhancements for high-scale production:
 
 ### Critical Path
-1. **Database optimization** (read replicas, connection pooling)
-2. **Caching layer** (Redis for metadata + query results)
-3. **Async processing** (message queues for webhooks)
-4. **Horizontal scaling** (load balancer + stateless servers)
+1. **Fire-and-forget optimization** (write buffer, bounded worker pools, circuit breakers)
+2. **Database optimization** (read replicas, connection pooling, write tuning)
+3. **Caching layer** (Redis for metadata + query results)
+4. **Async processing** (message queues for webhooks, 202 pattern for bulk ops)
+5. **Horizontal scaling** (load balancer + stateless servers)
 
 ### Expected Results
 - **10-100× RPS increase** (1K → 10K-100K RPS)
