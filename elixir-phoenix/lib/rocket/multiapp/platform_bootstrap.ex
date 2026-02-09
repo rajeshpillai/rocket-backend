@@ -9,9 +9,9 @@ defmodule Rocket.MultiApp.PlatformBootstrap do
     CREATE TABLE IF NOT EXISTS _apps (
       name TEXT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      db_name TEXT UNIQUE,
+      db_name TEXT NOT NULL UNIQUE,
       jwt_secret TEXT NOT NULL,
-      status TEXT DEFAULT 'active',
+      status TEXT NOT NULL DEFAULT 'active',
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
@@ -31,7 +31,7 @@ defmodule Rocket.MultiApp.PlatformBootstrap do
     CREATE TABLE IF NOT EXISTS _platform_refresh_tokens (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL REFERENCES _platform_users(id) ON DELETE CASCADE,
-      token UUID UNIQUE DEFAULT gen_random_uuid(),
+      token UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )

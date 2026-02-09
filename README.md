@@ -32,6 +32,7 @@ The same backend is implemented in multiple languages, all sharing a single Post
 |----------|-----------|-----------|--------|
 | Go | [golang/](golang/) | Fiber v2 + pgx | Phase 7 complete |
 | TypeScript | [expressjs/](expressjs/) | Express + pg | Phase 7 complete |
+| Elixir | [elixir-phoenix/](elixir-phoenix/) | Phoenix + Postgrex | Phase 7 complete |
 
 ## Quick Start
 
@@ -40,6 +41,7 @@ The same backend is implemented in multiple languages, all sharing a single Post
 - Docker (for Postgres)
 - Go 1.21+ (for Go implementation)
 - Node.js 20+ (for Express implementation)
+- Elixir 1.16+ / OTP 26+ (for Elixir implementation)
 
 ### 1. Start Postgres
 
@@ -62,7 +64,14 @@ npm install
 npx tsx src/index.ts
 ```
 
-Both start on port `8080` by default.
+**Elixir/Phoenix:**
+```bash
+cd elixir-phoenix
+mix deps.get
+mix phx.server
+```
+
+All backends start on port `8080` by default (Elixir uses the port configured in `app.yaml`).
 
 ### Default Credentials
 
@@ -138,11 +147,15 @@ rocket-backend/
 │   ├── cmd/server/main.go
 │   ├── docs/                   # Go-specific implementation docs
 │   └── internal/
-└── expressjs/                  # Express.js implementation
+├── expressjs/                  # Express.js implementation
+│   ├── app.yaml
+│   ├── package.json
+│   ├── docs/                   # Express-specific implementation docs
+│   └── src/
+└── elixir-phoenix/             # Elixir/Phoenix implementation
     ├── app.yaml
-    ├── package.json
-    ├── docs/                   # Express-specific implementation docs
-    └── src/
+    ├── mix.exs
+    └── lib/
 ```
 
 ## API Reference

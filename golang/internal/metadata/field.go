@@ -19,10 +19,12 @@ func (f Field) PostgresType() string {
 	switch f.Type {
 	case "string", "text":
 		return "TEXT"
-	case "int":
+	case "int", "integer":
 		return "INTEGER"
 	case "bigint":
 		return "BIGINT"
+	case "float":
+		return "DOUBLE PRECISION"
 	case "decimal":
 		if f.Precision > 0 {
 			return fmt.Sprintf("NUMERIC(18,%d)", f.Precision)

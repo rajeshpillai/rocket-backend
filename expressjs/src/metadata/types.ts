@@ -46,9 +46,12 @@ export function postgresType(f: Field): string {
     case "text":
       return "TEXT";
     case "int":
+    case "integer":
       return "INTEGER";
     case "bigint":
       return "BIGINT";
+    case "float":
+      return "DOUBLE PRECISION";
     case "decimal":
       if (f.precision && f.precision > 0) {
         return `NUMERIC(18,${f.precision})`;

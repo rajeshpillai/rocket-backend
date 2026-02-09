@@ -6,19 +6,18 @@ defmodule RocketWeb.FileController do
   alias Rocket.Storage.Local, as: FileStorage
   alias Rocket.Engine.AppError
 
-  @max_file_size 50 * 1024 * 1024
-
   # POST /api/:app/_files/upload
   def upload(conn, _params) do
     db = get_conn(conn)
     app_name = get_app_name(conn)
+    max_size = get_max_file_size()
 
     case conn.params do
       %{"file" => %Plug.Upload{} = upload} ->
         stat = File.stat!(upload.path)
 
-        if stat.size > @max_file_size do
-          respond_error(conn, AppError.new("FILE_TOO_LARGE", 413, "File exceeds maximum size of #{div(@max_file_size, 1024 * 1024)}MB"))
+        if stat.size > max_size do
+          respond_error(conn, AppError.new("FILE_TOO_LARGE", 413, "File too large: #{stat.size} bytes (max #{max_size})"))
         else
           file_id = Ecto.UUID.generate()
           filename = upload.filename
@@ -143,6 +142,13 @@ defmodule RocketWeb.FileController do
       %{"id" => id} -> id
       %{id: id} -> id
       _ -> nil
+    end
+  end
+
+  defp get_max_file_size do
+    case Rocket.Config.load() do
+      %{storage: %{max_file_size: size}} when is_integer(size) -> size
+      _ -> 10_485_760
     end
   end
 
