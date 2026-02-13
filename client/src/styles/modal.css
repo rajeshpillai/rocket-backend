@@ -1,0 +1,48 @@
+@layer components {
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/50 flex items-center justify-center z-50;
+    backdrop-filter: blur(2px);
+  }
+
+  .modal-panel {
+    @apply bg-white rounded-xl shadow-xl w-full max-w-lg mx-4
+           max-h-[90vh] flex flex-col;
+    animation: modal-enter 0.15s ease-out;
+  }
+
+  .modal-panel-wide {
+    @apply max-w-3xl;
+  }
+
+  .modal-header {
+    @apply flex items-center justify-between px-6 py-4 border-b border-gray-200;
+  }
+
+  .modal-title {
+    @apply text-lg font-semibold text-gray-900;
+  }
+
+  .modal-close {
+    @apply p-1 rounded-lg text-gray-400 hover:text-gray-600
+           hover:bg-gray-100 transition-colors cursor-pointer;
+  }
+
+  .modal-body {
+    @apply px-6 py-4 overflow-y-auto flex-1;
+  }
+
+  .modal-footer {
+    @apply flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200;
+  }
+
+  @keyframes modal-enter {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+}

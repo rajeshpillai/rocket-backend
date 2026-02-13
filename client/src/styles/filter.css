@@ -1,0 +1,49 @@
+@layer components {
+  .filter-bar {
+    @apply bg-white rounded-lg border border-gray-200 p-4 mb-4;
+  }
+
+  .filter-bar-header {
+    @apply flex items-center justify-between mb-3;
+  }
+
+  .filter-bar-title {
+    @apply text-sm font-medium text-gray-700;
+  }
+
+  .filter-bar-actions {
+    @apply flex items-center gap-2;
+  }
+
+  .filter-rows {
+    @apply flex flex-col gap-2;
+  }
+
+  .filter-row {
+    @apply flex items-center gap-2;
+  }
+
+  .filter-field-select {
+    @apply px-3 py-1.5 rounded-lg border border-gray-300 text-sm
+           focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[140px];
+  }
+
+  .filter-op-select {
+    @apply px-2 py-1.5 rounded-lg border border-gray-300 text-sm
+           focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[100px];
+  }
+
+  .filter-value-input {
+    @apply px-3 py-1.5 rounded-lg border border-gray-300 text-sm
+           focus:outline-none focus:ring-1 focus:ring-blue-500 flex-1;
+  }
+
+  .filter-remove-btn {
+    @apply p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50
+           transition-colors cursor-pointer;
+  }
+
+  .filter-empty {
+    @apply text-sm text-gray-400 italic;
+  }
+}

@@ -1,0 +1,69 @@
+@layer components {
+  .form-group {
+    @apply flex flex-col gap-1.5;
+  }
+
+  .form-label {
+    @apply text-sm font-medium text-gray-700;
+  }
+
+  .form-label-required::after {
+    content: " *";
+    @apply text-red-500;
+  }
+
+  .form-input {
+    @apply w-full px-3 py-2 rounded-lg border border-gray-300
+           text-sm text-gray-900 placeholder-gray-400
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+           disabled:bg-gray-50 disabled:text-gray-500
+           transition-colors;
+  }
+
+  .form-input-error {
+    @apply border-red-300 focus:ring-red-500 focus:border-red-500;
+  }
+
+  .form-textarea {
+    @apply form-input resize-y;
+    min-height: 5rem;
+  }
+
+  .form-select {
+    @apply form-input appearance-none cursor-pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236b7280'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 1.25rem;
+    padding-right: 2.25rem;
+  }
+
+  .form-checkbox {
+    @apply w-4 h-4 rounded border-gray-300 text-blue-600
+           focus:ring-blue-500 focus:ring-2 cursor-pointer;
+  }
+
+  .form-checkbox-label {
+    @apply flex items-center gap-2 text-sm text-gray-700 cursor-pointer;
+  }
+
+  .form-error-text {
+    @apply text-xs text-red-600 mt-0.5;
+  }
+
+  .form-help-text {
+    @apply text-xs text-gray-400 mt-0.5;
+  }
+
+  .form-row {
+    @apply grid grid-cols-2 gap-4;
+  }
+
+  .form-actions {
+    @apply flex items-center gap-3 pt-4 border-t border-gray-200 mt-6;
+  }
+
+  .form-divider {
+    @apply border-t border-gray-200 my-6;
+  }
+}

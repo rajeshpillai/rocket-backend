@@ -1,0 +1,32 @@
+@layer components {
+  .pagination {
+    @apply flex items-center justify-between mt-4 px-1;
+  }
+
+  .pagination-info {
+    @apply text-sm text-gray-500;
+  }
+
+  .pagination-controls {
+    @apply flex items-center gap-1;
+  }
+
+  .pagination-btn {
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium
+           text-gray-600 hover:bg-gray-100 transition-colors
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent;
+  }
+
+  .pagination-btn-active {
+    @apply bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  .pagination-per-page {
+    @apply flex items-center gap-2 text-sm text-gray-500;
+  }
+
+  .pagination-per-page-select {
+    @apply px-2 py-1 rounded border border-gray-300 text-sm
+           focus:outline-none focus:ring-1 focus:ring-blue-500;
+  }
+}

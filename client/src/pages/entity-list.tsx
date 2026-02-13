@@ -1,0 +1,399 @@
+import { createSignal, createEffect, Show } from "solid-js";
+import { useParams, useNavigate } from "@solidjs/router";
+import { listRecords, deleteRecord, getEntity, listRelations } from "../api/data";
+import {
+  parseDefinition,
+  parseRelationDefinition,
+  type EntityDefinition,
+  type RelationRow,
+} from "../types/entity";
+import { addToast } from "../stores/notifications";
+import { isApiError } from "../types/api";
+import DataTable, { type Column } from "../components/data-table";
+import Pagination from "../components/pagination";
+import FilterBar, { type FilterParam } from "../components/filter-bar";
+import ConfirmDialog from "../components/confirm-dialog";
+import Modal from "../components/modal";
+import RecordForm, { type FkFieldInfo } from "../components/record-form";
+import { createRecord, updateRecord } from "../api/data";
+
+export default function EntityListPage() {
+  const params = useParams();
+  const navigate = useNavigate();
+
+  const [entityDef, setEntityDef] = createSignal<EntityDefinition | null>(null);
+  const [relationNames, setRelationNames] = createSignal<string[]>([]);
+  const [fkFields, setFkFields] = createSignal<FkFieldInfo[]>([]);
+  const [records, setRecords] = createSignal<Record<string, unknown>[]>([]);
+  const [total, setTotal] = createSignal(0);
+  const [page, setPage] = createSignal(1);
+  const [perPage, setPerPage] = createSignal(25);
+  const [sortField, setSortField] = createSignal("");
+  const [sortDir, setSortDir] = createSignal<"ASC" | "DESC">("DESC");
+  const [filters, setFilters] = createSignal<FilterParam[]>([]);
+  const [loading, setLoading] = createSignal(true);
+
+  const [editorOpen, setEditorOpen] = createSignal(false);
+  const [editingRecord, setEditingRecord] = createSignal<Record<string, unknown>>({});
+  const [isNewRecord, setIsNewRecord] = createSignal(false);
+  const [saving, setSaving] = createSignal(false);
+  const [fieldErrors, setFieldErrors] = createSignal<Record<string, string>>({});
+
+  const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
+  const [showFilters, setShowFilters] = createSignal(false);
+
+  createEffect(() => {
+    const entityName = params.entity;
+    if (entityName) {
+      loadEntity(entityName);
+    }
+  });
+
+  createEffect(() => {
+    if (entityDef()) {
+      fetchData();
+    }
+  });
+
+  async function loadEntity(name: string) {
+    setLoading(true);
+    setRecords([]);
+    setPage(1);
+    setFilters([]);
+    setSortField("");
+    try {
+      const row = await getEntity(name);
+      setEntityDef(parseDefinition(row));
+
+      // Use row-level source field to find relations for this entity
+      const rels = (await listRelations()) as RelationRow[];
+      const matching = rels.filter((r) => r.source === name);
+      setRelationNames(matching.map((r) => r.name));
+
+      // Build FK field info: relations where this entity is the TARGET
+      // (meaning this entity has a FK column pointing to another entity)
+      const fks: FkFieldInfo[] = [];
+      for (const rel of rels) {
+        if (rel.target === name) {
+          const def = parseRelationDefinition(rel);
+          if (def.target_key) {
+            fks.push({
+              fieldName: def.target_key,
+              targetEntity: rel.source,
+              targetKey: def.source_key || "id",
+            });
+          }
+        }
+      }
+      setFkFields(fks);
+    } catch {
+      addToast("error", `Failed to load entity: ${name}`);
+      setEntityDef(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchData() {
+    const def = entityDef();
+    if (!def) return;
+
+    setLoading(true);
+    try {
+      const filterMap: Record<string, string> = {};
+      for (const f of filters()) {
+        if (f.operator === "eq") {
+          filterMap[`filter[${f.field}]`] = f.value;
+        } else {
+          filterMap[`filter[${f.field}.${f.operator}]`] = f.value;
+        }
+      }
+
+      let sort = sortField();
+      if (sort && sortDir() === "DESC") {
+        sort = `-${sort}`;
+      }
+
+      // Don't include relations on list page — not needed for table display
+      const res = await listRecords(def.name, {
+        page: page(),
+        per_page: perPage(),
+        sort: sort || undefined,
+        filters: filterMap,
+      });
+
+      setRecords(res.data);
+      setTotal(res.meta?.total ?? res.data.length);
+    } catch (err) {
+      if (isApiError(err)) {
+        addToast("error", err.error.message);
+      } else {
+        addToast("error", "Failed to fetch records");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleSort(field: string) {
+    if (sortField() === field) {
+      setSortDir(sortDir() === "ASC" ? "DESC" : "ASC");
+    } else {
+      setSortField(field);
+      setSortDir("ASC");
+    }
+    setPage(1);
+    fetchData();
+  }
+
+  function handlePageChange(p: number) {
+    setPage(p);
+    fetchData();
+  }
+
+  function handlePerPageChange(pp: number) {
+    setPerPage(pp);
+    setPage(1);
+    fetchData();
+  }
+
+  function handleApplyFilters(newFilters: FilterParam[]) {
+    setFilters(newFilters);
+    setPage(1);
+    fetchData();
+  }
+
+  function handleCreate() {
+    setEditingRecord({});
+    setIsNewRecord(true);
+    setFieldErrors({});
+    setEditorOpen(true);
+  }
+
+  function handleEdit(row: Record<string, unknown>) {
+    setEditingRecord({ ...row });
+    setIsNewRecord(false);
+    setFieldErrors({});
+    setEditorOpen(true);
+  }
+
+  async function handleSave() {
+    const def = entityDef();
+    if (!def) return;
+
+    setSaving(true);
+    setFieldErrors({});
+
+    try {
+      const data = editingRecord();
+      if (isNewRecord()) {
+        await createRecord(def.name, data);
+        addToast("success", "Record created");
+      } else {
+        const id = String(data[def.primary_key.field]);
+        const payload = { ...data };
+        delete payload[def.primary_key.field];
+        delete payload["created_at"];
+        delete payload["updated_at"];
+        delete payload["deleted_at"];
+        // Remove relation data from payload
+        for (const name of relationNames()) {
+          delete payload[name];
+        }
+        await updateRecord(def.name, id, payload);
+        addToast("success", "Record updated");
+      }
+      setEditorOpen(false);
+      fetchData();
+    } catch (err) {
+      if (isApiError(err)) {
+        addToast("error", err.error.message);
+        if (err.error.details) {
+          const errs: Record<string, string> = {};
+          for (const d of err.error.details) {
+            if (d.field) errs[d.field] = d.message;
+          }
+          setFieldErrors(errs);
+        }
+      } else {
+        addToast("error", "Save failed");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    const id = deleteTarget();
+    const def = entityDef();
+    if (!id || !def) return;
+
+    try {
+      await deleteRecord(def.name, id);
+      addToast("success", "Record deleted");
+      setDeleteTarget(null);
+      fetchData();
+    } catch (err) {
+      if (isApiError(err)) {
+        addToast("error", err.error.message);
+      } else {
+        addToast("error", "Delete failed");
+      }
+    }
+  }
+
+  function getColumns(): Column<Record<string, unknown>>[] {
+    const def = entityDef();
+    if (!def) return [];
+
+    const cols: Column<Record<string, unknown>>[] = def.fields
+      .filter((f) => f.name !== "deleted_at")
+      .slice(0, 8)
+      .map((f) => ({
+        key: f.name,
+        header: f.name,
+        sortable: true,
+      }));
+
+    cols.push({
+      key: "_actions",
+      header: "",
+      render: (_val, row) => (
+        <div class="table-cell-actions">
+          <button
+            class="btn-ghost btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleEdit(row);
+            }}
+          >
+            Edit
+          </button>
+          <button
+            class="btn-ghost btn-sm"
+            style={{ color: "#ef4444" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const pk = def.primary_key.field;
+              setDeleteTarget(String(row[pk]));
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      ),
+    });
+
+    return cols;
+  }
+
+  return (
+    <div>
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">{params.entity}</h1>
+          <Show when={entityDef()}>
+            <p class="page-subtitle">
+              {total()} records | {entityDef()!.fields.length} fields
+              {entityDef()!.soft_delete ? " | soft delete" : ""}
+            </p>
+          </Show>
+        </div>
+        <div class="page-actions">
+          <button
+            class="btn-secondary btn-sm"
+            onClick={() => setShowFilters(!showFilters())}
+          >
+            {showFilters() ? "Hide Filters" : "Filters"}
+          </button>
+          <button class="btn-secondary btn-sm" onClick={fetchData}>
+            Refresh
+          </button>
+          <button class="btn-primary btn-sm" onClick={handleCreate}>
+            + New Record
+          </button>
+        </div>
+      </div>
+
+      <Show when={showFilters() && entityDef()}>
+        <FilterBar
+          fields={entityDef()!.fields}
+          filters={filters()}
+          onApply={handleApplyFilters}
+        />
+      </Show>
+
+      <Show when={loading()}>
+        <div class="loading-spinner">
+          <div class="spinner" />
+        </div>
+      </Show>
+
+      <Show when={!loading() && entityDef()}>
+        <DataTable
+          columns={getColumns()}
+          rows={records()}
+          sortField={sortField()}
+          sortDir={sortDir()}
+          onSort={handleSort}
+          onRowClick={(row) => {
+            const pk = entityDef()!.primary_key.field;
+            navigate(`/data/${params.entity}/${row[pk]}`);
+          }}
+          emptyMessage={`No ${params.entity} records found`}
+        />
+
+        <Pagination
+          page={page()}
+          perPage={perPage()}
+          total={total()}
+          onPageChange={handlePageChange}
+          onPerPageChange={handlePerPageChange}
+        />
+      </Show>
+
+      <Modal
+        open={editorOpen()}
+        onClose={() => setEditorOpen(false)}
+        title={isNewRecord() ? `New ${params.entity}` : `Edit ${params.entity}`}
+        wide
+      >
+        <Show when={entityDef()}>
+          <RecordForm
+            fields={entityDef()!.fields}
+            values={editingRecord()}
+            onChange={(field, value) =>
+              setEditingRecord({ ...editingRecord(), [field]: value })
+            }
+            errors={fieldErrors()}
+            isNew={isNewRecord()}
+            fkFields={fkFields()}
+          />
+          <div class="form-actions">
+            <button
+              class="btn-primary"
+              onClick={handleSave}
+              disabled={saving()}
+            >
+              {saving() ? "Saving..." : isNewRecord() ? "Create" : "Save Changes"}
+            </button>
+            <button
+              class="btn-secondary"
+              onClick={() => setEditorOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </Show>
+      </Modal>
+
+      <ConfirmDialog
+        open={deleteTarget() !== null}
+        title="Delete Record"
+        message="Are you sure you want to delete this record? This action cannot be undone."
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </div>
+  );
+}

@@ -1,0 +1,261 @@
+@layer components {
+  .app-layout {
+    @apply flex min-h-screen;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    @apply w-64 bg-gray-900 text-gray-100 flex flex-col
+           fixed inset-y-0 left-0 z-30;
+    transition: width 0.2s ease;
+  }
+
+  .sidebar-collapsed {
+    width: 3.5rem;
+  }
+
+  .sidebar-header {
+    @apply flex items-center border-b border-gray-800;
+    min-height: 3.5rem;
+  }
+
+  .sidebar-collapsed .sidebar-header {
+    @apply justify-center;
+  }
+
+  .sidebar-logo {
+    @apply flex-1 flex items-center gap-2 px-5 py-4 cursor-pointer;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-logo-icon {
+    @apply w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center
+           text-white font-bold text-sm flex-shrink-0;
+  }
+
+  .sidebar-logo-text {
+    @apply text-lg font-bold tracking-tight;
+  }
+
+  .sidebar-toggle {
+    @apply flex items-center justify-center flex-shrink-0
+           text-gray-400 hover:text-white bg-transparent border-none
+           cursor-pointer p-3 transition-colors;
+  }
+
+  .sidebar-scroll-area {
+    @apply flex-1 overflow-y-auto overflow-x-hidden;
+  }
+
+  /* ── Navigation ── */
+  .sidebar-nav {
+    @apply flex flex-col py-3;
+  }
+
+  .nav-section-label {
+    @apply px-5 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-collapsed .nav-section-label {
+    @apply hidden;
+  }
+
+  .nav-link {
+    @apply flex items-center gap-3 px-5 py-2.5 text-sm text-gray-300
+           hover:bg-gray-800 hover:text-white transition-colors;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .sidebar-collapsed .nav-link {
+    @apply justify-center px-0;
+    gap: 0;
+  }
+
+  .nav-link-active {
+    @apply bg-gray-800 text-white border-r-2 border-blue-500;
+  }
+
+  .nav-link-icon {
+    @apply w-5 h-5 flex-shrink-0 opacity-70;
+  }
+
+  .nav-link-active .nav-link-icon {
+    @apply opacity-100;
+  }
+
+  /* ── Sidebar footer ── */
+  .sidebar-footer {
+    @apply mt-auto px-4 py-3 border-t border-gray-800;
+  }
+
+  .sidebar-collapsed .sidebar-footer {
+    @apply px-2 flex flex-col items-center;
+  }
+
+  .sidebar-app-badge {
+    @apply text-xs text-blue-400 bg-blue-900/30 rounded px-2 py-1 mb-2 truncate
+           text-center block;
+  }
+
+  .sidebar-user {
+    @apply text-xs text-gray-400 truncate mb-2 px-1;
+  }
+
+  .sidebar-logout {
+    @apply w-full text-center;
+  }
+
+  .sidebar-collapsed .sidebar-logout {
+    @apply w-auto px-2;
+  }
+
+  /* ── Content area ── */
+  .content-area {
+    @apply ml-64 flex-1 p-8 bg-gray-50;
+    min-height: calc(100vh - 1.75rem);
+    padding-bottom: 3rem;
+    transition: margin-left 0.2s ease;
+  }
+
+  .content-area-collapsed {
+    margin-left: 3.5rem;
+  }
+
+  /* ── Status bar ── */
+  .status-bar {
+    @apply fixed bottom-0 right-0 flex items-center justify-between
+           px-4 bg-gray-800 text-gray-400 text-xs z-20;
+    left: 16rem;
+    height: 1.75rem;
+    transition: left 0.2s ease;
+  }
+
+  .status-bar-collapsed {
+    left: 3.5rem;
+  }
+
+  .status-bar-version {
+    @apply select-none;
+  }
+
+  /* ── Page headers ── */
+  .page-header {
+    @apply flex items-center justify-between mb-6;
+  }
+
+  .page-title {
+    @apply text-2xl font-bold text-gray-900;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-gray-500 mt-1;
+  }
+
+  .page-actions {
+    @apply flex items-center gap-3;
+  }
+
+  /* ── Section containers ── */
+  .section {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-gray-900 mb-4;
+  }
+
+  .section-subtitle {
+    @apply text-sm text-gray-500 mb-4;
+  }
+
+  /* ── Login layout ── */
+  .login-container {
+    @apply min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-100 to-blue-50;
+  }
+
+  .login-card {
+    @apply bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-gray-100;
+  }
+
+  .login-logo {
+    @apply flex items-center justify-center gap-3 mb-6;
+  }
+
+  .login-logo-icon {
+    @apply w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center
+           text-white font-bold text-lg;
+  }
+
+  .login-logo-text {
+    @apply text-2xl font-bold text-gray-900;
+  }
+
+  .login-title {
+    @apply text-xl font-semibold text-gray-900 text-center mb-1;
+  }
+
+  .login-subtitle {
+    @apply text-sm text-gray-500 text-center mb-6;
+  }
+
+  .login-error {
+    @apply bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm;
+  }
+
+  .login-form {
+    @apply space-y-4;
+  }
+
+  .login-btn {
+    @apply w-full;
+  }
+
+  /* ── Empty states ── */
+  .empty-state {
+    @apply flex flex-col items-center justify-center py-16 text-center;
+  }
+
+  .empty-state-icon {
+    @apply w-16 h-16 text-gray-300 mb-4;
+  }
+
+  .empty-state-title {
+    @apply text-lg font-medium text-gray-500 mb-2;
+  }
+
+  .empty-state-text {
+    @apply text-sm text-gray-400 max-w-sm;
+  }
+
+  /* ── Loading ── */
+  .loading-spinner {
+    @apply flex items-center justify-center py-12;
+  }
+
+  .spinner {
+    @apply w-8 h-8 border-4 border-gray-200 border-t-blue-600 rounded-full;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    @apply flex border-b border-gray-200 mb-6;
+  }
+
+  .tab {
+    @apply px-4 py-2.5 text-sm font-medium text-gray-500 border-b-2 border-transparent
+           cursor-pointer transition-colors hover:text-gray-700;
+  }
+
+  .tab-active {
+    @apply text-blue-600 border-blue-600;
+  }
+}

@@ -1,0 +1,21 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+
+@import "./layout.css";
+@import "./button.css";
+@import "./table.css";
+@import "./form.css";
+@import "./modal.css";
+@import "./badge.css";
+@import "./toast.css";
+@import "./pagination.css";
+@import "./card.css";
+@import "./filter.css";
+
+@import "tailwindcss/utilities";
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+}
