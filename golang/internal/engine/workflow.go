@@ -162,12 +162,16 @@ func executeConditionStep(instance *metadata.WorkflowInstance, step *metadata.Wo
 		"context": instance.Context,
 	}
 
-	compiled, err := expr.Compile(step.Expression, expr.AsBool())
-	if err != nil {
-		return false, "", fmt.Errorf("compile condition: %w", err)
+	// Lazy-compile and cache the condition expression
+	if step.CompiledExpression == nil {
+		prog, err := expr.Compile(step.Expression, expr.AsBool())
+		if err != nil {
+			return false, "", fmt.Errorf("compile condition: %w", err)
+		}
+		step.CompiledExpression = prog
 	}
 
-	result, err := expr.Run(compiled, env)
+	result, err := expr.Run(step.CompiledExpression, env)
 	if err != nil {
 		return false, "", fmt.Errorf("evaluate condition: %w", err)
 	}

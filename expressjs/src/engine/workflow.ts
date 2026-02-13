@@ -170,8 +170,14 @@ function executeConditionStep(
   const env = { context: instance.context };
   let result: boolean;
   try {
-    const fn = new Function("env", `with (env) { return !!(${step.expression}); }`);
-    result = fn(env);
+    // Lazy-compile and cache the condition function
+    if (!step.compiledExpression) {
+      step.compiledExpression = new Function(
+        "env",
+        `with (env) { return !!(${step.expression}); }`,
+      ) as (env: Record<string, any>) => boolean;
+    }
+    result = step.compiledExpression(env);
   } catch (err: any) {
     throw new Error(`evaluate condition: ${err.message ?? err}`);
   }

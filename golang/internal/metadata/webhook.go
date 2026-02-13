@@ -1,5 +1,7 @@
 package metadata
 
+import "github.com/expr-lang/expr/vm"
+
 // WebhookRetry defines retry behaviour for async webhook delivery.
 type WebhookRetry struct {
 	MaxAttempts int    `json:"max_attempts"`
@@ -18,4 +20,7 @@ type Webhook struct {
 	Async     bool              `json:"async"`
 	Retry     WebhookRetry      `json:"retry"`
 	Active    bool              `json:"active"`
+
+	// CompiledCondition caches the compiled condition program (lazy-initialized).
+	CompiledCondition *vm.Program `json:"-"`
 }

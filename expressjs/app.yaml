@@ -16,4 +16,4 @@ database:
   user: rocket
   password: rocket
   name: rocket
-  pool_size: 10
+  pool_size: 50

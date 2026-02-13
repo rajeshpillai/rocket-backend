@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import type { FileStorage } from "./storage.js";
 
 /** Local filesystem storage implementation. */
@@ -16,8 +17,8 @@ export class LocalStorage implements FileStorage {
     return storagePath;
   }
 
-  async open(storagePath: string): Promise<Buffer> {
-    return fsp.readFile(storagePath);
+  openStream(storagePath: string): Readable {
+    return fs.createReadStream(storagePath);
   }
 
   async delete(storagePath: string): Promise<void> {

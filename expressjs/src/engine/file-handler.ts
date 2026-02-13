@@ -89,11 +89,19 @@ export class FileHandler {
       throw new AppError("NOT_FOUND", 404, `File ${id} not found`);
     }
 
-    const buffer = await this.storage.open(row.storage_path);
-
     res.set("Content-Type", row.mime_type);
     res.set("Content-Disposition", `inline; filename="${row.filename}"`);
-    res.send(buffer);
+    if (row.size) {
+      res.set("Content-Length", String(row.size));
+    }
+
+    const stream = this.storage.openStream(row.storage_path);
+    stream.on("error", () => {
+      if (!res.headersSent) {
+        res.status(404).json({ error: { code: "NOT_FOUND", message: `File ${id} not found on disk` } });
+      }
+    });
+    stream.pipe(res);
   });
 
   delete = asyncHandler(async (req: Request, res: Response) => {

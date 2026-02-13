@@ -14,4 +14,7 @@ export interface Webhook {
   async: boolean;
   retry: WebhookRetry;
   active: boolean;
+
+  /** Cached compiled condition function (lazy-initialized). */
+  compiledCondition?: (env: Record<string, any>) => boolean;
 }

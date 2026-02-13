@@ -1,6 +1,10 @@
 package metadata
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/expr-lang/expr/vm"
+)
 
 // StepGoto handles both {"goto":"step_id"} and "end" in JSON.
 type StepGoto struct {
@@ -73,9 +77,10 @@ type WorkflowStep struct {
 	Then    *StepGoto        `json:"then,omitempty"`
 
 	// Condition step fields
-	Expression string    `json:"expression,omitempty"`
-	OnTrue     *StepGoto `json:"on_true,omitempty"`
-	OnFalse    *StepGoto `json:"on_false,omitempty"`
+	Expression          string      `json:"expression,omitempty"`
+	CompiledExpression  *vm.Program `json:"-"`
+	OnTrue              *StepGoto   `json:"on_true,omitempty"`
+	OnFalse             *StepGoto   `json:"on_false,omitempty"`
 
 	// Approval step fields
 	Assignee  *WorkflowAssignee `json:"assignee,omitempty"`

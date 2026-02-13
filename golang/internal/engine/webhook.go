@@ -93,9 +93,9 @@ func resolveEnvVars(s string) string {
 }
 
 // EvaluateWebhookCondition evaluates a webhook's condition expression.
-// Empty condition always returns true.
-func EvaluateWebhookCondition(condition string, payload *WebhookPayload) (bool, error) {
-	if condition == "" {
+// Empty condition always returns true. Uses lazy compilation with caching.
+func EvaluateWebhookCondition(wh *metadata.Webhook, payload *WebhookPayload) (bool, error) {
+	if wh.Condition == "" {
 		return true, nil
 	}
 
@@ -111,11 +111,15 @@ func EvaluateWebhookCondition(condition string, payload *WebhookPayload) (bool, 
 		env["user"] = payload.User
 	}
 
-	prog, err := expr.Compile(condition, expr.AsBool())
-	if err != nil {
-		return false, fmt.Errorf("compile webhook condition: %w", err)
+	// Lazy-compile and cache the condition program
+	if wh.CompiledCondition == nil {
+		prog, err := expr.Compile(wh.Condition, expr.AsBool())
+		if err != nil {
+			return false, fmt.Errorf("compile webhook condition: %w", err)
+		}
+		wh.CompiledCondition = prog
 	}
-	result, err := expr.Run(prog, env)
+	result, err := expr.Run(wh.CompiledCondition, env)
 	if err != nil {
 		return false, fmt.Errorf("evaluate webhook condition: %w", err)
 	}
@@ -209,7 +213,7 @@ func FireAsyncWebhooks(ctx context.Context, s *store.Store, reg *metadata.Regist
 			continue
 		}
 
-		fire, err := EvaluateWebhookCondition(wh.Condition, payload)
+		fire, err := EvaluateWebhookCondition(wh, payload)
 		if err != nil {
 			log.Printf("ERROR: webhook %s condition evaluation: %v", wh.ID, err)
 			continue
@@ -245,7 +249,7 @@ func FireSyncWebhooks(ctx context.Context, tx store.Querier, reg *metadata.Regis
 			continue // skip async webhooks in sync path
 		}
 
-		fire, err := EvaluateWebhookCondition(wh.Condition, payload)
+		fire, err := EvaluateWebhookCondition(wh, payload)
 		if err != nil {
 			return fmt.Errorf("webhook %s condition: %w", wh.ID, err)
 		}

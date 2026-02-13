@@ -90,13 +90,13 @@ function resolveEnvVars(s: string): string {
 
 /**
  * Evaluates a webhook condition expression.
- * Empty condition always returns true.
+ * Empty condition always returns true. Uses lazy compilation with caching.
  */
 export function evaluateWebhookCondition(
-  condition: string,
+  wh: Webhook,
   payload: WebhookPayload,
 ): boolean {
-  if (!condition) return true;
+  if (!wh.condition) return true;
 
   const env: Record<string, any> = {
     record: payload.record,
@@ -109,11 +109,14 @@ export function evaluateWebhookCondition(
   };
 
   try {
-    const fn = new Function(
-      "env",
-      `with (env) { return !!(${condition}); }`,
-    ) as (env: Record<string, any>) => boolean;
-    return fn(env);
+    // Lazy-compile and cache the condition function
+    if (!wh.compiledCondition) {
+      wh.compiledCondition = new Function(
+        "env",
+        `with (env) { return !!(${wh.condition}); }`,
+      ) as (env: Record<string, any>) => boolean;
+    }
+    return wh.compiledCondition(env);
   } catch (err) {
     throw new Error(
       `webhook condition evaluation failed: ${err instanceof Error ? err.message : err}`,
@@ -225,7 +228,7 @@ export function fireAsyncWebhooks(
 
     let fire: boolean;
     try {
-      fire = evaluateWebhookCondition(wh.condition, payload);
+      fire = evaluateWebhookCondition(wh, payload);
     } catch (err) {
       console.error(`ERROR: webhook ${wh.id} condition evaluation:`, err);
       continue;
@@ -268,7 +271,7 @@ export async function fireSyncWebhooks(
   for (const wh of webhooks) {
     if (wh.async) continue; // skip async webhooks in sync path
 
-    const fire = evaluateWebhookCondition(wh.condition, payload);
+    const fire = evaluateWebhookCondition(wh, payload);
     if (!fire) continue;
 
     const headers = resolveHeaders(wh.headers);

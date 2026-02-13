@@ -61,6 +61,8 @@ export interface WorkflowStep {
 
   // Condition step fields
   expression?: string;
+  /** Cached compiled condition function (lazy-initialized). */
+  compiledExpression?: (env: Record<string, any>) => boolean;
   on_true?: StepGoto;
   on_false?: StepGoto;
 
