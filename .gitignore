@@ -11,6 +11,10 @@ expressjs/.env
 admin/node_modules/
 admin/dist/
 
+# Client UI
+client/node_modules/
+client/dist/
+
 # IDE
 .idea/
 .vscode/
