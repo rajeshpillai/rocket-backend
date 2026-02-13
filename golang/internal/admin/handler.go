@@ -1844,13 +1844,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		summary["webhooks"]++
 	}
 
-	// Step 8: UI Configs (dedup by entity+scope)
-	existingUIs, _ := store.QueryRows(ctx, h.store.Pool,
-		"SELECT entity, scope FROM _ui_configs")
-	uiSet := make(map[string]bool)
-	for _, r := range existingUIs {
-		uiSet[fmt.Sprintf("%v|%v", r["entity"], r["scope"])] = true
-	}
+	// Step 8: UI Configs (upsert by entity+scope)
 	summary["ui_configs"] = 0
 	for _, raw := range payload.UIConfigs {
 		entity, _ := raw["entity"].(string)
@@ -1861,19 +1855,16 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		if scope == "" {
 			scope = "default"
 		}
-		key := fmt.Sprintf("%v|%v", entity, scope)
-		if uiSet[key] {
-			continue
-		}
 		configJSON, _ := json.Marshal(raw["config"])
 		_, err := store.QueryRow(ctx, h.store.Pool,
-			"INSERT INTO _ui_configs (entity, scope, config) VALUES ($1,$2,$3) RETURNING id",
+			`INSERT INTO _ui_configs (entity, scope, config) VALUES ($1,$2,$3)
+			 ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
+			 RETURNING id`,
 			entity, scope, configJSON)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("UI config (%v/%v): %v", entity, scope, err))
 			continue
 		}
-		uiSet[key] = true
 		summary["ui_configs"]++
 	}
 

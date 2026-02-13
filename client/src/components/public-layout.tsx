@@ -1,5 +1,7 @@
-import { type ParentProps } from "solid-js";
-import { A } from "@solidjs/router";
+import { type ParentProps, For, createMemo } from "solid-js";
+import { A, useLocation } from "@solidjs/router";
+import { getEntityUIConfig, getAllUIConfigs } from "../stores/ui-config";
+import { selectedApp } from "../stores/app";
 import ToastContainer from "./toast";
 
 interface PublicLayoutProps extends ParentProps {
@@ -7,17 +9,54 @@ interface PublicLayoutProps extends ParentProps {
 }
 
 export default function PublicLayout(props: PublicLayoutProps) {
+  const location = useLocation();
+
+  const publicNavLinks = createMemo(() => {
+    const configs = getAllUIConfigs();
+    const links: { label: string; route: string }[] = [];
+    for (const row of configs) {
+      const cfg = row.config;
+      if (cfg?.pages?.landing) {
+        links.push({
+          label: cfg.pages.landing.title ?? cfg.sidebar?.label ?? row.entity,
+          route: `/pages/${row.entity}`,
+        });
+      }
+    }
+    return links;
+  });
+
+  const currentEntity = createMemo(() => {
+    const match = location.pathname.match(/^\/pages\/([^/]+)/);
+    return match ? match[1] : null;
+  });
+
+  const siteName = createMemo(() => {
+    const entity = currentEntity();
+    if (entity) {
+      const uiConfig = getEntityUIConfig(entity);
+      if (uiConfig?.pages?.landing?.title) {
+        return uiConfig.pages.landing.title;
+      }
+    }
+    return props.siteName ?? selectedApp() ?? "Rocket";
+  });
+
   return (
     <div class="public-layout">
       <header class="public-header">
         <div class="public-header-inner">
-          <A href="/pages/post" class="public-logo">
-            {props.siteName ?? "Blog"}
+          <A href={publicNavLinks().length > 0 ? publicNavLinks()[0].route : "/dashboard"} class="public-logo">
+            {siteName()}
           </A>
           <nav class="public-nav">
-            <A href="/pages/post" class="public-nav-link">
-              Articles
-            </A>
+            <For each={publicNavLinks()}>
+              {(link) => (
+                <A href={link.route} class="public-nav-link">
+                  {link.label}
+                </A>
+              )}
+            </For>
             <A href="/dashboard" class="public-nav-link">
               Admin
             </A>

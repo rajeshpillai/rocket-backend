@@ -1,5 +1,5 @@
 import { createSignal, createEffect, Show, For } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { useNavigate, useParams } from "@solidjs/router";
 import { listRecords } from "../../api/data";
 import { getEntityUIConfig } from "../../stores/ui-config";
 import { addToast } from "../../stores/notifications";
@@ -8,7 +8,8 @@ import type { LandingPageConfig, CardConfig } from "../../types/ui-config";
 import PostCard from "../../components/post-card";
 import Pagination from "../../components/pagination";
 
-export default function PostLandingPage() {
+export default function EntityLandingPage() {
+  const params = useParams();
   const navigate = useNavigate();
 
   const [records, setRecords] = createSignal<Record<string, unknown>[]>([]);
@@ -17,46 +18,53 @@ export default function PostLandingPage() {
   const [loading, setLoading] = createSignal(true);
   const [config, setConfig] = createSignal<LandingPageConfig | null>(null);
 
+  const entityName = () => params.entity;
+
   createEffect(() => {
-    const uiConfig = getEntityUIConfig("post");
+    const entity = entityName();
+    if (!entity) return;
+
+    setPage(1);
+    setRecords([]);
+
+    const uiConfig = getEntityUIConfig(entity);
     if (uiConfig?.pages?.landing) {
       setConfig(uiConfig.pages.landing);
-      fetchData(uiConfig.pages.landing);
+      fetchData(entity, uiConfig.pages.landing);
     } else {
-      // Default config if none provided
-      setConfig({
-        route: "/pages/post",
-        title: "Articles",
+      // Default config
+      const defaultConfig: LandingPageConfig = {
+        route: `/pages/${entity}`,
+        title: entity.charAt(0).toUpperCase() + entity.slice(1) + "s",
         layout: "card-grid",
         data: {
-          include: "author,tags",
           sort: "-created_at",
           per_page: 12,
         },
         card: {
           title: "title",
-          excerpt: "excerpt",
+          excerpt: "description",
           date: "created_at",
         },
-      });
-      fetchData(null);
+      };
+      setConfig(defaultConfig);
+      fetchData(entity, defaultConfig);
     }
   });
 
-  async function fetchData(cfg: LandingPageConfig | null) {
+  async function fetchData(entity: string, cfg: LandingPageConfig) {
     setLoading(true);
     try {
-      const dataConfig = cfg?.data ?? {};
+      const dataConfig = cfg.data ?? {};
       const filterMap: Record<string, string> = {};
 
-      // Apply filters from config
       if (dataConfig.filter) {
         for (const [key, value] of Object.entries(dataConfig.filter)) {
           filterMap[`filter[${key}]`] = String(value);
         }
       }
 
-      const res = await listRecords("post", {
+      const res = await listRecords(entity, {
         page: page(),
         per_page: dataConfig.per_page ?? 12,
         sort: dataConfig.sort ?? "-created_at",
@@ -70,7 +78,7 @@ export default function PostLandingPage() {
       if (isApiError(err)) {
         addToast("error", err.error.message);
       } else {
-        addToast("error", "Failed to fetch posts");
+        addToast("error", `Failed to fetch ${entity} records`);
       }
     } finally {
       setLoading(false);
@@ -79,13 +87,15 @@ export default function PostLandingPage() {
 
   function handlePageChange(p: number) {
     setPage(p);
-    fetchData(config());
+    const cfg = config();
+    const entity = entityName();
+    if (cfg && entity) fetchData(entity, cfg);
   }
 
   function handleCardClick(record: Record<string, unknown>) {
     const id = record.id ?? record.slug;
     if (id) {
-      navigate(`/pages/post/${id}`);
+      navigate(`/pages/${entityName()}/${id}`);
     }
   }
 
@@ -93,7 +103,7 @@ export default function PostLandingPage() {
     return (
       config()?.card ?? {
         title: "title",
-        excerpt: "excerpt",
+        excerpt: "description",
         date: "created_at",
       }
     );
@@ -104,7 +114,7 @@ export default function PostLandingPage() {
   return (
     <div>
       <div class="public-page-header">
-        <h1 class="public-page-title">{config()?.title ?? "Articles"}</h1>
+        <h1 class="public-page-title">{config()?.title ?? entityName()}</h1>
         <Show when={config()?.subtitle}>
           <p class="public-page-subtitle">{config()!.subtitle}</p>
         </Show>
@@ -134,7 +144,7 @@ export default function PostLandingPage() {
                   d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"
                 />
               </svg>
-              <p class="public-empty-text">No articles found</p>
+              <p class="public-empty-text">No records found</p>
             </div>
           }
         >

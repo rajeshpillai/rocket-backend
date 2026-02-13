@@ -69,7 +69,7 @@ export interface DetailPageConfig {
 
 export interface PageDataConfig {
   include?: string;
-  filter?: Record<string, string>;
+  filter?: Record<string, unknown>;
   sort?: string;
   per_page?: number;
 }
@@ -133,7 +133,7 @@ export interface CommentSection extends PageSection {
     date?: string;
     body?: string;
   };
-  filter?: Record<string, string>;
+  filter?: Record<string, unknown>;
   sort?: string;
   pending_message?: string;
 }

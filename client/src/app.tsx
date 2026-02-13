@@ -11,8 +11,8 @@ import AppLoginPage from "./pages/app-login";
 import DashboardPage from "./pages/dashboard";
 import EntityListPage from "./pages/entity-list";
 import EntityDetailPage from "./pages/entity-detail";
-import PostLandingPage from "./pages/public/post-landing";
-import PostDetailPage from "./pages/public/post-detail";
+import PublicLandingPage from "./pages/public/entity-landing";
+import PublicDetailPage from "./pages/public/entity-detail";
 
 function AuthGuard(props: ParentProps) {
   const navigate = useNavigate();
@@ -72,8 +72,8 @@ export default function App() {
 
       {/* Public pages - no auth required but needs app selected */}
       <Route path="/pages" component={PublicPageLayout}>
-        <Route path="/post" component={PostLandingPage} />
-        <Route path="/post/:id" component={PostDetailPage} />
+        <Route path="/:entity" component={PublicLandingPage} />
+        <Route path="/:entity/:id" component={PublicDetailPage} />
       </Route>
 
       {/* Admin pages - auth required */}

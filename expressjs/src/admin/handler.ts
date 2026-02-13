@@ -1435,23 +1435,20 @@ export class AdminHandler {
     }
     summary.webhooks = whCount;
 
-    // Step 8: UI Configs (dedup by entity+scope)
-    const existingUIs = await queryRows(this.store.pool, "SELECT entity, scope FROM _ui_configs");
-    const uiSet = new Set((existingUIs ?? []).map((r: any) => `${r.entity}|${r.scope}`));
+    // Step 8: UI Configs (upsert by entity+scope)
     let uiCount = 0;
     for (const ui of body.ui_configs ?? []) {
       const entity = ui.entity;
       const scope = ui.scope || "default";
       if (!entity) continue;
-      const key = `${entity}|${scope}`;
-      if (uiSet.has(key)) continue;
       try {
         await queryRow(
           this.store.pool,
-          "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id",
+          `INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3)
+           ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
+           RETURNING id`,
           [entity, scope, JSON.stringify(ui.config ?? {})],
         );
-        uiSet.add(key);
         uiCount++;
       } catch (e: any) {
         errors.push(`ui_config ${entity}/${scope}: ${e.message}`);

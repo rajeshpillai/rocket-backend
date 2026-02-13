@@ -30,3 +30,19 @@ export function getEntityUIConfig(entity: string): UIConfig | null {
   }
   return row.config;
 }
+
+export function getAllUIConfigs(): { entity: string; config: UIConfig }[] {
+  return configs().map((row) => {
+    let config: UIConfig;
+    if (typeof row.config === "string") {
+      try {
+        config = JSON.parse(row.config);
+      } catch {
+        config = {} as UIConfig;
+      }
+    } else {
+      config = row.config;
+    }
+    return { entity: row.entity, config };
+  });
+}

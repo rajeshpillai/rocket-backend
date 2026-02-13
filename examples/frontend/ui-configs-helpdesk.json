@@ -1,166 +1,462 @@
-[
-  {
-    "entity": "ticket",
-    "config": {
-      "list": {
-        "title": "Tickets",
-        "columns": ["title", "status", "priority", "category", "customer_id", "agent_id", "updated_at"],
-        "default_sort": "-updated_at",
-        "per_page": 25
-      },
-      "detail": {
-        "title": "Ticket",
-        "sections": [
-          {
-            "title": "Issue",
-            "fields": ["title", "description"]
-          },
-          {
-            "title": "Triage",
-            "fields": ["status", "priority", "category"]
-          },
-          {
-            "title": "People",
-            "fields": ["customer_id", "agent_id"]
-          },
-          {
-            "title": "Resolution",
-            "fields": ["resolved_at", "closed_at"]
-          }
-        ]
-      },
-      "form": {
-        "field_overrides": {
-          "title": { "label": "Subject" },
-          "description": { "label": "Description", "widget": "textarea", "rows": 8 },
-          "status": { "label": "Status", "readonly": true, "help": "Managed by the ticket workflow" },
-          "priority": { "label": "Priority" },
-          "category": { "label": "Category" },
-          "customer_id": { "label": "Customer" },
-          "agent_id": { "label": "Assigned Agent" },
-          "resolved_at": { "label": "Resolved At", "readonly": true },
-          "closed_at": { "label": "Closed At", "readonly": true }
+{
+  "version": 1,
+  "ui_configs": [
+    {
+      "entity": "ticket",
+      "config": {
+        "list": {
+          "title": "Support Tickets",
+          "columns": [
+            "title",
+            "status",
+            "priority",
+            "category",
+            "customer_id",
+            "agent_id",
+            "updated_at"
+          ],
+          "default_sort": "-updated_at",
+          "per_page": 25,
+          "searchable_fields": [
+            "title",
+            "description"
+          ]
         },
-        "hidden_fields": ["deleted_at"],
-        "readonly_fields": ["created_at", "updated_at"]
-      },
-      "sidebar": {
-        "label": "Tickets",
-        "group": "Support"
+        "detail": {
+          "title": "Ticket",
+          "sections": [
+            {
+              "title": "Issue Details",
+              "fields": [
+                "title",
+                "description"
+              ]
+            },
+            {
+              "title": "Status & Priority",
+              "fields": [
+                "status",
+                "priority",
+                "category"
+              ]
+            },
+            {
+              "title": "Assignment",
+              "fields": [
+                "customer_id",
+                "agent_id"
+              ]
+            },
+            {
+              "title": "Timeline",
+              "fields": [
+                "created_at",
+                "updated_at",
+                "resolved_at",
+                "closed_at"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "title": {
+              "label": "Subject",
+              "help": "Brief summary of the issue"
+            },
+            "description": {
+              "label": "Description",
+              "widget": "textarea",
+              "rows": 10,
+              "help": "Describe the issue in detail \u2014 steps to reproduce, expected vs actual behavior, and any error messages"
+            },
+            "status": {
+              "label": "Status",
+              "readonly": true,
+              "help": "Managed automatically by the ticket lifecycle"
+            },
+            "priority": {
+              "label": "Priority",
+              "help": "Critical and high-priority tickets trigger automatic escalation"
+            },
+            "category": {
+              "label": "Category",
+              "help": "Routes the ticket to the appropriate team"
+            },
+            "customer_id": {
+              "label": "Requester"
+            },
+            "agent_id": {
+              "label": "Assignee"
+            },
+            "resolved_at": {
+              "label": "Resolved",
+              "readonly": true
+            },
+            "closed_at": {
+              "label": "Closed",
+              "readonly": true
+            }
+          },
+          "hidden_fields": [
+            "deleted_at"
+          ],
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "ticket",
+          "label": "Tickets",
+          "group": "Support Desk"
+        },
+        "pages": {
+          "landing": {
+            "route": "/pages/ticket",
+            "title": "Support Center",
+            "subtitle": "Track and manage your support requests",
+            "layout": "card-grid",
+            "data": {
+              "include": "ticket_customer,ticket_agent",
+              "sort": "-updated_at",
+              "per_page": 20
+            },
+            "card": {
+              "title": "title",
+              "excerpt": "description",
+              "date": "updated_at",
+              "author": {
+                "relation": "ticket_customer",
+                "name_field": "name"
+              },
+              "click_action": "navigate_detail"
+            }
+          },
+          "detail": {
+            "route": "/pages/ticket/:id",
+            "layout": "article",
+            "data": {
+              "include": "ticket_customer,ticket_agent,ticket_responses"
+            },
+            "sections": [
+              {
+                "type": "meta",
+                "author": {
+                  "relation": "ticket_customer",
+                  "name_field": "name",
+                  "show_avatar": false
+                },
+                "date": "created_at"
+              },
+              {
+                "type": "content",
+                "field": "description",
+                "format": "text"
+              },
+              {
+                "type": "comments",
+                "relation": "ticket_responses",
+                "title": "Conversation",
+                "allow_submit": true,
+                "submit_fields": {
+                  "body": {
+                    "label": "Write a reply...",
+                    "widget": "textarea",
+                    "rows": 4,
+                    "required": true
+                  }
+                },
+                "display_fields": {
+                  "author": "author_id",
+                  "date": "created_at",
+                  "body": "body"
+                },
+                "filter": {
+                  "internal_note": false
+                },
+                "sort": "created_at"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "entity": "response",
+      "config": {
+        "list": {
+          "title": "Ticket Replies",
+          "columns": [
+            "ticket_id",
+            "body",
+            "author_type",
+            "internal_note",
+            "created_at"
+          ],
+          "default_sort": "-created_at",
+          "per_page": 30
+        },
+        "detail": {
+          "title": "Reply",
+          "sections": [
+            {
+              "title": "Message",
+              "fields": [
+                "body",
+                "attachment"
+              ]
+            },
+            {
+              "title": "Details",
+              "fields": [
+                "author_type",
+                "author_id",
+                "internal_note",
+                "ticket_id"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "body": {
+              "label": "Message",
+              "widget": "textarea",
+              "rows": 8,
+              "help": "Supports plain text. Use internal notes for team-only comments."
+            },
+            "author_type": {
+              "label": "Sent By"
+            },
+            "author_id": {
+              "label": "Author"
+            },
+            "internal_note": {
+              "label": "Internal Note",
+              "help": "Internal notes are only visible to support agents \u2014 customers never see these"
+            },
+            "ticket_id": {
+              "label": "Ticket"
+            },
+            "attachment": {
+              "label": "Attachment"
+            }
+          },
+          "readonly_fields": [
+            "created_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "message",
+          "label": "Replies",
+          "group": "Support Desk"
+        }
+      }
+    },
+    {
+      "entity": "customer",
+      "config": {
+        "list": {
+          "title": "Customers",
+          "columns": [
+            "name",
+            "email",
+            "company",
+            "phone",
+            "created_at"
+          ],
+          "default_sort": "name",
+          "per_page": 25,
+          "searchable_fields": [
+            "name",
+            "email",
+            "company"
+          ]
+        },
+        "detail": {
+          "title": "Customer Profile",
+          "sections": [
+            {
+              "title": "Contact Information",
+              "fields": [
+                "name",
+                "email",
+                "phone"
+              ]
+            },
+            {
+              "title": "Organization",
+              "fields": [
+                "company"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "name": {
+              "label": "Full Name"
+            },
+            "email": {
+              "label": "Email Address"
+            },
+            "phone": {
+              "label": "Phone Number"
+            },
+            "company": {
+              "label": "Company"
+            }
+          },
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "users",
+          "label": "Customers",
+          "group": "Contacts"
+        },
+        "pages": {
+          "landing": {
+            "route": "/pages/customer",
+            "title": "Customer Directory",
+            "subtitle": "Browse and manage customer contacts",
+            "layout": "card-grid",
+            "data": {
+              "sort": "name",
+              "per_page": 24
+            },
+            "card": {
+              "title": "name",
+              "excerpt": "company",
+              "date": "created_at",
+              "click_action": "navigate_detail"
+            }
+          },
+          "detail": {
+            "route": "/pages/customer/:id",
+            "layout": "article",
+            "data": {
+              "include": "ticket_customer"
+            },
+            "sections": [
+              {
+                "type": "meta",
+                "date": "created_at"
+              },
+              {
+                "type": "content",
+                "field": "company",
+                "format": "text"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "entity": "agent",
+      "config": {
+        "list": {
+          "title": "Support Team",
+          "columns": [
+            "name",
+            "email",
+            "department",
+            "active"
+          ],
+          "default_sort": "name",
+          "per_page": 25,
+          "searchable_fields": [
+            "name",
+            "email"
+          ]
+        },
+        "detail": {
+          "title": "Agent Profile",
+          "sections": [
+            {
+              "title": "Profile",
+              "fields": [
+                "name",
+                "email"
+              ]
+            },
+            {
+              "title": "Team & Status",
+              "fields": [
+                "department",
+                "active"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "name": {
+              "label": "Full Name"
+            },
+            "email": {
+              "label": "Work Email"
+            },
+            "department": {
+              "label": "Department",
+              "help": "Tickets are auto-routed by category to the matching department"
+            },
+            "active": {
+              "label": "Available",
+              "help": "Unavailable agents won't receive new ticket assignments"
+            }
+          },
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "headset",
+          "label": "Team",
+          "group": "Contacts"
+        },
+        "pages": {
+          "landing": {
+            "route": "/pages/agent",
+            "title": "Our Support Team",
+            "subtitle": "Meet the people behind your support experience",
+            "layout": "card-grid",
+            "data": {
+              "filter": {
+                "active": true
+              },
+              "sort": "name",
+              "per_page": 20
+            },
+            "card": {
+              "title": "name",
+              "excerpt": "department",
+              "click_action": "navigate_detail"
+            }
+          },
+          "detail": {
+            "route": "/pages/agent/:id",
+            "layout": "article",
+            "data": {},
+            "sections": [
+              {
+                "type": "meta",
+                "date": "created_at"
+              },
+              {
+                "type": "content",
+                "field": "department",
+                "format": "text"
+              }
+            ]
+          }
+        }
       }
     }
-  },
-  {
-    "entity": "response",
-    "config": {
-      "list": {
-        "title": "Responses",
-        "columns": ["body", "author_type", "internal_note", "ticket_id", "created_at"],
-        "default_sort": "-created_at",
-        "per_page": 30
-      },
-      "detail": {
-        "title": "Response",
-        "sections": [
-          {
-            "title": "Message",
-            "fields": ["body", "attachment"]
-          },
-          {
-            "title": "Details",
-            "fields": ["author_type", "author_id", "internal_note", "ticket_id"]
-          }
-        ]
-      },
-      "form": {
-        "field_overrides": {
-          "body": { "label": "Message", "widget": "textarea", "rows": 8 },
-          "author_type": { "label": "Author Type" },
-          "author_id": { "label": "Author" },
-          "internal_note": { "label": "Internal Note", "help": "Internal notes are only visible to agents" },
-          "ticket_id": { "label": "Ticket" },
-          "attachment": { "label": "Attachment" }
-        },
-        "readonly_fields": ["created_at"]
-      },
-      "sidebar": {
-        "label": "Responses",
-        "group": "Support"
-      }
-    }
-  },
-  {
-    "entity": "customer",
-    "config": {
-      "list": {
-        "title": "Customers",
-        "columns": ["name", "email", "company", "phone", "created_at"],
-        "default_sort": "name",
-        "per_page": 25
-      },
-      "detail": {
-        "title": "Customer",
-        "sections": [
-          {
-            "title": "Contact",
-            "fields": ["name", "email", "phone"]
-          },
-          {
-            "title": "Organization",
-            "fields": ["company"]
-          }
-        ]
-      },
-      "form": {
-        "field_overrides": {
-          "name": { "label": "Full Name" },
-          "email": { "label": "Email Address" },
-          "phone": { "label": "Phone Number" },
-          "company": { "label": "Company" }
-        },
-        "readonly_fields": ["created_at", "updated_at"]
-      },
-      "sidebar": {
-        "label": "Customers",
-        "group": "People"
-      }
-    }
-  },
-  {
-    "entity": "agent",
-    "config": {
-      "list": {
-        "title": "Support Agents",
-        "columns": ["name", "email", "department", "active"],
-        "default_sort": "name",
-        "per_page": 25
-      },
-      "detail": {
-        "title": "Agent",
-        "sections": [
-          {
-            "title": "Profile",
-            "fields": ["name", "email"]
-          },
-          {
-            "title": "Assignment",
-            "fields": ["department", "active"]
-          }
-        ]
-      },
-      "form": {
-        "field_overrides": {
-          "name": { "label": "Full Name" },
-          "email": { "label": "Work Email" },
-          "department": { "label": "Department" },
-          "active": { "label": "Active", "help": "Inactive agents won't receive new ticket assignments" }
-        },
-        "readonly_fields": ["created_at", "updated_at"]
-      },
-      "sidebar": {
-        "label": "Agents",
-        "group": "People"
-      }
-    }
-  }
-]
+  ]
+}
