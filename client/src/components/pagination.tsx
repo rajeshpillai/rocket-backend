@@ -5,7 +5,8 @@ interface PaginationProps {
   perPage: number;
   total: number;
   onPageChange: (page: number) => void;
-  onPerPageChange: (perPage: number) => void;
+  onPerPageChange?: (perPage: number) => void;
+  hidePerPage?: boolean;
 }
 
 export default function Pagination(props: PaginationProps) {
@@ -57,21 +58,23 @@ export default function Pagination(props: PaginationProps) {
           </button>
         </div>
 
-        <div class="pagination-per-page">
-          <span>Per page:</span>
-          <select
-            class="pagination-per-page-select"
-            value={props.perPage}
-            onChange={(e) =>
-              props.onPerPageChange(Number(e.currentTarget.value))
-            }
-          >
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
+        <Show when={!props.hidePerPage && props.onPerPageChange}>
+          <div class="pagination-per-page">
+            <span>Per page:</span>
+            <select
+              class="pagination-per-page-select"
+              value={props.perPage}
+              onChange={(e) =>
+                props.onPerPageChange?.(Number(e.currentTarget.value))
+              }
+            >
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+        </Show>
       </div>
     </Show>
   );

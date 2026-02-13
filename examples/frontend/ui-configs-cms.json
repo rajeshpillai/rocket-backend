@@ -43,6 +43,92 @@
       "sidebar": {
         "label": "Articles",
         "group": "Content"
+      },
+      "pages": {
+        "landing": {
+          "route": "/pages/post",
+          "title": "Latest Articles",
+          "subtitle": "Explore our collection of articles and insights",
+          "layout": "card-grid",
+          "data": {
+            "include": "author,tags",
+            "filter": { "status": "published" },
+            "sort": "-published_at",
+            "per_page": 12
+          },
+          "card": {
+            "image": "featured_image",
+            "title": "title",
+            "excerpt": "excerpt",
+            "date": "published_at",
+            "author": {
+              "relation": "author",
+              "name_field": "name",
+              "avatar_field": "avatar"
+            },
+            "tags": {
+              "relation": "tags",
+              "name_field": "name",
+              "display": "pill",
+              "max": 3
+            },
+            "click_action": "navigate_detail"
+          }
+        },
+        "detail": {
+          "route": "/pages/post/:id",
+          "layout": "article",
+          "data": {
+            "include": "author,tags,comments"
+          },
+          "sections": [
+            {
+              "type": "hero",
+              "image": "featured_image",
+              "title": "title",
+              "show_meta": true
+            },
+            {
+              "type": "meta",
+              "author": {
+                "relation": "author",
+                "name_field": "name",
+                "avatar_field": "avatar",
+                "show_avatar": true
+              },
+              "date": "published_at",
+              "tags": {
+                "relation": "tags",
+                "name_field": "name",
+                "display": "pill"
+              }
+            },
+            {
+              "type": "content",
+              "field": "body",
+              "format": "markdown"
+            },
+            {
+              "type": "comments",
+              "relation": "comments",
+              "title": "Comments",
+              "allow_submit": true,
+              "submit_fields": {
+                "author_name": { "label": "Your Name", "required": true },
+                "author_email": { "label": "Email", "required": true },
+                "body": { "label": "Comment", "widget": "textarea", "rows": 4, "required": true }
+              },
+              "display_fields": {
+                "author": "author_name",
+                "date": "created_at",
+                "body": "body"
+              },
+              "filter": { "status": "approved" },
+              "sort": "-created_at",
+              "pending_message": "Your comment is awaiting moderation."
+            }
+          ]
+        }
       }
     }
   },

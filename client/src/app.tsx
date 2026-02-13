@@ -4,18 +4,21 @@ import { isPlatformAuthenticated } from "./stores/auth";
 import { isAppAuthenticated } from "./stores/app-auth";
 import { selectedApp } from "./stores/app";
 import Layout from "./components/layout";
+import PublicLayout from "./components/public-layout";
 import LoginPage from "./pages/login";
 import AppsPage from "./pages/apps";
 import AppLoginPage from "./pages/app-login";
 import DashboardPage from "./pages/dashboard";
 import EntityListPage from "./pages/entity-list";
 import EntityDetailPage from "./pages/entity-detail";
+import PostLandingPage from "./pages/public/post-landing";
+import PostDetailPage from "./pages/public/post-detail";
 
 function AuthGuard(props: ParentProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const publicPaths = ["/login", "/apps", "/app-login"];
+  const publicPaths = ["/login", "/apps", "/app-login", "/pages"];
 
   createEffect(() => {
     const path = location.pathname;
@@ -52,6 +55,14 @@ function AppLayout(props: ParentProps) {
   );
 }
 
+function PublicPageLayout(props: ParentProps) {
+  return (
+    <PublicLayout>
+      {props.children}
+    </PublicLayout>
+  );
+}
+
 export default function App() {
   return (
     <Router root={AuthGuard}>
@@ -59,6 +70,13 @@ export default function App() {
       <Route path="/apps" component={AppsPage} />
       <Route path="/app-login" component={AppLoginPage} />
 
+      {/* Public pages - no auth required but needs app selected */}
+      <Route path="/pages" component={PublicPageLayout}>
+        <Route path="/post" component={PostLandingPage} />
+        <Route path="/post/:id" component={PostDetailPage} />
+      </Route>
+
+      {/* Admin pages - auth required */}
       <Route path="/" component={AppLayout}>
         <Route path="/dashboard" component={DashboardPage} />
         <Route path="/data/:entity" component={EntityListPage} />

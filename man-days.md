@@ -1,4 +1,4 @@
-Actual Hours: 13 Hours (Don't change this)
+Actual Hours: 15 Hours (Don't change this)
 
 ## Estimated Man-Days (Traditional Development, Both Languages)
 
@@ -14,10 +14,11 @@ Actual Hours: 13 Hours (Don't change this)
 | Phase 7: File Uploads | Storage interface + local-disk implementation, `_files` table, file handler (upload/serve/delete/list), `file` field type (JSONB), UUID resolution in write pipeline, route registration, multer integration | 3 | 3 | 1 | 7 |
 | Schema Export/Import | Export all 7 metadata tables as JSON, dependency-ordered import with idempotent dedup, migrator integration, Admin UI export/import buttons with results display | 2 | 2 | 0.5 | 4.5 |
 | Documentation | Detailed examples & cookbook — entities, relations, rules, state machines, workflows, webhooks, permissions, nested writes, files, export/import with curl examples and complete scenario | 1 | — | — | 1 |
-| **Total** | | **44** | **43** | **12.5** | **99.5** |
+| Public Pages UI | Extended UI config schema with `pages` section, public layout, post card grid, article detail page, tag pills, author display, comment section with submission form, public routes | — | — | 2 | 2 |
+| **Total** | | **44** | **43** | **14.5** | **101.5** |
 
 ### Summary
 
-- **Estimated effort (traditional):** 99.5 man-days (~4.7 months for a solo developer)
-- **Actual time with AI assistance:** 13 hours
-- **Speedup factor:** ~79x
+- **Estimated effort (traditional):** 101.5 man-days (~4.8 months for a solo developer)
+- **Actual time with AI assistance:** 15 hours
+- **Speedup factor:** ~81x
