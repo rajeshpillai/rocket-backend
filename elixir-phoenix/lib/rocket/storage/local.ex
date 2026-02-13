@@ -29,6 +29,11 @@ defmodule Rocket.Storage.Local do
   end
 
   @impl true
+  def full_path(storage_path) do
+    Path.join(base_path(), storage_path)
+  end
+
+  @impl true
   def delete(storage_path) do
     path = Path.join(base_path(), storage_path)
     File.rm(path)

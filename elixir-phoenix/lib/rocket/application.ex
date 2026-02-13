@@ -5,6 +5,9 @@ defmodule Rocket.Application do
 
   @impl true
   def start(_type, _args) do
+    # Initialize expression AST cache (ETS table) before supervisors start
+    Rocket.Engine.Expression.init_cache()
+
     children = [
       RocketWeb.Telemetry,
       Rocket.Repo,

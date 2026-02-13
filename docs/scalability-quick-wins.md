@@ -18,18 +18,29 @@ Minimal, non-breaking changes to improve throughput at high RPS without adding c
 - Multi-app production: set `app_pool_size` per app to `pool_size / number_of_apps`
 - Max recommended: don't exceed Postgres `max_connections` (default 100, increase in `postgresql.conf`)
 
-## 2. Express File Serving: Buffer → Stream
+## 2. File Serving: Buffer → Stream / sendfile
 
 **Files changed:**
+
+### Express
 - `expressjs/src/storage/storage.ts` — interface changed from `open(): Promise<Buffer>` to `openStream(): Readable`
 - `expressjs/src/storage/local.ts` — implementation uses `fs.createReadStream()` instead of `fsp.readFile()`
 - `expressjs/src/engine/file-handler.ts` — `serve()` pipes the stream directly to `res` instead of loading into memory
 
-**Before:** `fsp.readFile()` loaded the entire file into Node.js memory. A 10MB file x 100 concurrent requests = 1GB RAM, causing GC pressure and potential OOM.
+### Elixir
+- `elixir-phoenix/lib/rocket/storage/behaviour.ex` — added `full_path/1` callback
+- `elixir-phoenix/lib/rocket/storage/local.ex` — implemented `full_path/1`
+- `elixir-phoenix/lib/rocket_web/controllers/file_controller.ex` — `serve()` uses Phoenix `send_file/3` instead of `File.read!()` + `send_resp/3`
 
-**After:** `fs.createReadStream().pipe(res)` streams bytes from disk directly to the HTTP response. Memory usage is constant (~64KB buffer) regardless of file size.
+**Before:**
+- Express: `fsp.readFile()` loaded the entire file into Node.js memory. A 10MB file x 100 concurrent requests = 1GB RAM, causing GC pressure and potential OOM.
+- Elixir: `File.read!()` loaded the entire file into BEAM memory, then `send_resp/3` copied it into the response.
 
-**Note:** The Go implementation already used streaming (`os.Open()` + `SendStream()`). This brings Express to parity.
+**After:**
+- Express: `fs.createReadStream().pipe(res)` streams bytes from disk directly to the HTTP response. Memory usage is constant (~64KB buffer) regardless of file size.
+- Elixir: `send_file/3` uses the `sendfile` kernel syscall — zero-copy transfer from disk to socket, bypassing BEAM memory entirely.
+
+**Note:** The Go implementation already used streaming (`os.Open()` + `SendStream()`). These changes bring Express and Elixir to parity.
 
 **Impact:** 10-100x memory improvement for file-serving workloads. Prevents OOM under concurrent file downloads.
 
@@ -37,7 +48,7 @@ Minimal, non-breaking changes to improve throughput at high RPS without adding c
 
 No API changes. The `Content-Type`, `Content-Disposition`, and `Content-Length` headers are set identically. Clients see the same response.
 
-### Storage interface change
+### Storage interface change (Express)
 
 If you have a custom `FileStorage` implementation (e.g., S3), update it:
 
@@ -67,17 +78,26 @@ For S3, return `s3.getObject().createReadStream()` instead of buffering.
 - `expressjs/src/engine/webhook.ts` — lazy-compile webhook conditions, cache on webhook object
 - `expressjs/src/engine/workflow.ts` — lazy-compile workflow condition steps, cache on step object
 
+### Elixir
+- `elixir-phoenix/lib/rocket/engine/expression.ex` — added ETS-backed AST cache with `compile/1`, `init_cache/0`, `clear_cache/0`
+- `elixir-phoenix/lib/rocket/application.ex` — initializes the ETS cache table on application start
+
 **Before:** Webhook conditions and workflow condition expressions were compiled from string to executable program on every single evaluation:
 - Go: `expr.Compile(condition, expr.AsBool())` called per webhook per request
 - Express: `new Function("env", ...)` called per webhook per request
+- Elixir: custom `tokenize → parse → eval` pipeline ran all 3 phases on every call, for ALL expression types (webhooks, workflows, state machines, rules)
 
 At 1000 RPS with 5 webhooks, that's 5000 compilations/sec — wasting CPU on identical work.
 
-**After:** First evaluation compiles and caches on the metadata object. Subsequent evaluations reuse the cached compiled program. Cache is automatically invalidated when the registry reloads (admin metadata changes swap all objects).
+**After:**
+- Go/Express: First evaluation compiles and caches on the metadata object. Subsequent evaluations reuse the cached compiled program. Cache is automatically invalidated when the registry reloads (admin metadata changes swap all objects).
+- Elixir: `Expression.compile/1` tokenizes and parses once, storing the AST in an ETS table keyed by expression string. All subsequent calls to `evaluate/2` and `evaluate_bool/2` skip tokenize+parse and go straight to eval. The ETS table uses `read_concurrency: true` for optimal multi-process performance.
 
-**Already cached (no changes needed):**
+**Already cached (no changes needed) in Go/Express:**
 - Rule expression evaluation (`rule.Compiled` / `rule.compiled`)
 - State machine guard evaluation (`transition.CompiledGuard` / `transition.compiledGuard`)
+
+**Note:** The Elixir ETS cache covers ALL expression types (rules, state machines, webhooks, workflows) globally — any expression string evaluated once is cached for all future callers.
 
 **Impact:** ~90% CPU reduction for expression evaluation. Compilation cost drops from O(requests) to O(metadata_reloads).
 
@@ -86,8 +106,8 @@ At 1000 RPS with 5 webhooks, that's 5000 compilations/sec — wasting CPU on ide
 | Fix | Effort | Throughput Gain | Memory Gain |
 |-----|--------|----------------|-------------|
 | Pool size 10→50 | Config change | 5-10x | — |
-| Stream file serving (Express) | ~30 lines | — | 10-100x |
-| Cache compiled expressions | ~40 lines | ~2x for webhook-heavy | — |
+| Stream file serving (Express + Elixir) | ~40 lines | — | 10-100x |
+| Cache compiled expressions (all 3) | ~80 lines | ~2x for webhook-heavy | — |
 
 ## Future Optimizations (not yet implemented)
 

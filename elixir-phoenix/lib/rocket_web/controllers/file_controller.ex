@@ -71,16 +71,15 @@ defmodule RocketWeb.FileController do
         storage_path = row["storage_path"]
         mime_type = row["mime_type"] || "application/octet-stream"
         filename = row["filename"]
+        disk_path = FileStorage.full_path(storage_path)
 
-        case FileStorage.open(storage_path) do
-          {:ok, data} ->
-            conn
-            |> put_resp_content_type(mime_type)
-            |> put_resp_header("content-disposition", "inline; filename=\"#{filename}\"")
-            |> send_resp(200, data)
-
-          {:error, _} ->
-            respond_error(conn, AppError.not_found("file", id))
+        if File.exists?(disk_path) do
+          conn
+          |> put_resp_content_type(mime_type)
+          |> put_resp_header("content-disposition", "inline; filename=\"#{filename}\"")
+          |> send_file(200, disk_path)
+        else
+          respond_error(conn, AppError.not_found("file", id))
         end
 
       {:error, :not_found} ->

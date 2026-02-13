@@ -1,12 +1,51 @@
 defmodule Rocket.Engine.Expression do
   @moduledoc "Safe expression interpreter for rules and computed fields."
 
+  @cache_table :rocket_expression_cache
+
   # ── Public API ──
+
+  @doc "Initialize the ETS-based AST cache. Call once at application start."
+  def init_cache do
+    :ets.new(@cache_table, [:named_table, :set, :public, read_concurrency: true])
+    :ok
+  rescue
+    ArgumentError -> :ok  # already exists
+  end
+
+  @doc "Clear the expression AST cache (e.g. after metadata reload)."
+  def clear_cache do
+    :ets.delete_all_objects(@cache_table)
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  @doc "Compile an expression string to an AST. Results are cached in ETS."
+  def compile(expression) when is_binary(expression) do
+    case :ets.lookup(@cache_table, expression) do
+      [{^expression, ast}] ->
+        {:ok, ast}
+
+      [] ->
+        with {:ok, tokens} <- tokenize(expression),
+             {:ok, ast} <- parse(tokens) do
+          :ets.insert(@cache_table, {expression, ast})
+          {:ok, ast}
+        end
+    end
+  rescue
+    ArgumentError ->
+      # Table doesn't exist yet — fall back to uncached
+      with {:ok, tokens} <- tokenize(expression),
+           {:ok, ast} <- parse(tokens) do
+        {:ok, ast}
+      end
+  end
 
   @doc "Evaluate an expression string against an environment map. Returns {:ok, value} or {:error, reason}."
   def evaluate(expression, env) when is_binary(expression) do
-    with {:ok, tokens} <- tokenize(expression),
-         {:ok, ast} <- parse(tokens) do
+    with {:ok, ast} <- compile(expression) do
       eval(ast, env)
     end
   rescue
