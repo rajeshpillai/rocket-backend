@@ -5,6 +5,7 @@ import {
   parseDefinition,
   parseRelationDefinition,
   type EntityDefinition,
+  type Field,
   type RelationRow,
 } from "../types/entity";
 import { addToast } from "../stores/notifications";
@@ -19,6 +20,22 @@ import { createRecord, updateRecord } from "../api/data";
 import { getEntityUIConfig } from "../stores/ui-config";
 import type { UIConfig } from "../types/ui-config";
 import { getCustomPage } from "./custom/registry";
+
+/** Pick a human-readable display field from an entity's fields */
+function pickDisplayField(fields: Field[], pkField: string): string | null {
+  const preferred = ["name", "title", "label", "display_name", "email", "username", "slug"];
+  for (const name of preferred) {
+    if (fields.some((f) => f.name === name)) return name;
+  }
+  const systemFields = new Set([pkField, "id", "created_at", "updated_at", "deleted_at"]);
+  const stringField = fields.find(
+    (f) => (f.type === "string" || f.type === "text") && !systemFields.has(f.name) && !f.auto
+  );
+  return stringField?.name || null;
+}
+
+/** Lookup map: FK field name → { id → display string } */
+type FkLookupMap = Record<string, Record<string, string>>;
 
 export default function EntityListPage() {
   const params = useParams();
@@ -45,6 +62,7 @@ export default function EntityListPage() {
 
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
   const [showFilters, setShowFilters] = createSignal(false);
+  const [fkLookups, setFkLookups] = createSignal<FkLookupMap>({});
 
   createEffect(() => {
     const entityName = params.entity;
@@ -109,12 +127,41 @@ export default function EntityListPage() {
         }
       }
       setFkFields(fks);
+
+      // Pre-load FK display lookups for table columns
+      loadFkLookups(fks);
     } catch {
       addToast("error", `Failed to load entity: ${name}`);
       setEntityDef(null);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadFkLookups(fks: FkFieldInfo[]) {
+    if (fks.length === 0) return;
+
+    const lookups: FkLookupMap = {};
+    await Promise.all(
+      fks.map(async (fk) => {
+        try {
+          const entityRow = await getEntity(fk.targetEntity);
+          const def = parseDefinition(entityRow);
+          const displayField = pickDisplayField(def.fields, def.primary_key.field);
+
+          const res = await listRecords(fk.targetEntity, { per_page: 200 });
+          const map: Record<string, string> = {};
+          for (const row of res.data) {
+            const pk = String(row[fk.targetKey] ?? row[def.primary_key.field] ?? "");
+            map[pk] = displayField ? String(row[displayField] ?? pk) : pk;
+          }
+          lookups[fk.fieldName] = map;
+        } catch {
+          // Silently skip — column will show raw value
+        }
+      })
+    );
+    setFkLookups(lookups);
   }
 
   async function fetchData() {
@@ -282,18 +329,38 @@ export default function EntityListPage() {
       // Use configured column list
       fieldNames = config.list.columns.filter((c) => !hiddenFields.has(c));
     } else {
-      // Default: first 8 non-hidden fields
+      // Default: first 8 non-hidden, non-PK fields
+      const pkField = def.primary_key.field;
       fieldNames = def.fields
-        .filter((f) => !hiddenFields.has(f.name))
+        .filter((f) => !hiddenFields.has(f.name) && f.name !== pkField)
         .slice(0, 8)
         .map((f) => f.name);
     }
 
-    const cols: Column<Record<string, unknown>>[] = fieldNames.map((name) => ({
-      key: name,
-      header: getColumnLabel(name),
-      sortable: true,
-    }));
+    // Build a set of FK field names for quick lookup
+    const fkFieldSet = new Set(fkFields().map((fk) => fk.fieldName));
+    const lookups = fkLookups();
+
+    const cols: Column<Record<string, unknown>>[] = fieldNames.map((name) => {
+      const col: Column<Record<string, unknown>> = {
+        key: name,
+        header: getColumnLabel(name),
+        sortable: true,
+      };
+
+      // Add custom render for FK columns to show display name instead of UUID
+      if (fkFieldSet.has(name) && lookups[name]) {
+        const map = lookups[name];
+        col.render = (val) => {
+          if (val === null || val === undefined) return <>{"—"}</>;
+          const id = String(val);
+          const display = map[id];
+          return <>{display || id}</>;
+        };
+      }
+
+      return col;
+    });
 
     cols.push({
       key: "_actions",
