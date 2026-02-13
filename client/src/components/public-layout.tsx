@@ -1,7 +1,7 @@
 import { type ParentProps, For, createMemo } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { getEntityUIConfig, getAllUIConfigs } from "../stores/ui-config";
-import { selectedApp } from "../stores/app";
+import { selectedApp, isFixedApp } from "../stores/app";
 import ToastContainer from "./toast";
 
 interface PublicLayoutProps extends ParentProps {
@@ -31,7 +31,13 @@ export default function PublicLayout(props: PublicLayoutProps) {
     return match ? match[1] : null;
   });
 
+  const envSiteName = (import.meta.env.VITE_SITE_NAME as string) || null;
+
   const siteName = createMemo(() => {
+    // For fixed-app deployments, use env site name or app name as consistent branding
+    if (isFixedApp()) {
+      return envSiteName ?? props.siteName ?? selectedApp() ?? "Rocket";
+    }
     const entity = currentEntity();
     if (entity) {
       const uiConfig = getEntityUIConfig(entity);

@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:helpdesk": "tsc && vite build --mode helpdesk --outDir dist-helpdesk",
+    "build:cms": "tsc && vite build --mode cms --outDir dist-cms",
+    "dev:helpdesk": "vite --mode helpdesk",
+    "dev:cms": "vite --mode cms",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
