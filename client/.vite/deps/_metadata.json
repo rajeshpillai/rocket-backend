@@ -1,0 +1,34 @@
+{
+  "hash": "5735e371",
+  "configHash": "9ffc39b0",
+  "lockfileHash": "bc7afd47",
+  "browserHash": "290667ae",
+  "optimized": {
+    "solid-js/web": {
+      "src": "../../node_modules/solid-js/web/dist/dev.js",
+      "file": "solid-js_web.js",
+      "fileHash": "a3702434",
+      "needsInterop": false
+    },
+    "@solidjs/router": {
+      "src": "../../node_modules/@solidjs/router/dist/index.js",
+      "file": "@solidjs_router.js",
+      "fileHash": "b741fa81",
+      "needsInterop": false
+    },
+    "solid-js": {
+      "src": "../../node_modules/solid-js/dist/dev.js",
+      "file": "solid-js.js",
+      "fileHash": "db194aef",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-NQFRRWIE": {
+      "file": "chunk-NQFRRWIE.js"
+    },
+    "chunk-PRDIVJZP": {
+      "file": "chunk-PRDIVJZP.js"
+    }
+  }
+}
