@@ -124,9 +124,24 @@ defmodule RocketWeb.Router do
     get "/webhook-logs/:id", AdminController, :get_webhook_log
     post "/webhook-logs/:id/retry", AdminController, :retry_webhook_log
 
+    # UI Configs
+    get "/ui-configs", AdminController, :list_ui_configs
+    post "/ui-configs", AdminController, :create_ui_config
+    get "/ui-configs/:id", AdminController, :get_ui_config
+    put "/ui-configs/:id", AdminController, :update_ui_config
+    delete "/ui-configs/:id", AdminController, :delete_ui_config
+
     # Export/Import
     get "/export", AdminController, :export
     post "/import", AdminController, :import_schema
+  end
+
+  # UI config read routes — require app resolver + dual auth (no admin)
+  scope "/api/:app/_ui", RocketWeb do
+    pipe_through [:api, :app_resolver, :dual_auth]
+
+    get "/configs", AdminController, :list_all_ui_configs
+    get "/config/:entity", AdminController, :get_ui_config_by_entity
   end
 
   # Workflow runtime — require app resolver + dual auth

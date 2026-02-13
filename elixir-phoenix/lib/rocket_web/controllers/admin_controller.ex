@@ -949,6 +949,122 @@ defmodule RocketWeb.AdminController do
     end
   end
 
+  # ── UI Configs ──
+
+  def list_ui_configs(conn, _params) do
+    db = get_conn(conn)
+
+    case Postgres.query_rows(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope") do
+      {:ok, rows} -> json(conn, %{data: rows || []})
+      {:error, err} -> respond_error(conn, wrap_error(err))
+    end
+  end
+
+  def get_ui_config(conn, %{"id" => id}) do
+    db = get_conn(conn)
+
+    case Postgres.query_row(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1", [id]) do
+      {:ok, row} -> json(conn, %{data: row})
+      {:error, :not_found} -> respond_error(conn, AppError.not_found("UIConfig", id))
+      {:error, err} -> respond_error(conn, wrap_error(err))
+    end
+  end
+
+  def create_ui_config(conn, params) do
+    db = get_conn(conn)
+    entity = params["entity"]
+
+    if !entity || entity == "" do
+      respond_error(conn, AppError.validation_failed([%{field: "entity", rule: "required", message: "entity is required"}]))
+    else
+      # Verify entity exists
+      case Postgres.query_row(db, "SELECT name FROM _entities WHERE name = $1", [entity]) do
+        {:ok, _} ->
+          scope = params["scope"] || "default"
+          config = params["config"] || %{}
+
+          case Postgres.query_row(db,
+                 "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id, entity, scope, config, created_at, updated_at",
+                 [entity, scope, config]) do
+            {:ok, row} ->
+              conn |> put_status(201) |> json(%{data: row})
+
+            {:error, %Postgrex.Error{postgres: %{code: :unique_violation}}} ->
+              respond_error(conn, AppError.new("CONFLICT", 409, "UI config already exists for entity #{entity} scope #{scope}"))
+
+            {:error, err} ->
+              respond_error(conn, wrap_error(err))
+          end
+
+        {:error, :not_found} ->
+          respond_error(conn, AppError.validation_failed([%{field: "entity", rule: "invalid", message: "entity not found: #{entity}"}]))
+
+        {:error, err} ->
+          respond_error(conn, wrap_error(err))
+      end
+    end
+  end
+
+  def update_ui_config(conn, %{"id" => id} = params) do
+    db = get_conn(conn)
+    entity = params["entity"]
+
+    if !entity || entity == "" do
+      respond_error(conn, AppError.validation_failed([%{field: "entity", rule: "required", message: "entity is required"}]))
+    else
+      scope = params["scope"] || "default"
+      config = params["config"] || %{}
+
+      case Postgres.query_row(db,
+             "UPDATE _ui_configs SET entity = $1, scope = $2, config = $3, updated_at = NOW() WHERE id = $4 RETURNING id, entity, scope, config, created_at, updated_at",
+             [entity, scope, config, id]) do
+        {:ok, row} -> json(conn, %{data: row})
+        {:error, :not_found} -> respond_error(conn, AppError.not_found("UIConfig", id))
+        {:error, err} -> respond_error(conn, wrap_error(err))
+      end
+    end
+  end
+
+  def delete_ui_config(conn, %{"id" => id}) do
+    db = get_conn(conn)
+
+    case Postgres.query_row(db, "SELECT id FROM _ui_configs WHERE id = $1", [id]) do
+      {:ok, _} ->
+        Postgres.exec(db, "DELETE FROM _ui_configs WHERE id = $1", [id])
+        json(conn, %{data: %{id: id, deleted: true}})
+
+      {:error, :not_found} ->
+        respond_error(conn, AppError.not_found("UIConfig", id))
+
+      {:error, err} ->
+        respond_error(conn, wrap_error(err))
+    end
+  end
+
+  # Non-admin: get UI config for a specific entity (default scope)
+  def get_ui_config_by_entity(conn, %{"entity" => entity}) do
+    db = get_conn(conn)
+
+    case Postgres.query_row(db,
+           "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = $1 AND scope = 'default'",
+           [entity]) do
+      {:ok, row} -> json(conn, %{data: row})
+      {:error, :not_found} -> json(conn, %{data: nil})
+      {:error, err} -> respond_error(conn, wrap_error(err))
+    end
+  end
+
+  # Non-admin: list all UI configs (default scope only)
+  def list_all_ui_configs(conn, _params) do
+    db = get_conn(conn)
+
+    case Postgres.query_rows(db,
+           "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE scope = 'default' ORDER BY entity") do
+      {:ok, rows} -> json(conn, %{data: rows || []})
+      {:error, err} -> respond_error(conn, wrap_error(err))
+    end
+  end
+
   # ── Export/Import ──
 
   def export(conn, _params) do
@@ -960,7 +1076,8 @@ defmodule RocketWeb.AdminController do
          {:ok, state_machines} <- Postgres.query_rows(db, "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity"),
          {:ok, workflows} <- Postgres.query_rows(db, "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name"),
          {:ok, permissions} <- Postgres.query_rows(db, "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action"),
-         {:ok, webhooks} <- Postgres.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook") do
+         {:ok, webhooks} <- Postgres.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook"),
+         {:ok, ui_configs} <- Postgres.query_rows(db, "SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope") do
       json(conn, %{data: %{
         version: 1,
         exported_at: DateTime.utc_now() |> DateTime.to_iso8601(),
@@ -970,7 +1087,8 @@ defmodule RocketWeb.AdminController do
         state_machines: state_machines,
         workflows: workflows,
         permissions: permissions,
-        webhooks: webhooks
+        webhooks: webhooks,
+        ui_configs: ui_configs
       }})
     else
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -980,7 +1098,7 @@ defmodule RocketWeb.AdminController do
   def import_schema(conn, params) do
     db = get_conn(conn)
     registry = get_registry(conn)
-    summary = %{entities: 0, relations: 0, rules: 0, state_machines: 0, workflows: 0, permissions: 0, webhooks: 0, records: 0}
+    summary = %{entities: 0, relations: 0, rules: 0, state_machines: 0, workflows: 0, permissions: 0, webhooks: 0, ui_configs: 0, records: 0}
     errors = []
 
     # Step 1: Entities
@@ -1109,7 +1227,26 @@ defmodule RocketWeb.AdminController do
         end
       end)
 
-    # Step 8: Sample data
+    # Step 8: UI Configs
+    {summary, errors} =
+      Enum.reduce(params["ui_configs"] || [], {summary, errors}, fn ui, {sum, errs} ->
+        entity = ui["entity"]
+        scope = ui["scope"] || "default"
+        config = ensure_decoded(ui["config"], %{})
+
+        if entity do
+          case Postgres.exec(db,
+                 "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()",
+                 [entity, scope, config]) do
+            {:ok, _} -> {Map.update!(sum, :ui_configs, &(&1 + 1)), errs}
+            {:error, err} -> {sum, errs ++ ["ui_config #{entity}/#{scope}: #{inspect(err)}"]}
+          end
+        else
+          {sum, errs ++ ["ui_config missing entity"]}
+        end
+      end)
+
+    # Step 9: Sample data
     reload_registry(conn)
 
     {summary, errors} =

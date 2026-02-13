@@ -49,7 +49,8 @@ export class Registry {
         return r;
       }
     }
-    return undefined;
+    // Fallback: check for relation named "{entity}_{include}" (e.g. post_tags)
+    return this.relationsByName.get(`${entityName}_${relationName}`);
   }
 
   allRelations(): Relation[] {

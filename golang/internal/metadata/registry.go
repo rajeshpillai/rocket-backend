@@ -82,7 +82,8 @@ func (r *Registry) FindRelationForEntity(relationName string, entityName string)
 			return rel
 		}
 	}
-	return nil
+	// Fallback: check for relation named "{entity}_{include}" (e.g. post_tags)
+	return r.relationsByName[entityName+"_"+relationName]
 }
 
 // AllRelations returns all registered relations.

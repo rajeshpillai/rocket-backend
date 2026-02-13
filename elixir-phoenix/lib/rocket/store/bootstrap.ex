@@ -156,6 +156,17 @@ defmodule Rocket.Store.Bootstrap do
         uploaded_by   UUID,
         created_at    TIMESTAMPTZ DEFAULT NOW()
     )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS _ui_configs (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        entity     TEXT NOT NULL REFERENCES _entities(name) ON DELETE CASCADE,
+        scope      TEXT NOT NULL DEFAULT 'default',
+        config     JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(entity, scope)
+    )
     """
   ]
 

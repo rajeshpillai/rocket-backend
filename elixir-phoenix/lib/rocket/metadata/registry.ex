@@ -109,13 +109,17 @@ defmodule Rocket.Metadata.Registry do
           rel
 
         true ->
-          # Search by target entity name as include alias
-          state.relations_by_name
-          |> Map.values()
-          |> Enum.find(fn r ->
-            (r.source == entity_name && r.target == relation_name) ||
-              (r.target == entity_name && r.source == relation_name)
-          end)
+          # Search by target/source entity name as include alias
+          found =
+            state.relations_by_name
+            |> Map.values()
+            |> Enum.find(fn r ->
+              (r.source == entity_name && r.target == relation_name) ||
+                (r.target == entity_name && r.source == relation_name)
+            end)
+
+          # Fallback: check for relation named "{entity}_{include}" (e.g. post_tags)
+          found || Map.get(state.relations_by_name, "#{entity_name}_#{relation_name}")
       end
 
     {:reply, result, state}

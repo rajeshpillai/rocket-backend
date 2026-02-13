@@ -1,4 +1,4 @@
-Actual Hours: 15 Hours (Don't change this)
+Actual Hours: 20 Hours (Don't change this)
 
 ## Estimated Man-Days (Traditional Development, Both Languages)
 
@@ -20,5 +20,5 @@ Actual Hours: 15 Hours (Don't change this)
 ### Summary
 
 - **Estimated effort (traditional):** 101.5 man-days (~4.8 months for a solo developer)
-- **Actual time with AI assistance:** 15 hours
+- **Actual time with AI assistance:** 20 hours
 - **Speedup factor:** ~81x
