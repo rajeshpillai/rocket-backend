@@ -15,6 +15,7 @@ admin/dist/
 client/node_modules/
 client/dist/
 client/dist-*/
+client/.vite/
 
 # IDE
 .idea/
