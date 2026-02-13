@@ -97,9 +97,21 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	adm.Get("/webhook-logs/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.GetWebhookLog }))
 	adm.Post("/webhook-logs/:id/retry", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.RetryWebhookLog }))
 
+	// UI Configs
+	adm.Get("/ui-configs", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.ListUIConfigs }))
+	adm.Get("/ui-configs/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.GetUIConfig }))
+	adm.Post("/ui-configs", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.CreateUIConfig }))
+	adm.Put("/ui-configs/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.UpdateUIConfig }))
+	adm.Delete("/ui-configs/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.DeleteUIConfig }))
+
 	// Export/Import
 	adm.Get("/export", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Export }))
 	adm.Post("/import", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Import }))
+
+	// UI config read routes (auth required, no admin)
+	ui := protected.Group("/_ui")
+	ui.Get("/configs", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.ListAllUIConfigs }))
+	ui.Get("/config/:entity", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.GetUIConfigByEntity }))
 
 	// Workflow runtime routes
 	wf := protected.Group("/_workflows")

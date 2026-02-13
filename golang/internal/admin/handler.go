@@ -1326,6 +1326,158 @@ func validateWebhook(body map[string]any) string {
 	return ""
 }
 
+// --- UI Config Endpoints ---
+
+func (h *Handler) ListUIConfigs(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope")
+	if err != nil {
+		return fmt.Errorf("list ui configs: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) GetUIConfig(c *fiber.Ctx) error {
+	id := c.Params("id")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) CreateUIConfig(c *fiber.Ctx) error {
+	var body map[string]any
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	entity, _ := body["entity"].(string)
+	if entity == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity is required"}})
+	}
+
+	// Verify entity exists
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT name FROM _entities WHERE name = $1", entity)
+	if err != nil {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity not found: " + entity}})
+	}
+
+	scope, _ := body["scope"].(string)
+	if scope == "" {
+		scope = "default"
+	}
+
+	config := body["config"]
+	if config == nil {
+		config = map[string]any{}
+	}
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id, entity, scope, config, created_at, updated_at",
+		entity, scope, configJSON)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			return c.Status(409).JSON(fiber.Map{"error": fiber.Map{"code": "CONFLICT", "message": fmt.Sprintf("UI config already exists for entity %s scope %s", entity, scope)}})
+		}
+		return fmt.Errorf("insert ui config: %w", err)
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) UpdateUIConfig(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _ui_configs WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
+	}
+
+	var body map[string]any
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	entity, _ := body["entity"].(string)
+	if entity == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity is required"}})
+	}
+
+	scope, _ := body["scope"].(string)
+	if scope == "" {
+		scope = "default"
+	}
+
+	config := body["config"]
+	if config == nil {
+		config = map[string]any{}
+	}
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"UPDATE _ui_configs SET entity = $1, scope = $2, config = $3, updated_at = NOW() WHERE id = $4 RETURNING id, entity, scope, config, created_at, updated_at",
+		entity, scope, configJSON, id)
+	if err != nil {
+		return fmt.Errorf("update ui config: %w", err)
+	}
+
+	return c.JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) DeleteUIConfig(c *fiber.Ctx) error {
+	id := c.Params("id")
+	_, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id FROM _ui_configs WHERE id = $1", id)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
+	}
+
+	_, err = store.Exec(c.Context(), h.store.Pool,
+		"DELETE FROM _ui_configs WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete ui config %s: %w", id, err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+// GetUIConfigByEntity returns the default-scope UI config for an entity (non-admin endpoint).
+func (h *Handler) GetUIConfigByEntity(c *fiber.Ctx) error {
+	entity := c.Params("entity")
+	row, err := store.QueryRow(c.Context(), h.store.Pool,
+		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = $1 AND scope = 'default'", entity)
+	if err != nil {
+		return c.JSON(fiber.Map{"data": nil})
+	}
+	return c.JSON(fiber.Map{"data": row})
+}
+
+// ListAllUIConfigs returns all UI configs (non-admin endpoint for client sidebar grouping).
+func (h *Handler) ListAllUIConfigs(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE scope = 'default' ORDER BY entity")
+	if err != nil {
+		return fmt.Errorf("list all ui configs: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
 // --- Export/Import Endpoints ---
 
 func (h *Handler) Export(c *fiber.Ctx) error {
@@ -1424,6 +1576,19 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 		})
 	}
 
+	// UI Configs
+	uiRows, err := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope")
+	if err != nil {
+		return fmt.Errorf("export ui configs: %w", err)
+	}
+	uiConfigs := make([]map[string]any, 0, len(uiRows))
+	for _, row := range uiRows {
+		uiConfigs = append(uiConfigs, map[string]any{
+			"entity": row["entity"], "scope": row["scope"], "config": row["config"],
+		})
+	}
+
 	return c.JSON(fiber.Map{"data": fiber.Map{
 		"version":        1,
 		"exported_at":    time.Now().UTC().Format(time.RFC3339),
@@ -1434,6 +1599,7 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 		"workflows":      workflows,
 		"permissions":    permissions,
 		"webhooks":       webhooks,
+		"ui_configs":     uiConfigs,
 	}})
 }
 
@@ -1447,6 +1613,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		Workflows     []map[string]any                 `json:"workflows"`
 		Permissions   []map[string]any                 `json:"permissions"`
 		Webhooks      []map[string]any                 `json:"webhooks"`
+		UIConfigs     []map[string]any                 `json:"ui_configs"`
 		SampleData    map[string][]map[string]any      `json:"sample_data"`
 	}
 	if err := c.BodyParser(&payload); err != nil {
@@ -1677,10 +1844,43 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		summary["webhooks"]++
 	}
 
+	// Step 8: UI Configs (dedup by entity+scope)
+	existingUIs, _ := store.QueryRows(ctx, h.store.Pool,
+		"SELECT entity, scope FROM _ui_configs")
+	uiSet := make(map[string]bool)
+	for _, r := range existingUIs {
+		uiSet[fmt.Sprintf("%v|%v", r["entity"], r["scope"])] = true
+	}
+	summary["ui_configs"] = 0
+	for _, raw := range payload.UIConfigs {
+		entity, _ := raw["entity"].(string)
+		scope, _ := raw["scope"].(string)
+		if entity == "" {
+			continue
+		}
+		if scope == "" {
+			scope = "default"
+		}
+		key := fmt.Sprintf("%v|%v", entity, scope)
+		if uiSet[key] {
+			continue
+		}
+		configJSON, _ := json.Marshal(raw["config"])
+		_, err := store.QueryRow(ctx, h.store.Pool,
+			"INSERT INTO _ui_configs (entity, scope, config) VALUES ($1,$2,$3) RETURNING id",
+			entity, scope, configJSON)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("UI config (%v/%v): %v", entity, scope, err))
+			continue
+		}
+		uiSet[key] = true
+		summary["ui_configs"]++
+	}
+
 	// Final reload
 	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
 
-	// Step 8: Sample data (insert records into business tables)
+	// Step 9: Sample data (insert records into business tables)
 	if len(payload.SampleData) > 0 {
 		summary["records"] = 0
 

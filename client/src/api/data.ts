@@ -1,6 +1,7 @@
 import { get, post, put, del, upload } from "./client";
 import type { ApiResponse, ApiListResponse } from "../types/api";
 import type { EntityRow, RelationRow } from "../types/entity";
+import type { UIConfigRow } from "../types/ui-config";
 
 // ── Entity metadata ──
 
@@ -134,4 +135,20 @@ export async function uploadFile(file: File): Promise<FileMetadata> {
 
 export function fileUrl(app: string, fileId: string): string {
   return `/api/${app}/_files/${fileId}`;
+}
+
+// ── UI Configs ──
+
+export async function listUIConfigs(): Promise<UIConfigRow[]> {
+  const res = await get<ApiListResponse<UIConfigRow>>("/_ui/configs");
+  return res.data;
+}
+
+export async function getUIConfig(
+  entity: string
+): Promise<UIConfigRow | null> {
+  const res = await get<ApiResponse<UIConfigRow | null>>(
+    `/_ui/config/${entity}`
+  );
+  return res.data;
 }

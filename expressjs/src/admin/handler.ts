@@ -974,6 +974,137 @@ export class AdminHandler {
     res.json({ data: updated });
   });
 
+  // --- UI Config Endpoints ---
+
+  listUIConfigs = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  getUIConfig = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1",
+        [id],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `UI config not found: ${id}`);
+    }
+    res.json({ data: row });
+  });
+
+  createUIConfig = asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body;
+    if (!body || typeof body !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const entity = body.entity;
+    if (!entity) {
+      throw new AppError("VALIDATION_FAILED", 422, "entity is required");
+    }
+
+    // Verify entity exists
+    try {
+      await queryRow(this.store.pool, "SELECT name FROM _entities WHERE name = $1", [entity]);
+    } catch {
+      throw new AppError("VALIDATION_FAILED", 422, `entity not found: ${entity}`);
+    }
+
+    const scope = body.scope || "default";
+    const config = body.config ?? {};
+
+    let row: Record<string, any>;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id, entity, scope, config, created_at, updated_at",
+        [entity, scope, JSON.stringify(config)],
+      );
+    } catch (err: any) {
+      if (err.message?.includes("unique") || err.message?.includes("duplicate") || err.code === "23505") {
+        throw new AppError("CONFLICT", 409, `UI config already exists for entity ${entity} scope ${scope}`);
+      }
+      throw err;
+    }
+
+    res.status(201).json({ data: row });
+  });
+
+  updateUIConfig = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _ui_configs WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `UI config not found: ${id}`);
+    }
+
+    const body = req.body;
+    if (!body || typeof body !== "object") {
+      throw new AppError("INVALID_PAYLOAD", 400, "Invalid JSON body");
+    }
+
+    const entity = body.entity;
+    if (!entity) {
+      throw new AppError("VALIDATION_FAILED", 422, "entity is required");
+    }
+
+    const scope = body.scope || "default";
+    const config = body.config ?? {};
+
+    const row = await queryRow(
+      this.store.pool,
+      "UPDATE _ui_configs SET entity = $1, scope = $2, config = $3, updated_at = NOW() WHERE id = $4 RETURNING id, entity, scope, config, created_at, updated_at",
+      [entity, scope, JSON.stringify(config), id],
+    );
+
+    res.json({ data: row });
+  });
+
+  deleteUIConfig = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _ui_configs WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `UI config not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _ui_configs WHERE id = $1", [id]);
+
+    res.json({ data: { id, deleted: true } });
+  });
+
+  // Non-admin: get UI config for a specific entity (default scope)
+  getUIConfigByEntity = asyncHandler(async (req: Request, res: Response) => {
+    const entity = req.params.entity;
+    let row: Record<string, any> | null = null;
+    try {
+      row = await queryRow(
+        this.store.pool,
+        "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = $1 AND scope = 'default'",
+        [entity],
+      );
+    } catch {
+      // Not found — return null
+    }
+    res.json({ data: row });
+  });
+
+  // Non-admin: list all UI configs (default scope only, for client sidebar grouping)
+  listAllUIConfigs = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE scope = 'default' ORDER BY entity",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
   // --- Export / Import ---
 
   export = asyncHandler(async (_req: Request, res: Response) => {
@@ -1068,6 +1199,17 @@ export class AdminHandler {
       active: r.active,
     }));
 
+    // UI Configs
+    const uiRows = await queryRows(
+      this.store.pool,
+      "SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope",
+    );
+    const uiConfigs = (uiRows ?? []).map((r: any) => ({
+      entity: r.entity,
+      scope: r.scope,
+      config: parseJSON(r.config),
+    }));
+
     res.json({
       data: {
         version: 1,
@@ -1079,6 +1221,7 @@ export class AdminHandler {
         workflows,
         permissions,
         webhooks,
+        ui_configs: uiConfigs,
       },
     });
   });
@@ -1292,10 +1435,34 @@ export class AdminHandler {
     }
     summary.webhooks = whCount;
 
+    // Step 8: UI Configs (dedup by entity+scope)
+    const existingUIs = await queryRows(this.store.pool, "SELECT entity, scope FROM _ui_configs");
+    const uiSet = new Set((existingUIs ?? []).map((r: any) => `${r.entity}|${r.scope}`));
+    let uiCount = 0;
+    for (const ui of body.ui_configs ?? []) {
+      const entity = ui.entity;
+      const scope = ui.scope || "default";
+      if (!entity) continue;
+      const key = `${entity}|${scope}`;
+      if (uiSet.has(key)) continue;
+      try {
+        await queryRow(
+          this.store.pool,
+          "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id",
+          [entity, scope, JSON.stringify(ui.config ?? {})],
+        );
+        uiSet.add(key);
+        uiCount++;
+      } catch (e: any) {
+        errors.push(`ui_config ${entity}/${scope}: ${e.message}`);
+      }
+    }
+    summary.ui_configs = uiCount;
+
     // Final reload
     await reload(this.store.pool, this.registry);
 
-    // Step 8: Sample data (insert records into business tables)
+    // Step 9: Sample data (insert records into business tables)
     const sampleData = body.sample_data ?? {};
     let recordCount = 0;
 

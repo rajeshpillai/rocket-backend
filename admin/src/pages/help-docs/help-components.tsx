@@ -124,6 +124,6 @@ export function EndpointBlock(props: EndpointBlockProps) {
 
 /* ── InlineCode ── */
 
-export function C(props: { children: string }) {
+export function C(props: { children: JSX.Element }) {
   return <code class="help-inline-code">{props.children}</code>;
 }

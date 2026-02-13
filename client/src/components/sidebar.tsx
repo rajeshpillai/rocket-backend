@@ -5,13 +5,21 @@ import { clearAppAuth, parseAppTokenPayload } from "../stores/app-auth";
 import { clearPlatformAuth } from "../stores/auth";
 import { listEntities } from "../api/data";
 import { parseDefinition, type EntityDefinition } from "../types/entity";
+import { loadUIConfigs, getEntityUIConfig } from "../stores/ui-config";
 
 export const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+
+interface EntityNavItem {
+  name: string;
+  label: string;
+  group: string;
+}
 
 export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [entities, setEntities] = createSignal<EntityDefinition[]>([]);
+  const [navItems, setNavItems] = createSignal<EntityNavItem[]>([]);
 
   createEffect(() => {
     if (selectedApp()) {
@@ -22,10 +30,37 @@ export default function Sidebar() {
   async function loadEntities() {
     try {
       const rows = await listEntities();
-      setEntities(rows.map(parseDefinition));
+      const defs = rows.map(parseDefinition);
+      setEntities(defs);
+
+      // Load UI configs for sidebar grouping/labels
+      await loadUIConfigs();
+
+      const items: EntityNavItem[] = defs.map((e) => {
+        const uiConfig = getEntityUIConfig(e.name);
+        return {
+          name: e.name,
+          label: uiConfig?.sidebar?.label || e.name,
+          group: uiConfig?.sidebar?.group || "Data",
+        };
+      });
+      setNavItems(items);
     } catch {
       setEntities([]);
+      setNavItems([]);
     }
+  }
+
+  function getGroups(): string[] {
+    const groups = new Set<string>();
+    for (const item of navItems()) {
+      groups.add(item.group);
+    }
+    return Array.from(groups);
+  }
+
+  function getGroupItems(group: string): EntityNavItem[] {
+    return navItems().filter((item) => item.group === group);
   }
 
   function handleLogout() {
@@ -105,35 +140,41 @@ export default function Sidebar() {
             </Show>
           </A>
 
-          <Show when={entities().length > 0}>
-            <Show when={!sidebarCollapsed()}>
-              <div class="nav-section-label" style={{ "margin-top": "12px" }}>
-                Data
-              </div>
-            </Show>
-
-            <For each={entities()}>
-              {(entity) => (
-                <A
-                  href={`/data/${entity.name}`}
-                  class={`nav-link ${isActive(`/data/${entity.name}`) ? "nav-link-active" : ""}`}
-                  title={entity.name}
-                >
-                  <svg
-                    class="nav-link-icon"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
+          <Show when={navItems().length > 0}>
+            <For each={getGroups()}>
+              {(group) => (
+                <>
                   <Show when={!sidebarCollapsed()}>
-                    <span>{entity.name}</span>
+                    <div class="nav-section-label" style={{ "margin-top": "12px" }}>
+                      {group}
+                    </div>
                   </Show>
-                </A>
+
+                  <For each={getGroupItems(group)}>
+                    {(item) => (
+                      <A
+                        href={`/data/${item.name}`}
+                        class={`nav-link ${isActive(`/data/${item.name}`) ? "nav-link-active" : ""}`}
+                        title={item.label}
+                      >
+                        <svg
+                          class="nav-link-icon"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                        >
+                          <path
+                            fill-rule="evenodd"
+                            d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"
+                            clip-rule="evenodd"
+                          />
+                        </svg>
+                        <Show when={!sidebarCollapsed()}>
+                          <span>{item.label}</span>
+                        </Show>
+                      </A>
+                    )}
+                  </For>
+                </>
               )}
             </For>
           </Show>

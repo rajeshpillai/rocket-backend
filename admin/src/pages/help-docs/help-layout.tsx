@@ -28,7 +28,7 @@ export function HelpTopicPage() {
     topicIndex() < helpTopics.length - 1 ? helpTopics[topicIndex() + 1] : null;
 
   const TopicContent = () => {
-    const Comp = topicComponents[params.topic];
+    const Comp = params.topic ? topicComponents[params.topic] : undefined;
     return Comp ? <Comp /> : null;
   };
 

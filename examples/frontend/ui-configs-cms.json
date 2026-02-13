@@ -1,0 +1,208 @@
+[
+  {
+    "entity": "post",
+    "config": {
+      "list": {
+        "title": "Articles",
+        "columns": ["title", "status", "author_id", "category_id", "published_at", "updated_at"],
+        "default_sort": "-updated_at",
+        "per_page": 20
+      },
+      "detail": {
+        "title": "Article",
+        "sections": [
+          {
+            "title": "Content",
+            "fields": ["title", "slug", "excerpt", "body"]
+          },
+          {
+            "title": "Publishing",
+            "fields": ["status", "featured_image", "published_at"]
+          },
+          {
+            "title": "Classification",
+            "fields": ["author_id", "category_id"]
+          }
+        ]
+      },
+      "form": {
+        "field_overrides": {
+          "title": { "label": "Title" },
+          "slug": { "label": "URL Slug", "help": "Lowercase, hyphens only (e.g. my-article-title)" },
+          "excerpt": { "label": "Summary", "widget": "textarea", "rows": 3, "help": "Brief description shown in article listings" },
+          "body": { "label": "Content", "widget": "textarea", "rows": 16 },
+          "status": { "label": "Status", "readonly": true, "help": "Managed by the editorial workflow" },
+          "featured_image": { "label": "Cover Image" },
+          "published_at": { "label": "Published", "readonly": true },
+          "author_id": { "label": "Author" },
+          "category_id": { "label": "Category" }
+        },
+        "hidden_fields": ["deleted_at"],
+        "readonly_fields": ["created_at", "updated_at"]
+      },
+      "sidebar": {
+        "label": "Articles",
+        "group": "Content"
+      }
+    }
+  },
+  {
+    "entity": "category",
+    "config": {
+      "list": {
+        "title": "Categories",
+        "columns": ["name", "slug", "description", "sort_order"],
+        "default_sort": "sort_order",
+        "per_page": 50
+      },
+      "detail": {
+        "title": "Category"
+      },
+      "form": {
+        "field_overrides": {
+          "name": { "label": "Name" },
+          "slug": { "label": "URL Slug", "help": "Used in URLs, lowercase with hyphens" },
+          "description": { "label": "Description", "widget": "textarea", "rows": 3 },
+          "sort_order": { "label": "Display Order", "help": "Lower numbers appear first" }
+        },
+        "readonly_fields": ["created_at"]
+      },
+      "sidebar": {
+        "label": "Categories",
+        "group": "Taxonomy"
+      }
+    }
+  },
+  {
+    "entity": "tag",
+    "config": {
+      "list": {
+        "title": "Tags",
+        "columns": ["name", "slug", "created_at"],
+        "default_sort": "name",
+        "per_page": 50
+      },
+      "detail": {
+        "title": "Tag"
+      },
+      "form": {
+        "field_overrides": {
+          "name": { "label": "Tag Name" },
+          "slug": { "label": "URL Slug" }
+        },
+        "readonly_fields": ["created_at"]
+      },
+      "sidebar": {
+        "label": "Tags",
+        "group": "Taxonomy"
+      }
+    }
+  },
+  {
+    "entity": "author",
+    "config": {
+      "list": {
+        "title": "Authors",
+        "columns": ["name", "email", "created_at"],
+        "default_sort": "name",
+        "per_page": 25
+      },
+      "detail": {
+        "title": "Author Profile",
+        "sections": [
+          {
+            "title": "Profile",
+            "fields": ["name", "email", "avatar"]
+          },
+          {
+            "title": "About",
+            "fields": ["bio"]
+          }
+        ]
+      },
+      "form": {
+        "field_overrides": {
+          "name": { "label": "Full Name" },
+          "email": { "label": "Email Address" },
+          "bio": { "label": "Biography", "widget": "textarea", "rows": 6, "help": "Displayed on the author's profile page" },
+          "avatar": { "label": "Profile Photo" }
+        },
+        "readonly_fields": ["created_at", "updated_at"]
+      },
+      "sidebar": {
+        "label": "Authors",
+        "group": "People"
+      }
+    }
+  },
+  {
+    "entity": "comment",
+    "config": {
+      "list": {
+        "title": "Comments",
+        "columns": ["author_name", "body", "status", "post_id", "created_at"],
+        "default_sort": "-created_at",
+        "per_page": 30
+      },
+      "detail": {
+        "title": "Comment",
+        "sections": [
+          {
+            "title": "Comment",
+            "fields": ["body", "status"]
+          },
+          {
+            "title": "Author Info",
+            "fields": ["author_name", "author_email"]
+          },
+          {
+            "title": "Context",
+            "fields": ["post_id"]
+          }
+        ]
+      },
+      "form": {
+        "field_overrides": {
+          "author_name": { "label": "Name" },
+          "author_email": { "label": "Email" },
+          "body": { "label": "Comment", "widget": "textarea", "rows": 6 },
+          "status": { "label": "Moderation Status", "help": "Approved comments are visible publicly" },
+          "post_id": { "label": "Article" }
+        },
+        "hidden_fields": ["deleted_at"],
+        "readonly_fields": ["created_at"]
+      },
+      "sidebar": {
+        "label": "Comments",
+        "group": "Community"
+      }
+    }
+  },
+  {
+    "entity": "media",
+    "config": {
+      "list": {
+        "title": "Media Library",
+        "columns": ["title", "alt_text", "file", "created_at"],
+        "default_sort": "-created_at",
+        "per_page": 24
+      },
+      "detail": {
+        "title": "Media"
+      },
+      "form": {
+        "field_overrides": {
+          "title": { "label": "Title" },
+          "alt_text": { "label": "Alt Text", "help": "Describes the image for accessibility and SEO" },
+          "file": { "label": "File" },
+          "uploaded_by": { "label": "Uploaded By", "readonly": true }
+        },
+        "readonly_fields": ["created_at"]
+      },
+      "sidebar": {
+        "label": "Media",
+        "group": "Content"
+      }
+    }
+  }
+]

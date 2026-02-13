@@ -13,12 +13,16 @@ import {
   type EntityDefinition,
   type RelationDefinition,
   type RelationRow,
+  type Field,
 } from "../types/entity";
 import { addToast } from "../stores/notifications";
 import { isApiError } from "../types/api";
 import RecordForm, { type FkFieldInfo } from "../components/record-form";
 import DataTable, { type Column } from "../components/data-table";
 import ConfirmDialog from "../components/confirm-dialog";
+import { getEntityUIConfig } from "../stores/ui-config";
+import type { UIConfig, SectionConfig } from "../types/ui-config";
+import { getCustomPage } from "./custom/registry";
 
 export default function EntityDetailPage() {
   const params = useParams();
@@ -38,6 +42,7 @@ export default function EntityDetailPage() {
   const [activeTab, setActiveTab] = createSignal("details");
   const [showDelete, setShowDelete] = createSignal(false);
   const [fkFields, setFkFields] = createSignal<FkFieldInfo[]>([]);
+  const [uiConfig, setUIConfig] = createSignal<UIConfig | null>(null);
 
   createEffect(() => {
     const entityName = params.entity;
@@ -53,6 +58,10 @@ export default function EntityDetailPage() {
       const entityRow = await getEntity(entityName);
       const def = parseDefinition(entityRow);
       setEntityDef(def);
+
+      // Load UI config
+      const config = getEntityUIConfig(entityName);
+      setUIConfig(config);
 
       // Use row-level source field for filtering (not parsed definition)
       const rels = (await listRelations()) as RelationRow[];
@@ -185,169 +194,223 @@ export default function EntityDetailPage() {
     return rel?.target || "";
   }
 
+  function getSections(): SectionConfig[] | null {
+    return uiConfig()?.detail?.sections ?? null;
+  }
+
+  function getFieldsForSection(section: SectionConfig): Field[] {
+    const def = entityDef();
+    if (!def) return [];
+    return section.fields
+      .map((name) => def.fields.find((f) => f.name === name))
+      .filter((f): f is Field => f !== undefined);
+  }
+
+  // Check for custom page component
+  const CustomPage = () => params.entity ? getCustomPage(params.entity, "detail") : null;
+
   return (
-    <div>
-      <Show when={loading()}>
-        <div class="loading-spinner">
-          <div class="spinner" />
-        </div>
-      </Show>
-
-      <Show when={!loading() && entityDef()}>
-        <div class="page-header">
-          <div>
-            <h1 class="page-title">
-              {params.entity}
-              <span style={{ color: "#9ca3af", "font-weight": "normal", "font-size": "16px", "margin-left": "8px" }}>
-                #{String(record()[entityDef()!.primary_key.field] || "").slice(0, 8)}
-              </span>
-            </h1>
-            <p class="page-subtitle">
-              <button
-                class="btn-ghost btn-sm"
-                style={{ padding: "0", "font-size": "13px" }}
-                onClick={() => navigate(`/data/${params.entity}`)}
-              >
-                Back to list
-              </button>
-            </p>
-          </div>
-          <div class="page-actions">
-            <button
-              class="btn-primary"
-              onClick={handleSave}
-              disabled={saving()}
-            >
-              {saving() ? "Saving..." : "Save"}
-            </button>
-            <button
-              class="btn-danger btn-sm"
-              onClick={() => setShowDelete(true)}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-
-        <Show when={relations().length > 0}>
-          <div class="tabs">
-            <button
-              class={`tab ${activeTab() === "details" ? "tab-active" : ""}`}
-              onClick={() => setActiveTab("details")}
-            >
-              Details
-            </button>
-            <For each={relations()}>
-              {(rel) => (
-                <button
-                  class={`tab ${activeTab() === rel.name ? "tab-active" : ""}`}
-                  onClick={() => setActiveTab(rel.name)}
-                >
-                  {rel.name}
-                  <Show when={relatedData()[rel.name]}>
-                    <span class="badge badge-gray" style={{ "margin-left": "6px" }}>
-                      {relatedData()[rel.name]?.length || 0}
-                    </span>
-                  </Show>
-                </button>
-              )}
-            </For>
+    <Show
+      when={!CustomPage()}
+      fallback={
+        <Show when={CustomPage()}>
+          {(Comp) => {
+            const C = Comp();
+            return <C />;
+          }}
+        </Show>
+      }
+    >
+      <div>
+        <Show when={loading()}>
+          <div class="loading-spinner">
+            <div class="spinner" />
           </div>
         </Show>
 
-        <Show when={activeTab() === "details"}>
-          <div class="section">
-            <RecordForm
-              fields={entityDef()!.fields}
-              values={record()}
-              onChange={(field, value) =>
-                setRecord({ ...record(), [field]: value })
-              }
-              errors={fieldErrors()}
-              fkFields={fkFields()}
-            />
+        <Show when={!loading() && entityDef()}>
+          <div class="page-header">
+            <div>
+              <h1 class="page-title">
+                {uiConfig()?.detail?.title || params.entity}
+                <span style={{ color: "#9ca3af", "font-weight": "normal", "font-size": "16px", "margin-left": "8px" }}>
+                  #{String(record()[entityDef()!.primary_key.field] || "").slice(0, 8)}
+                </span>
+              </h1>
+              <p class="page-subtitle">
+                <button
+                  class="btn-ghost btn-sm"
+                  style={{ padding: "0", "font-size": "13px" }}
+                  onClick={() => navigate(`/data/${params.entity}`)}
+                >
+                  Back to list
+                </button>
+              </p>
+            </div>
+            <div class="page-actions">
+              <button
+                class="btn-primary"
+                onClick={handleSave}
+                disabled={saving()}
+              >
+                {saving() ? "Saving..." : "Save"}
+              </button>
+              <button
+                class="btn-danger btn-sm"
+                onClick={() => setShowDelete(true)}
+              >
+                Delete
+              </button>
+            </div>
           </div>
 
-          <Show when={entityDef()}>
-            <div class="section">
-              <h3 class="section-title">Record Metadata</h3>
-              <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px" }}>
-                <div class="form-group">
-                  <label class="form-label">ID</label>
-                  <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
-                    {String(record()[entityDef()!.primary_key.field] || "—")}
-                  </div>
-                </div>
-                <Show when={record()["created_at"]}>
-                  <div class="form-group">
-                    <label class="form-label">Created At</label>
-                    <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
-                      {formatDate(String(record()["created_at"]))}
-                    </div>
-                  </div>
-                </Show>
-                <Show when={record()["updated_at"]}>
-                  <div class="form-group">
-                    <label class="form-label">Updated At</label>
-                    <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
-                      {formatDate(String(record()["updated_at"]))}
-                    </div>
-                  </div>
-                </Show>
-              </div>
+          <Show when={relations().length > 0}>
+            <div class="tabs">
+              <button
+                class={`tab ${activeTab() === "details" ? "tab-active" : ""}`}
+                onClick={() => setActiveTab("details")}
+              >
+                Details
+              </button>
+              <For each={relations()}>
+                {(rel) => (
+                  <button
+                    class={`tab ${activeTab() === rel.name ? "tab-active" : ""}`}
+                    onClick={() => setActiveTab(rel.name)}
+                  >
+                    {rel.name}
+                    <Show when={relatedData()[rel.name]}>
+                      <span class="badge badge-gray" style={{ "margin-left": "6px" }}>
+                        {relatedData()[rel.name]?.length || 0}
+                      </span>
+                    </Show>
+                  </button>
+                )}
+              </For>
             </div>
           </Show>
-        </Show>
 
-        <For each={relations()}>
-          {(rel) => (
-            <Show when={activeTab() === rel.name}>
+          <Show when={activeTab() === "details"}>
+            {/* Sectioned layout when UI config has sections */}
+            <Show
+              when={getSections()}
+              fallback={
+                <div class="section">
+                  <RecordForm
+                    fields={entityDef()!.fields}
+                    values={record()}
+                    onChange={(field, value) =>
+                      setRecord({ ...record(), [field]: value })
+                    }
+                    errors={fieldErrors()}
+                    fkFields={fkFields()}
+                    formConfig={uiConfig()?.form}
+                  />
+                </div>
+              }
+            >
+              {(sections) => (
+                <For each={sections()}>
+                  {(section) => (
+                    <div class="section">
+                      <h3 class="section-title">{section.title}</h3>
+                      <RecordForm
+                        fields={getFieldsForSection(section)}
+                        values={record()}
+                        onChange={(field, value) =>
+                          setRecord({ ...record(), [field]: value })
+                        }
+                        errors={fieldErrors()}
+                        fkFields={fkFields()}
+                        formConfig={uiConfig()?.form}
+                      />
+                    </div>
+                  )}
+                </For>
+              )}
+            </Show>
+
+            <Show when={entityDef()}>
               <div class="section">
-                <h3 class="section-title">
-                  {rel.name}
-                  <span style={{ "font-weight": "normal", color: "#9ca3af", "font-size": "14px", "margin-left": "8px" }}>
-                    ({rel.type.replace(/_/g, " ")})
-                  </span>
-                </h3>
-                <Show
-                  when={
-                    relatedData()[rel.name] &&
-                    relatedData()[rel.name].length > 0
-                  }
-                  fallback={
-                    <div class="empty-state" style={{ "padding-top": "2rem", "padding-bottom": "2rem" }}>
-                      <div class="empty-state-text">
-                        No related {rel.name} records
+                <h3 class="section-title">Record Metadata</h3>
+                <div style={{ display: "grid", "grid-template-columns": "1fr 1fr", gap: "16px" }}>
+                  <div class="form-group">
+                    <label class="form-label">ID</label>
+                    <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
+                      {String(record()[entityDef()!.primary_key.field] || "\u2014")}
+                    </div>
+                  </div>
+                  <Show when={record()["created_at"]}>
+                    <div class="form-group">
+                      <label class="form-label">Created At</label>
+                      <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
+                        {formatDate(String(record()["created_at"]))}
                       </div>
                     </div>
-                  }
-                >
-                  <DataTable
-                    columns={getRelatedColumns(rel.name)}
-                    rows={relatedData()[rel.name] || []}
-                    onRowClick={(row) => {
-                      const id = row["id"];
-                      const target = getRelTarget(rel.name);
-                      if (id && target) {
-                        navigate(`/data/${target}/${id}`);
-                      }
-                    }}
-                  />
-                </Show>
+                  </Show>
+                  <Show when={record()["updated_at"]}>
+                    <div class="form-group">
+                      <label class="form-label">Updated At</label>
+                      <div class="form-input" style={{ "background-color": "#f9fafb", cursor: "default" }}>
+                        {formatDate(String(record()["updated_at"]))}
+                      </div>
+                    </div>
+                  </Show>
+                </div>
               </div>
             </Show>
-          )}
-        </For>
+          </Show>
 
-        <ConfirmDialog
-          open={showDelete()}
-          title="Delete Record"
-          message="Are you sure you want to delete this record? This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setShowDelete(false)}
-        />
-      </Show>
-    </div>
+          <For each={relations()}>
+            {(rel) => (
+              <Show when={activeTab() === rel.name}>
+                <div class="section">
+                  <h3 class="section-title">
+                    {rel.name}
+                    <span style={{ "font-weight": "normal", color: "#9ca3af", "font-size": "14px", "margin-left": "8px" }}>
+                      ({rel.type.replace(/_/g, " ")})
+                    </span>
+                  </h3>
+                  <Show
+                    when={
+                      relatedData()[rel.name] &&
+                      relatedData()[rel.name].length > 0
+                    }
+                    fallback={
+                      <div class="empty-state" style={{ "padding-top": "2rem", "padding-bottom": "2rem" }}>
+                        <div class="empty-state-text">
+                          No related {rel.name} records
+                        </div>
+                      </div>
+                    }
+                  >
+                    <DataTable
+                      columns={getRelatedColumns(rel.name)}
+                      rows={relatedData()[rel.name] || []}
+                      onRowClick={(row) => {
+                        const id = row["id"];
+                        const target = getRelTarget(rel.name);
+                        if (id && target) {
+                          navigate(`/data/${target}/${id}`);
+                        }
+                      }}
+                    />
+                  </Show>
+                </div>
+              </Show>
+            )}
+          </For>
+
+          <ConfirmDialog
+            open={showDelete()}
+            title="Delete Record"
+            message="Are you sure you want to delete this record? This action cannot be undone."
+            onConfirm={handleDelete}
+            onCancel={() => setShowDelete(false)}
+          />
+        </Show>
+      </div>
+    </Show>
   );
 }
 

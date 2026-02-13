@@ -256,7 +256,7 @@ curl -X POST http://localhost:8080/api/_platform/apps \
 curl -X POST http://localhost:8080/api/helpdesk/_admin/import \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d @examples/helpdesk-ticketing.json
+  -d @examples/backend/helpdesk-ticketing.json
 ```
 
 The import creates all tables, relations, rules, state machines, workflows, permissions, and webhooks. The app is immediately ready to use — start creating tickets at `POST /api/helpdesk/ticket`.
@@ -265,9 +265,9 @@ To update an existing app, just re-import — the import is **idempotent** (skip
 
 | Schema | File | Entities | Features Demonstrated |
 |--------|------|----------|----------------------|
-| **Helpdesk / Ticketing** | [helpdesk-ticketing.json](examples/helpdesk-ticketing.json) | customer, agent, ticket, response | State machine (open &rarr; assigned &rarr; resolved &rarr; closed), critical ticket escalation workflow, file attachments on responses, role-based permissions |
-| **Content Management** | [content-management.json](examples/content-management.json) | author, category, tag, post, comment, media | Many-to-many (post &harr; tags), editorial workflow (draft &rarr; review &rarr; published), slug pattern validation, file uploads, comment moderation |
-| **Employee Management** | [employee-management.json](examples/employee-management.json) | department, employee, leave_request, document, attendance | Multi-step leave approval workflow (auto-approve &le;5 days, manager+HR for longer), employee status state machine, date validation rules, document file uploads |
+| **Helpdesk / Ticketing** | [helpdesk-ticketing.json](examples/backend/helpdesk-ticketing.json) | customer, agent, ticket, response | State machine (open &rarr; assigned &rarr; resolved &rarr; closed), critical ticket escalation workflow, file attachments on responses, role-based permissions |
+| **Content Management** | [content-management.json](examples/backend/content-management.json) | author, category, tag, post, comment, media | Many-to-many (post &harr; tags), editorial workflow (draft &rarr; review &rarr; published), slug pattern validation, file uploads, comment moderation |
+| **Employee Management** | [employee-management.json](examples/backend/employee-management.json) | department, employee, leave_request, document, attendance | Multi-step leave approval workflow (auto-approve &le;5 days, manager+HR for longer), employee status state machine, date validation rules, document file uploads |
 
 ## Roadmap
 

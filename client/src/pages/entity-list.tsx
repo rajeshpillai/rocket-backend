@@ -16,6 +16,9 @@ import ConfirmDialog from "../components/confirm-dialog";
 import Modal from "../components/modal";
 import RecordForm, { type FkFieldInfo } from "../components/record-form";
 import { createRecord, updateRecord } from "../api/data";
+import { getEntityUIConfig } from "../stores/ui-config";
+import type { UIConfig } from "../types/ui-config";
+import { getCustomPage } from "./custom/registry";
 
 export default function EntityListPage() {
   const params = useParams();
@@ -32,6 +35,7 @@ export default function EntityListPage() {
   const [sortDir, setSortDir] = createSignal<"ASC" | "DESC">("DESC");
   const [filters, setFilters] = createSignal<FilterParam[]>([]);
   const [loading, setLoading] = createSignal(true);
+  const [uiConfig, setUIConfig] = createSignal<UIConfig | null>(null);
 
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editingRecord, setEditingRecord] = createSignal<Record<string, unknown>>({});
@@ -64,6 +68,25 @@ export default function EntityListPage() {
     try {
       const row = await getEntity(name);
       setEntityDef(parseDefinition(row));
+
+      // Load UI config for this entity
+      const config = getEntityUIConfig(name);
+      setUIConfig(config);
+
+      // Apply config defaults
+      if (config?.list?.per_page) {
+        setPerPage(config.list.per_page);
+      }
+      if (config?.list?.default_sort) {
+        const sort = config.list.default_sort;
+        if (sort.startsWith("-")) {
+          setSortField(sort.slice(1));
+          setSortDir("DESC");
+        } else {
+          setSortField(sort);
+          setSortDir("ASC");
+        }
+      }
 
       // Use row-level source field to find relations for this entity
       const rels = (await listRelations()) as RelationRow[];
@@ -242,18 +265,35 @@ export default function EntityListPage() {
     }
   }
 
+  function getColumnLabel(fieldName: string): string {
+    return uiConfig()?.form?.field_overrides?.[fieldName]?.label || fieldName;
+  }
+
   function getColumns(): Column<Record<string, unknown>>[] {
     const def = entityDef();
     if (!def) return [];
 
-    const cols: Column<Record<string, unknown>>[] = def.fields
-      .filter((f) => f.name !== "deleted_at")
-      .slice(0, 8)
-      .map((f) => ({
-        key: f.name,
-        header: f.name,
-        sortable: true,
-      }));
+    const config = uiConfig();
+    const hiddenFields = new Set(config?.form?.hidden_fields ?? []);
+    hiddenFields.add("deleted_at");
+
+    let fieldNames: string[];
+    if (config?.list?.columns && config.list.columns.length > 0) {
+      // Use configured column list
+      fieldNames = config.list.columns.filter((c) => !hiddenFields.has(c));
+    } else {
+      // Default: first 8 non-hidden fields
+      fieldNames = def.fields
+        .filter((f) => !hiddenFields.has(f.name))
+        .slice(0, 8)
+        .map((f) => f.name);
+    }
+
+    const cols: Column<Record<string, unknown>>[] = fieldNames.map((name) => ({
+      key: name,
+      header: getColumnLabel(name),
+      sortable: true,
+    }));
 
     cols.push({
       key: "_actions",
@@ -287,113 +327,131 @@ export default function EntityListPage() {
     return cols;
   }
 
+  // Check for custom page component
+  const CustomPage = () => params.entity ? getCustomPage(params.entity, "list") : null;
+
   return (
-    <div>
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">{params.entity}</h1>
-          <Show when={entityDef()}>
-            <p class="page-subtitle">
-              {total()} records | {entityDef()!.fields.length} fields
-              {entityDef()!.soft_delete ? " | soft delete" : ""}
-            </p>
-          </Show>
-        </div>
-        <div class="page-actions">
-          <button
-            class="btn-secondary btn-sm"
-            onClick={() => setShowFilters(!showFilters())}
-          >
-            {showFilters() ? "Hide Filters" : "Filters"}
-          </button>
-          <button class="btn-secondary btn-sm" onClick={fetchData}>
-            Refresh
-          </button>
-          <button class="btn-primary btn-sm" onClick={handleCreate}>
-            + New Record
-          </button>
-        </div>
-      </div>
-
-      <Show when={showFilters() && entityDef()}>
-        <FilterBar
-          fields={entityDef()!.fields}
-          filters={filters()}
-          onApply={handleApplyFilters}
-        />
-      </Show>
-
-      <Show when={loading()}>
-        <div class="loading-spinner">
-          <div class="spinner" />
-        </div>
-      </Show>
-
-      <Show when={!loading() && entityDef()}>
-        <DataTable
-          columns={getColumns()}
-          rows={records()}
-          sortField={sortField()}
-          sortDir={sortDir()}
-          onSort={handleSort}
-          onRowClick={(row) => {
-            const pk = entityDef()!.primary_key.field;
-            navigate(`/data/${params.entity}/${row[pk]}`);
+    <Show
+      when={!CustomPage()}
+      fallback={
+        <Show when={CustomPage()}>
+          {(Comp) => {
+            const C = Comp();
+            return <C />;
           }}
-          emptyMessage={`No ${params.entity} records found`}
-        />
-
-        <Pagination
-          page={page()}
-          perPage={perPage()}
-          total={total()}
-          onPageChange={handlePageChange}
-          onPerPageChange={handlePerPageChange}
-        />
-      </Show>
-
-      <Modal
-        open={editorOpen()}
-        onClose={() => setEditorOpen(false)}
-        title={isNewRecord() ? `New ${params.entity}` : `Edit ${params.entity}`}
-        wide
-      >
-        <Show when={entityDef()}>
-          <RecordForm
-            fields={entityDef()!.fields}
-            values={editingRecord()}
-            onChange={(field, value) =>
-              setEditingRecord({ ...editingRecord(), [field]: value })
-            }
-            errors={fieldErrors()}
-            isNew={isNewRecord()}
-            fkFields={fkFields()}
-          />
-          <div class="form-actions">
+        </Show>
+      }
+    >
+      <div>
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">
+              {uiConfig()?.list?.title || params.entity}
+            </h1>
+            <Show when={entityDef()}>
+              <p class="page-subtitle">
+                {total()} records | {entityDef()!.fields.length} fields
+                {entityDef()!.soft_delete ? " | soft delete" : ""}
+              </p>
+            </Show>
+          </div>
+          <div class="page-actions">
             <button
-              class="btn-primary"
-              onClick={handleSave}
-              disabled={saving()}
+              class="btn-secondary btn-sm"
+              onClick={() => setShowFilters(!showFilters())}
             >
-              {saving() ? "Saving..." : isNewRecord() ? "Create" : "Save Changes"}
+              {showFilters() ? "Hide Filters" : "Filters"}
             </button>
-            <button
-              class="btn-secondary"
-              onClick={() => setEditorOpen(false)}
-            >
-              Cancel
+            <button class="btn-secondary btn-sm" onClick={fetchData}>
+              Refresh
+            </button>
+            <button class="btn-primary btn-sm" onClick={handleCreate}>
+              + New Record
             </button>
           </div>
-        </Show>
-      </Modal>
+        </div>
 
-      <ConfirmDialog
-        open={deleteTarget() !== null}
-        title="Delete Record"
-        message="Are you sure you want to delete this record? This action cannot be undone."
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
-      />
-    </div>
+        <Show when={showFilters() && entityDef()}>
+          <FilterBar
+            fields={entityDef()!.fields}
+            filters={filters()}
+            onApply={handleApplyFilters}
+          />
+        </Show>
+
+        <Show when={loading()}>
+          <div class="loading-spinner">
+            <div class="spinner" />
+          </div>
+        </Show>
+
+        <Show when={!loading() && entityDef()}>
+          <DataTable
+            columns={getColumns()}
+            rows={records()}
+            sortField={sortField()}
+            sortDir={sortDir()}
+            onSort={handleSort}
+            onRowClick={(row) => {
+              const pk = entityDef()!.primary_key.field;
+              navigate(`/data/${params.entity}/${row[pk]}`);
+            }}
+            emptyMessage={`No ${params.entity} records found`}
+          />
+
+          <Pagination
+            page={page()}
+            perPage={perPage()}
+            total={total()}
+            onPageChange={handlePageChange}
+            onPerPageChange={handlePerPageChange}
+          />
+        </Show>
+
+        <Modal
+          open={editorOpen()}
+          onClose={() => setEditorOpen(false)}
+          title={isNewRecord() ? `New ${params.entity}` : `Edit ${params.entity}`}
+          wide
+        >
+          <Show when={entityDef()}>
+            <RecordForm
+              fields={entityDef()!.fields}
+              values={editingRecord()}
+              onChange={(field, value) =>
+                setEditingRecord({ ...editingRecord(), [field]: value })
+              }
+              errors={fieldErrors()}
+              isNew={isNewRecord()}
+              fkFields={fkFields()}
+              formConfig={uiConfig()?.form}
+            />
+            <div class="form-actions">
+              <button
+                class="btn-primary"
+                onClick={handleSave}
+                disabled={saving()}
+              >
+                {saving() ? "Saving..." : isNewRecord() ? "Create" : "Save Changes"}
+              </button>
+              <button
+                class="btn-secondary"
+                onClick={() => setEditorOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </Show>
+        </Modal>
+
+        <ConfirmDialog
+          open={deleteTarget() !== null}
+          title="Delete Record"
+          message="Are you sure you want to delete this record? This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      </div>
+    </Show>
   );
 }

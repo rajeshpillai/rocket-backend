@@ -104,11 +104,24 @@ export function registerAppRoutes(
   adminRouter.get("/webhook-logs/:id", dispatch((ac) => ac.adminHandler.getWebhookLog));
   adminRouter.post("/webhook-logs/:id/retry", dispatch((ac) => ac.adminHandler.retryWebhookLog));
 
+  // UI Configs
+  adminRouter.get("/ui-configs", dispatch((ac) => ac.adminHandler.listUIConfigs));
+  adminRouter.get("/ui-configs/:id", dispatch((ac) => ac.adminHandler.getUIConfig));
+  adminRouter.post("/ui-configs", dispatch((ac) => ac.adminHandler.createUIConfig));
+  adminRouter.put("/ui-configs/:id", dispatch((ac) => ac.adminHandler.updateUIConfig));
+  adminRouter.delete("/ui-configs/:id", dispatch((ac) => ac.adminHandler.deleteUIConfig));
+
   // Export/Import
   adminRouter.get("/export", dispatch((ac) => ac.adminHandler.export));
   adminRouter.post("/import", dispatch((ac) => ac.adminHandler.import));
 
   app.use("/api/:app/_admin", resolverMW, appAuthMW, adminMW, adminRouter);
+
+  // UI config read routes (auth required, no admin)
+  const uiRouter = Router({ mergeParams: true });
+  uiRouter.get("/configs", dispatch((ac) => ac.adminHandler.listAllUIConfigs));
+  uiRouter.get("/config/:entity", dispatch((ac) => ac.adminHandler.getUIConfigByEntity));
+  app.use("/api/:app/_ui", resolverMW, appAuthMW, uiRouter);
 
   // Workflow runtime routes (auth required)
   const wfRouter = Router({ mergeParams: true });
