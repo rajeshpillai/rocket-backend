@@ -262,4 +262,75 @@
   .cond-actions {
     @apply mt-1;
   }
+
+  /* Related Records Editor */
+  .rel-editor {
+    @apply border border-gray-200 rounded-lg p-4 bg-gray-50;
+  }
+
+  .rel-editor-header {
+    @apply flex items-center justify-between mb-3;
+  }
+
+  .rel-editor-mode-select {
+    @apply text-xs;
+    width: 90px;
+    padding: 0.2rem 0.4rem;
+  }
+
+  .rel-editor-table-wrap {
+    @apply overflow-x-auto;
+  }
+
+  .rel-editor-table {
+    @apply w-full text-sm border-collapse;
+  }
+
+  .rel-editor-th {
+    @apply text-left text-xs font-medium text-gray-500 uppercase tracking-wider
+           px-3 py-2 border-b border-gray-200 bg-white;
+  }
+
+  .rel-editor-th-actions {
+    @apply text-right;
+    width: 120px;
+  }
+
+  .rel-editor-tr {
+    @apply border-b border-gray-100;
+  }
+
+  .rel-editor-tr-new {
+    @apply bg-green-50;
+  }
+
+  .rel-editor-tr-editing {
+    @apply bg-blue-50;
+  }
+
+  .rel-editor-tr-deleted {
+    @apply bg-red-50 opacity-60;
+  }
+
+  .rel-editor-td {
+    @apply px-3 py-2;
+  }
+
+  .rel-editor-td-actions {
+    @apply text-right;
+  }
+
+  .rel-editor-inline-input {
+    @apply text-sm;
+    padding: 0.25rem 0.4rem;
+    min-width: 60px;
+  }
+
+  .rel-editor-actions {
+    @apply mt-2;
+  }
+
+  .btn-xs {
+    @apply text-xs px-2 py-0.5 rounded;
+  }
 }

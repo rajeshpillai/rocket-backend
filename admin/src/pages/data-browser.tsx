@@ -1,9 +1,11 @@
 import { createSignal, onMount, Show, createEffect, type JSX } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { useEntities } from "../stores/entities";
+import { useRelations } from "../stores/relations";
 import { parseDefinition, type EntityDefinition } from "../types/entity";
 import {
   listRecords,
+  getRecord,
   createRecord,
   updateRecord,
   deleteRecord,
@@ -22,7 +24,8 @@ import { addToast } from "../stores/notifications";
 export function DataBrowser() {
   const params = useParams<{ entity?: string }>();
   const navigate = useNavigate();
-  const { entities, load: loadEntities, entityNames } = useEntities();
+  const { entities, load: loadEntities, entityNames, parsed: allEntitiesParsed } = useEntities();
+  const { load: loadRelations, forSource } = useRelations();
 
   const [entityDef, setEntityDef] = createSignal<EntityDefinition | null>(null);
   const [records, setRecords] = createSignal<Record<string, unknown>[]>([]);
@@ -46,7 +49,10 @@ export function DataBrowser() {
   // CSV import state
   const [csvImportOpen, setCsvImportOpen] = createSignal(false);
 
-  onMount(() => loadEntities());
+  onMount(() => {
+    loadEntities();
+    loadRelations();
+  });
 
   // When entity param changes, load the entity definition and data
   createEffect(() => {
@@ -190,9 +196,29 @@ export function DataBrowser() {
     setEditorOpen(true);
   };
 
-  const openEdit = (record: Record<string, unknown>) => {
-    setEditingRecord(record);
+  const openEdit = async (record: Record<string, unknown>) => {
+    const entityName = params.entity;
+    const def = entityDef();
+    if (!entityName || !def) return;
+
     setEditorError(null);
+
+    // Find source relations to determine if we need includes
+    const rels = forSource(entityName);
+    const includeNames = rels.map((r) => r.name).join(",");
+
+    if (includeNames) {
+      try {
+        const id = String(record[def.primary_key.field]);
+        const res = await getRecord(entityName, id, { include: includeNames });
+        setEditingRecord(res.data);
+      } catch {
+        setEditingRecord(record); // Fallback to flat record
+      }
+    } else {
+      setEditingRecord(record);
+    }
+
     setEditorOpen(true);
   };
 
@@ -323,7 +349,8 @@ export function DataBrowser() {
               open={editorOpen()}
               onClose={() => setEditorOpen(false)}
               title={editingRecord() ? "Edit Record" : "Create Record"}
-              wide
+              wide={!forSource(params.entity!).length}
+              fullscreen={forSource(params.entity!).length > 0}
             >
               <DataRecordEditor
                 entity={def()}
@@ -332,6 +359,8 @@ export function DataBrowser() {
                 onCancel={() => setEditorOpen(false)}
                 saving={editorSaving()}
                 error={editorError()}
+                relations={forSource(params.entity!)}
+                allEntities={allEntitiesParsed()}
               />
             </Modal>
 

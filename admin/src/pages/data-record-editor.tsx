@@ -1,6 +1,9 @@
 import { createSignal, For, Show } from "solid-js";
-import type { Field, EntityDefinition } from "../types/entity";
+import type { EntityDefinition } from "../types/entity";
+import type { RelationDefinition } from "../types/relation";
 import { FileUploadField } from "../components/form/file-upload-field";
+import { RelatedRecordsEditor, type ChildRecordState } from "../components/form/related-records-editor";
+import { writableFields, inputType, coerceFieldValue } from "../utils/field-helpers";
 
 interface DataRecordEditorProps {
   entity: EntityDefinition;
@@ -9,41 +12,8 @@ interface DataRecordEditorProps {
   onCancel: () => void;
   saving: boolean;
   error: string | null;
-}
-
-function writableFields(entity: EntityDefinition, isCreate: boolean): Field[] {
-  return entity.fields.filter((f) => {
-    // Skip auto-generated timestamps
-    if (f.auto) return false;
-    // Skip auto-generated PK on create
-    if (
-      isCreate &&
-      f.name === entity.primary_key.field &&
-      entity.primary_key.generated
-    ) {
-      return false;
-    }
-    // Skip PK on update
-    if (!isCreate && f.name === entity.primary_key.field) return false;
-    return true;
-  });
-}
-
-function inputType(fieldType: string): string {
-  switch (fieldType) {
-    case "int":
-    case "bigint":
-    case "decimal":
-      return "number";
-    case "boolean":
-      return "checkbox";
-    case "timestamp":
-      return "datetime-local";
-    case "date":
-      return "date";
-    default:
-      return "text";
-  }
+  relations?: RelationDefinition[];
+  allEntities?: EntityDefinition[];
 }
 
 export function DataRecordEditor(props: DataRecordEditorProps) {
@@ -66,43 +36,77 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
   };
 
   const [values, setValues] = createSignal(initialValues());
+  const [relationData, setRelationData] = createSignal<Record<string, ChildRecordState[]>>({});
+  const [writeModes, setWriteModes] = createSignal<Record<string, string>>({});
 
   const updateValue = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleRelationChange = (relName: string, children: ChildRecordState[]) => {
+    setRelationData((prev) => ({ ...prev, [relName]: children }));
+  };
+
+  const handleWriteModeChange = (relName: string, mode: string) => {
+    setWriteModes((prev) => ({ ...prev, [relName]: mode }));
+  };
+
   const handleSubmit = () => {
     const data: Record<string, unknown> = {};
+
+    // Parent fields
     for (const f of fields()) {
       const raw = values()[f.name];
-      if (raw === "" && !f.required) continue;
-
-      switch (f.type) {
-        case "int":
-        case "bigint":
-          data[f.name] = raw ? parseInt(raw, 10) : null;
-          break;
-        case "decimal":
-          data[f.name] = raw ? parseFloat(raw) : null;
-          break;
-        case "boolean":
-          data[f.name] = raw === "true" || raw === "on";
-          break;
-        case "json":
-          try {
-            data[f.name] = raw ? JSON.parse(raw) : null;
-          } catch {
-            data[f.name] = raw;
-          }
-          break;
-        case "file":
-          // File field: value is either a UUID string or empty
-          data[f.name] = raw || null;
-          break;
-        default:
-          data[f.name] = raw || null;
+      const val = coerceFieldValue(raw, f);
+      if (val !== undefined) {
+        data[f.name] = val;
       }
     }
+
+    // Nested write payloads for each relation
+    const rels = props.relations ?? [];
+    const allEnts = props.allEntities ?? [];
+
+    for (const rel of rels) {
+      const children = relationData()[rel.name];
+      if (!children || children.length === 0) continue;
+
+      const targetEntity = allEnts.find((e) => e.name === rel.target);
+      const targetPK = targetEntity?.primary_key.field ?? "id";
+      const mode = writeModes()[rel.name] ?? rel.write_mode ?? "diff";
+
+      const items: Record<string, unknown>[] = [];
+
+      for (const child of children) {
+        if (child._status === "deleted") {
+          const pk = child.data[targetPK];
+          if (pk) {
+            items.push({ [targetPK]: pk, _delete: true });
+          }
+        } else if (child._status === "new") {
+          const row: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(child.data)) {
+            // Skip auto-generated PK
+            if (k === targetPK && targetEntity?.primary_key.generated) continue;
+            // Skip FK to parent (backend auto-propagates)
+            if (k === rel.target_key) continue;
+            row[k] = v;
+          }
+          items.push(row);
+        } else {
+          // existing: send full data including PK for UPDATE
+          items.push({ ...child.data });
+        }
+      }
+
+      if (items.length > 0) {
+        data[rel.name] = {
+          _write_mode: mode,
+          data: items,
+        };
+      }
+    }
+
     props.onSave(data);
   };
 
@@ -193,6 +197,38 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
           </div>
         )}
       </For>
+
+      {/* Related records sections */}
+      <Show when={props.relations && props.relations.length > 0 && props.allEntities}>
+        <For each={props.relations!}>
+          {(rel) => {
+            const targetEntity = () =>
+              props.allEntities!.find((e) => e.name === rel.target);
+            const existingRecords = () => {
+              const val = props.record?.[rel.name];
+              if (Array.isArray(val)) return val as Record<string, unknown>[];
+              if (val && typeof val === "object" && !Array.isArray(val)) {
+                return [val as Record<string, unknown>];
+              }
+              return [];
+            };
+            return (
+              <Show when={targetEntity()}>
+                {(te) => (
+                  <RelatedRecordsEditor
+                    relation={rel}
+                    targetEntity={te()}
+                    existingRecords={existingRecords()}
+                    isCreate={isCreate()}
+                    onChange={(children) => handleRelationChange(rel.name, children)}
+                    onWriteModeChange={(mode) => handleWriteModeChange(rel.name, mode)}
+                  />
+                )}
+              </Show>
+            );
+          }}
+        </For>
+      </Show>
 
       <div class="modal-footer" style="padding: 0; border: none; margin-top: 0.5rem;">
         <button class="btn-secondary" onClick={props.onCancel}>

@@ -12,6 +12,7 @@ export interface DataQueryParams {
   sort?: string;
   page?: number;
   perPage?: number;
+  include?: string;
 }
 
 function buildQueryString(params: DataQueryParams): string {
@@ -44,6 +45,10 @@ function buildQueryString(params: DataQueryParams): string {
     parts.push(`per_page=${params.perPage}`);
   }
 
+  if (params.include) {
+    parts.push(`include=${encodeURIComponent(params.include)}`);
+  }
+
   return parts.length > 0 ? `?${parts.join("&")}` : "";
 }
 
@@ -60,8 +65,12 @@ export function listRecords(
 export function getRecord(
   entity: string,
   id: string,
+  params?: { include?: string },
 ): Promise<ApiResponse<Record_>> {
-  return get<ApiResponse<Record_>>(`/${entity}/${id}`);
+  const qs = params?.include
+    ? `?include=${encodeURIComponent(params.include)}`
+    : "";
+  return get<ApiResponse<Record_>>(`/${entity}/${id}${qs}`);
 }
 
 export function createRecord(
