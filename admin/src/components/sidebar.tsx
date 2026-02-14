@@ -15,6 +15,7 @@ const navItems = [
   { href: "/workflows", label: "Workflows", icon: "\u27F3" },
   { href: "/workflow-monitor", label: "Workflow Monitor", icon: "\u25B6" },
   { href: "/data", label: "Data Browser", icon: "\u25A4" },
+  { href: "/playground", label: "API Playground", icon: "\u25B7" },
   { href: "/users", label: "Users", icon: "\uD83D\uDC64" },
   { href: "/permissions", label: "Permissions", icon: "\uD83D\uDD12" },
   { href: "/webhooks", label: "Webhooks", icon: "\uD83D\uDD17" },

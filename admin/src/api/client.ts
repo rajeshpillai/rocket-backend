@@ -63,6 +63,69 @@ export function del<T>(path: string): Promise<T> {
   });
 }
 
+/** Raw response envelope used by API Playground. */
+export interface RawResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body: unknown;
+  durationMs: number;
+}
+
+/**
+ * Execute a raw HTTP request returning the full response envelope.
+ * Does NOT throw on non-2xx or redirect on 401 — used by API Playground.
+ */
+export async function rawRequest(
+  path: string,
+  method: string,
+  body?: unknown,
+): Promise<RawResponse> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const token = getToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const url = `${getBase()}${path}`;
+  const start = performance.now();
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  const durationMs = Math.round(performance.now() - start);
+
+  const respHeaders: Record<string, string> = {};
+  res.headers.forEach((value, key) => {
+    respHeaders[key] = value;
+  });
+
+  let respBody: unknown;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      respBody = await res.json();
+    } catch {
+      respBody = await res.text();
+    }
+  } else {
+    respBody = await res.text();
+  }
+
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    headers: respHeaders,
+    body: respBody,
+    durationMs,
+  };
+}
+
 /** Upload a file using multipart/form-data. Does NOT set Content-Type (browser sets boundary). */
 export async function upload<T>(path: string, file: File): Promise<T> {
   const formData = new FormData();

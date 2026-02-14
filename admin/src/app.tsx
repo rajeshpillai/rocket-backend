@@ -17,6 +17,7 @@ import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
 import { UIConfigList } from "./pages/ui-config-list";
 import { Dashboard } from "./pages/dashboard";
+import { ApiPlayground } from "./pages/api-playground";
 import { ERD } from "./pages/erd";
 import { HelpIndex } from "./pages/help-docs/help-index";
 import { HelpTopicPage } from "./pages/help-docs/help-layout";
@@ -82,6 +83,7 @@ export function App() {
       <Route path="/webhooks" component={WebhooksList} />
       <Route path="/webhook-logs" component={WebhookLogs} />
       <Route path="/ui-configs" component={UIConfigList} />
+      <Route path="/playground" component={ApiPlayground} />
       <Route path="/help" component={HelpIndex} />
       <Route path="/help/:topic" component={HelpTopicPage} />
     </Router>
