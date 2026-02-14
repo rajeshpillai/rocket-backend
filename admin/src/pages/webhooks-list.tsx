@@ -18,6 +18,7 @@ import { DataTable, type Column } from "../components/data-table";
 import { Modal } from "../components/modal";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Badge } from "../components/badge";
+import { ExpressionBuilder } from "../components/form/expression-builder";
 import { addToast } from "../stores/notifications";
 
 const hookColors: Record<string, "green" | "blue" | "purple" | "red"> = {
@@ -36,7 +37,7 @@ const methodColors: Record<string, "green" | "blue" | "purple" | "red" | "yellow
 };
 
 export function WebhooksList() {
-  const { entityNames, load: loadEntities } = useEntities();
+  const { entityNames, parsed, load: loadEntities } = useEntities();
   const [webhooks, setWebhooks] = createSignal<WebhookRow[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [editorOpen, setEditorOpen] = createSignal(false);
@@ -46,6 +47,11 @@ export function WebhooksList() {
   const [editorError, setEditorError] = createSignal<string | null>(null);
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
   const [headersJson, setHeadersJson] = createSignal("{}");
+
+  const entityFields = () => {
+    const ent = parsed().find((e) => e.name === editingWH().entity);
+    return ent?.fields;
+  };
 
   async function loadList() {
     setLoading(true);
@@ -349,15 +355,16 @@ export function WebhooksList() {
           </div>
 
           <div class="form-group">
-            <label class="form-label">Condition (expression, empty = always fire)</label>
-            <input
-              type="text"
-              class="form-input font-mono"
+            <label class="form-label">Condition (empty = always fire)</label>
+            <ExpressionBuilder
               value={editingWH().condition}
-              onInput={(e) =>
-                setEditingWH({ ...editingWH(), condition: e.currentTarget.value })
+              onChange={(expr) =>
+                setEditingWH({ ...editingWH(), condition: expr })
               }
+              fields={entityFields()}
+              vars={["record", "old", "changes", "action", "entity", "event", "user"]}
               placeholder='action == "update" && record.status == "paid"'
+              helpText="Expression that must be true for the webhook to fire"
             />
           </div>
 

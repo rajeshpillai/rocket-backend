@@ -4,6 +4,8 @@ import { RULE_TYPES, RULE_HOOKS, FIELD_OPERATORS } from "../types/rule";
 import { TextInput } from "../components/form/text-input";
 import { SelectInput } from "../components/form/select-input";
 import { Toggle } from "../components/form/toggle";
+import { ExpressionBuilder } from "../components/form/expression-builder";
+import { useEntities } from "../stores/entities";
 
 interface RuleEditorProps {
   rule: RulePayload;
@@ -16,6 +18,8 @@ interface RuleEditorProps {
 }
 
 export function RuleEditor(props: RuleEditorProps) {
+  const { parsed } = useEntities();
+
   const update = (partial: Partial<RulePayload>) => {
     props.onChange({ ...props.rule, ...partial });
   };
@@ -33,6 +37,11 @@ export function RuleEditor(props: RuleEditorProps) {
 
   const entityOptions = () =>
     props.entityNames.map((n) => ({ value: n, label: n }));
+
+  const entityFields = () => {
+    const ent = parsed().find((e) => e.name === props.rule.entity);
+    return ent?.fields;
+  };
 
   return (
     <div class="flex flex-col gap-4">
@@ -113,16 +122,14 @@ export function RuleEditor(props: RuleEditorProps) {
       <Show when={isExpression()}>
         <div class="form-group">
           <label class="form-label">Expression</label>
-          <textarea
-            class="form-input"
-            rows={3}
+          <ExpressionBuilder
             value={props.rule.definition.expression ?? ""}
-            onInput={(e) => updateDef({ expression: e.currentTarget.value })}
+            onChange={(expr) => updateDef({ expression: expr })}
+            fields={entityFields()}
+            vars={["record", "old", "action"]}
             placeholder="e.g. record.status == 'paid' && record.payment_date == null"
+            helpText="Returns true = rule violated"
           />
-          <span class="text-xs text-gray-500">
-            Returns true = rule violated. Available: record, old, action
-          </span>
         </div>
         <Toggle
           label="Stop on fail"
@@ -141,16 +148,14 @@ export function RuleEditor(props: RuleEditorProps) {
         />
         <div class="form-group">
           <label class="form-label">Expression</label>
-          <textarea
-            class="form-input"
-            rows={3}
+          <ExpressionBuilder
             value={props.rule.definition.expression ?? ""}
-            onInput={(e) => updateDef({ expression: e.currentTarget.value })}
+            onChange={(expr) => updateDef({ expression: expr })}
+            fields={entityFields()}
+            vars={["record", "old", "action"]}
             placeholder="e.g. record.subtotal * (1 + record.tax_rate)"
+            helpText="Result is set on the target field before write"
           />
-          <span class="text-xs text-gray-500">
-            Result is set on the target field before write
-          </span>
         </div>
       </Show>
 

@@ -17,6 +17,7 @@ import { DataTable, type Column } from "../components/data-table";
 import { Modal } from "../components/modal";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Badge } from "../components/badge";
+import { ConditionBuilder } from "../components/form/condition-builder";
 import { addToast } from "../stores/notifications";
 
 const actionColors: Record<string, "green" | "blue" | "purple" | "red"> = {
@@ -27,7 +28,7 @@ const actionColors: Record<string, "green" | "blue" | "purple" | "red"> = {
 };
 
 export function PermissionsList() {
-  const { entityNames, load: loadEntities } = useEntities();
+  const { entityNames, parsed, load: loadEntities } = useEntities();
   const [permissions, setPermissions] = createSignal<PermissionRow[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [editorOpen, setEditorOpen] = createSignal(false);
@@ -37,7 +38,11 @@ export function PermissionsList() {
   const [editorError, setEditorError] = createSignal<string | null>(null);
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
   const [rolesInput, setRolesInput] = createSignal("");
-  const [conditionsJson, setConditionsJson] = createSignal("[]");
+
+  const entityFields = () => {
+    const ent = parsed().find((e) => e.name === editingPerm().entity);
+    return ent?.fields;
+  };
 
   async function loadPerms() {
     setLoading(true);
@@ -71,7 +76,6 @@ export function PermissionsList() {
     setEditingId(null);
     setEditorError(null);
     setRolesInput("");
-    setConditionsJson("[]");
     setEditorOpen(true);
   };
 
@@ -87,7 +91,6 @@ export function PermissionsList() {
     setEditingId(row.id);
     setEditorError(null);
     setRolesInput((row.roles ?? []).join(", "));
-    setConditionsJson(JSON.stringify(conds, null, 2));
     setEditorOpen(true);
   };
 
@@ -107,19 +110,11 @@ export function PermissionsList() {
       .map((r) => r.trim())
       .filter((r) => r.length > 0);
 
-    let conditions;
-    try {
-      conditions = JSON.parse(conditionsJson());
-    } catch {
-      setEditorError("Invalid JSON in conditions");
-      return;
-    }
-
     const payload: PermissionPayload = {
       entity: perm.entity,
       action: perm.action,
       roles,
-      conditions,
+      conditions: perm.conditions,
     };
 
     setSaving(true);
@@ -302,13 +297,13 @@ export function PermissionsList() {
           </div>
 
           <div class="form-group">
-            <label class="form-label">Conditions (JSON)</label>
-            <textarea
-              class="form-input font-mono"
-              rows={4}
-              value={conditionsJson()}
-              onInput={(e) => setConditionsJson(e.currentTarget.value)}
-              placeholder='[{"field": "status", "operator": "eq", "value": "active"}]'
+            <label class="form-label">Row-Level Conditions</label>
+            <ConditionBuilder
+              value={editingPerm().conditions}
+              onChange={(conditions) =>
+                setEditingPerm({ ...editingPerm(), conditions })
+              }
+              fields={entityFields()}
             />
           </div>
 

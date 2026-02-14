@@ -159,4 +159,107 @@
   .csv-error-item {
     @apply text-xs text-red-600 py-1 border-b border-red-50 last:border-0;
   }
+
+  /* Expression Builder */
+  .expr-builder {
+    @apply flex flex-col gap-2;
+  }
+
+  .expr-builder-header {
+    @apply flex items-center justify-between;
+  }
+
+  .expr-mode-toggle {
+    @apply inline-flex rounded-md border border-gray-300 overflow-hidden;
+  }
+
+  .expr-mode-btn {
+    @apply px-3 py-1 text-xs border-none bg-white text-gray-600 cursor-pointer
+           transition-colors;
+  }
+
+  .expr-mode-btn:disabled {
+    @apply cursor-default;
+  }
+
+  .expr-mode-active {
+    @apply bg-blue-600 text-white;
+  }
+
+  .expr-rows {
+    @apply flex flex-col gap-1;
+  }
+
+  .expr-row {
+    @apply flex items-center gap-2;
+  }
+
+  .expr-field-wrap {
+    @apply flex-1;
+    min-width: 140px;
+  }
+
+  .expr-field-input {
+    @apply font-mono text-sm;
+  }
+
+  .expr-op-select {
+    width: 110px;
+    flex-shrink: 0;
+  }
+
+  .expr-value-input {
+    @apply flex-1;
+    min-width: 100px;
+  }
+
+  .expr-combinator {
+    @apply flex justify-center py-0.5;
+  }
+
+  .expr-combinator-btn {
+    @apply px-3 py-0.5 text-xs font-medium rounded-full
+           bg-gray-100 text-gray-600 border border-gray-300
+           cursor-pointer hover:bg-gray-200 transition-colors;
+  }
+
+  .expr-actions {
+    @apply mt-1;
+  }
+
+  .expr-preview {
+    @apply flex items-center gap-2 mt-1 px-2 py-1 bg-gray-50 rounded border border-gray-200;
+  }
+
+  .expr-preview-code {
+    @apply text-xs font-mono text-gray-700;
+  }
+
+  /* Condition Builder */
+  .cond-builder {
+    @apply flex flex-col gap-2;
+  }
+
+  .cond-row {
+    @apply flex items-center gap-2;
+  }
+
+  .cond-field-wrap {
+    @apply flex-1;
+    min-width: 120px;
+  }
+
+  .cond-op-select {
+    width: 170px;
+    flex-shrink: 0;
+  }
+
+  .cond-value-input {
+    @apply flex-1;
+    min-width: 100px;
+  }
+
+  .cond-actions {
+    @apply mt-1;
+  }
 }
