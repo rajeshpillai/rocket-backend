@@ -1,0 +1,126 @@
+@layer components {
+  .wizard-container {
+    @apply max-w-4xl mx-auto;
+  }
+
+  .wizard-header {
+    @apply flex items-center justify-between mb-6;
+  }
+
+  .wizard-title {
+    @apply text-2xl font-bold text-gray-900;
+  }
+
+  .wizard-subtitle {
+    @apply text-sm text-gray-500 mt-1;
+  }
+
+  .wizard-skip {
+    @apply text-sm text-gray-400 hover:text-gray-600 cursor-pointer transition-colors;
+  }
+
+  .wizard-step-content {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-8 mb-6;
+  }
+
+  .wizard-step-title {
+    @apply text-xl font-semibold text-gray-900 mb-2;
+  }
+
+  .wizard-step-description {
+    @apply text-sm text-gray-500 mb-6;
+  }
+
+  .wizard-footer {
+    @apply flex items-center justify-between mt-6 pt-6 border-t border-gray-200;
+  }
+
+  .wizard-footer-right {
+    @apply flex items-center gap-3;
+  }
+
+  /* Preset cards */
+  .preset-grid {
+    @apply grid grid-cols-2 gap-4;
+  }
+
+  .preset-card {
+    @apply border border-gray-200 rounded-lg p-5 cursor-pointer
+           hover:border-blue-400 hover:shadow-md transition-all text-left w-full;
+  }
+
+  .preset-card-selected {
+    @apply border-blue-500 bg-blue-50 shadow-md ring-2 ring-blue-200;
+  }
+
+  .preset-card-name {
+    @apply text-base font-semibold text-gray-900;
+  }
+
+  .preset-card-desc {
+    @apply text-sm text-gray-500 mt-1;
+  }
+
+  .preset-card-meta {
+    @apply text-xs text-gray-400 mt-2;
+  }
+
+  /* Welcome concept cards */
+  .concept-grid {
+    @apply grid grid-cols-2 gap-4 mt-6;
+  }
+
+  .concept-card {
+    @apply bg-gray-50 rounded-lg p-4 border border-gray-100;
+  }
+
+  .concept-card-title {
+    @apply text-sm font-semibold text-gray-800 mb-1;
+  }
+
+  .concept-card-desc {
+    @apply text-xs text-gray-500;
+  }
+
+  /* Step indicator */
+  .step-indicator {
+    @apply flex items-center justify-center gap-1 mb-8;
+  }
+
+  .step-dot {
+    @apply w-2.5 h-2.5 rounded-full bg-gray-300 transition-colors;
+  }
+
+  .step-dot-active {
+    @apply bg-blue-600 w-3 h-3;
+  }
+
+  .step-dot-completed {
+    @apply bg-green-500;
+  }
+
+  .step-connector {
+    @apply w-6 h-0.5 bg-gray-200;
+  }
+
+  .step-connector-completed {
+    @apply bg-green-500;
+  }
+
+  /* Completion */
+  .completion-summary {
+    @apply flex justify-center gap-8 mt-6;
+  }
+
+  .completion-stat {
+    @apply text-center;
+  }
+
+  .completion-stat-value {
+    @apply text-3xl font-bold text-blue-600;
+  }
+
+  .completion-stat-label {
+    @apply text-xs text-gray-500 mt-1;
+  }
+}
