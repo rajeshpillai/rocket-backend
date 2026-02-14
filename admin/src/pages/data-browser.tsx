@@ -147,7 +147,7 @@ export function DataBrowser() {
       class: f.type === "uuid" ? "table-cell-mono" : "table-cell",
       render: (val: unknown): JSX.Element => {
         if (val === null || val === undefined) {
-          return <span class="text-gray-300">null</span>;
+          return <span class="text-gray-300 dark:text-gray-600">null</span>;
         }
         if (f.type === "boolean") {
           return <span>{val ? "true" : "false"}</span>;
@@ -472,7 +472,7 @@ export function DataBrowser() {
             </Show>
 
             {loading() ? (
-              <p class="text-sm text-gray-500">Loading...</p>
+              <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
             ) : (
               <>
                 <DataTable
@@ -564,7 +564,7 @@ export function DataBrowser() {
 
       <Show when={!params.entity}>
         <div class="section">
-          <p class="text-gray-500 text-sm">
+          <p class="text-gray-500 dark:text-gray-400 text-sm">
             Select an entity from the dropdown above to browse its data.
           </p>
         </div>

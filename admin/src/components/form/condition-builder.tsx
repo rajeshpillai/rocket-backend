@@ -92,7 +92,7 @@ export function ConditionBuilder(props: ConditionBuilderProps) {
         </button>
       </div>
       <Show when={props.value.length > 0}>
-        <span class="text-xs text-gray-500">
+        <span class="text-xs text-gray-500 dark:text-gray-400">
           Use {"{{user.id}}"}, {"{{user.email}}"} for dynamic values
         </span>
       </Show>

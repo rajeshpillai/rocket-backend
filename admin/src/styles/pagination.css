@@ -4,13 +4,14 @@
   }
 
   .pagination-info {
-    @apply text-sm text-gray-500 mr-4;
+    @apply text-sm text-gray-500 mr-4 dark:text-gray-400;
   }
 
   .page-btn {
     @apply px-3 py-1.5 text-sm rounded-md border border-gray-300
            text-gray-700 hover:bg-gray-50 transition-colors
-           disabled:opacity-50 disabled:cursor-not-allowed;
+           disabled:opacity-50 disabled:cursor-not-allowed
+           dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700;
   }
 
   .page-btn-active {

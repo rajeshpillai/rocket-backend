@@ -6,19 +6,20 @@
   .stat-card {
     @apply bg-white rounded-lg border border-gray-200 p-5
            cursor-pointer hover:shadow-md hover:border-blue-300
-           transition-all;
+           transition-all
+           dark:bg-gray-800 dark:border-gray-700 dark:hover:border-blue-600;
   }
 
   .stat-card-value {
-    @apply text-3xl font-bold text-gray-900;
+    @apply text-3xl font-bold text-gray-900 dark:text-gray-100;
   }
 
   .stat-card-label {
-    @apply text-sm text-gray-500 mt-1;
+    @apply text-sm text-gray-500 mt-1 dark:text-gray-400;
   }
 
   .stat-card-sub {
-    @apply text-xs text-gray-400 mt-0.5;
+    @apply text-xs text-gray-400 mt-0.5 dark:text-gray-500;
   }
 
   .dashboard-grid {
@@ -26,20 +27,24 @@
   }
 
   .dashboard-section {
-    @apply bg-white rounded-lg border border-gray-200 p-5;
+    @apply bg-white rounded-lg border border-gray-200 p-5
+           dark:bg-gray-800 dark:border-gray-700;
   }
 
   .dashboard-section-full {
-    @apply bg-white rounded-lg border border-gray-200 p-5 mb-6;
+    @apply bg-white rounded-lg border border-gray-200 p-5 mb-6
+           dark:bg-gray-800 dark:border-gray-700;
   }
 
   .dashboard-section-title {
     @apply text-sm font-semibold text-gray-700 mb-3
-           flex items-center justify-between;
+           flex items-center justify-between
+           dark:text-gray-300;
   }
 
   .dashboard-section-link {
-    @apply text-xs text-blue-600 hover:text-blue-800 cursor-pointer;
+    @apply text-xs text-blue-600 hover:text-blue-800 cursor-pointer
+           dark:text-blue-400 dark:hover:text-blue-300;
   }
 
   .dashboard-list {
@@ -48,19 +53,20 @@
 
   .dashboard-list-item {
     @apply flex items-center justify-between py-2 px-3
-           rounded-md hover:bg-gray-50 cursor-pointer transition-colors;
+           rounded-md hover:bg-gray-50 cursor-pointer transition-colors
+           dark:hover:bg-gray-700;
   }
 
   .dashboard-list-item-name {
-    @apply text-sm font-medium text-gray-900;
+    @apply text-sm font-medium text-gray-900 dark:text-gray-100;
   }
 
   .dashboard-list-item-meta {
-    @apply text-xs text-gray-400;
+    @apply text-xs text-gray-400 dark:text-gray-500;
   }
 
   .dashboard-list-item-value {
-    @apply text-sm font-semibold text-gray-700;
+    @apply text-sm font-semibold text-gray-700 dark:text-gray-300;
   }
 
   .dashboard-metric {
@@ -68,11 +74,11 @@
   }
 
   .dashboard-metric-label {
-    @apply text-sm text-gray-600;
+    @apply text-sm text-gray-600 dark:text-gray-400;
   }
 
   .dashboard-metric-value {
-    @apply text-sm font-semibold text-gray-900;
+    @apply text-sm font-semibold text-gray-900 dark:text-gray-100;
   }
 
   .dashboard-metric-badge {
@@ -80,6 +86,6 @@
   }
 
   .dashboard-loading {
-    @apply text-xs text-gray-400 animate-pulse;
+    @apply text-xs text-gray-400 animate-pulse dark:text-gray-500;
   }
 }

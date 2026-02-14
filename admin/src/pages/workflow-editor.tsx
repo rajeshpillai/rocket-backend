@@ -123,7 +123,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
   return (
     <div class="flex flex-col gap-4">
       <Show when={props.error}>
-        <div class="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+        <div class="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md text-sm text-red-700 dark:text-red-300">
           {props.error}
         </div>
       </Show>
@@ -148,7 +148,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
       {/* Trigger */}
       <div class="flex flex-col gap-2">
         <label class="form-label" style="margin-bottom: 0;">Trigger</label>
-        <div class="p-3 border border-gray-200 rounded-md flex flex-col gap-2">
+        <div class="p-3 border border-gray-200 dark:border-gray-700 rounded-md flex flex-col gap-2">
           <div class="form-row">
             <SelectInput
               label="Entity"
@@ -219,9 +219,9 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
 
         <For each={props.wf.steps}>
           {(step, sIdx) => (
-            <div class="p-3 border border-gray-200 rounded-md flex flex-col gap-2">
+            <div class="p-3 border border-gray-200 dark:border-gray-700 rounded-md flex flex-col gap-2">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-gray-500 font-medium">Step {sIdx() + 1}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400 font-medium">Step {sIdx() + 1}</span>
                 <button class="btn-danger btn-sm" onClick={() => removeStep(sIdx())}>
                   Remove
                 </button>
@@ -246,14 +246,14 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
               <Show when={step.type === "action"}>
                 <div class="flex flex-col gap-2">
                   <div class="flex items-center justify-between">
-                    <span class="text-xs text-gray-500">Actions</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Actions</span>
                     <button class="btn-secondary btn-sm" onClick={() => addAction(sIdx())}>
                       + Action
                     </button>
                   </div>
                   <For each={step.actions ?? []}>
                     {(action, aIdx) => (
-                      <div class="p-2 bg-gray-50 rounded flex flex-col gap-1">
+                      <div class="p-2 bg-gray-50 dark:bg-gray-800/50 rounded flex flex-col gap-1">
                         <div class="flex items-center gap-2">
                           <SelectInput
                             label=""

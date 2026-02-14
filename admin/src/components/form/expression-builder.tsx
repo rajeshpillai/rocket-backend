@@ -210,7 +210,7 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
     <div class="expr-builder">
       <div class="expr-builder-header">
         <Show when={props.helpText}>
-          <span class="text-xs text-gray-500">{props.helpText}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{props.helpText}</span>
         </Show>
         <div class="expr-mode-toggle">
           <button
@@ -293,7 +293,7 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
         </div>
         <Show when={rows().length > 0 && preview()}>
           <div class="expr-preview">
-            <span class="text-xs text-gray-400">Preview:</span>
+            <span class="text-xs text-gray-400 dark:text-gray-500">Preview:</span>
             <code class="expr-preview-code">{preview()}</code>
           </div>
         </Show>
@@ -309,7 +309,7 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
           placeholder={props.placeholder}
         />
         <Show when={props.vars && props.vars.length > 0}>
-          <span class="text-xs text-gray-500">
+          <span class="text-xs text-gray-500 dark:text-gray-400">
             Available: {props.vars!.join(", ")}
           </span>
         </Show>

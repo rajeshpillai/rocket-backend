@@ -186,7 +186,7 @@ export function PermissionsList() {
       key: "conditionCount",
       header: "Conditions",
       render: (val): JSX.Element => (
-        <span class="text-sm text-gray-500">
+        <span class="text-sm text-gray-500 dark:text-gray-400">
           {val === 0 ? "None" : `${val} condition${val === 1 ? "" : "s"}`}
         </span>
       ),
@@ -233,7 +233,7 @@ export function PermissionsList() {
       </div>
 
       {loading() ? (
-        <p class="text-sm text-gray-500">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <DataTable
           columns={columns}

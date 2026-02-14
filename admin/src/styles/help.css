@@ -18,28 +18,30 @@
 
   .help-card {
     @apply flex items-start gap-4 p-5 bg-white rounded-lg border border-gray-200
-           shadow-sm no-underline transition-all;
+           shadow-sm no-underline transition-all
+           dark:bg-gray-800 dark:border-gray-700;
   }
 
   .help-card:hover {
-    @apply shadow-md border-blue-300;
+    @apply shadow-md border-blue-300 dark:border-blue-600;
   }
 
   .help-card-icon {
     @apply flex-shrink-0 w-10 h-10 rounded-lg bg-blue-50 text-blue-600
-           flex items-center justify-center font-mono font-bold text-sm;
+           flex items-center justify-center font-mono font-bold text-sm
+           dark:bg-blue-900/40 dark:text-blue-400;
   }
 
   .help-card-title {
-    @apply font-semibold text-gray-900 text-sm;
+    @apply font-semibold text-gray-900 text-sm dark:text-gray-100;
   }
 
   .help-card-subtitle {
-    @apply text-xs text-gray-500 mt-1;
+    @apply text-xs text-gray-500 mt-1 dark:text-gray-400;
   }
 
   .help-category-title {
-    @apply text-base font-semibold text-gray-700 mb-3;
+    @apply text-base font-semibold text-gray-700 mb-3 dark:text-gray-300;
   }
 
   .help-category-group {
@@ -66,15 +68,17 @@
 
   .help-topic-nav-link {
     @apply block px-3 py-1.5 text-sm text-gray-500 rounded
-           no-underline transition-colors;
+           no-underline transition-colors dark:text-gray-400;
   }
 
   .help-topic-nav-link:hover {
-    @apply bg-gray-100 text-gray-900;
+    @apply bg-gray-100 text-gray-900
+           dark:bg-gray-800 dark:text-gray-100;
   }
 
   .help-topic-nav-link.active {
-    @apply bg-blue-50 text-blue-700 font-medium;
+    @apply bg-blue-50 text-blue-700 font-medium
+           dark:bg-blue-900/30 dark:text-blue-400;
   }
 
   .help-topic-content {
@@ -83,7 +87,7 @@
 
   /* ── Breadcrumb ── */
   .help-breadcrumb {
-    @apply flex items-center gap-2 text-sm text-gray-500 mb-6;
+    @apply flex items-center gap-2 text-sm text-gray-500 mb-6 dark:text-gray-400;
   }
 
   .help-breadcrumb a {
@@ -94,7 +98,7 @@
     @apply text-blue-800;
   }
 
-  /* ── Code blocks ── */
+  /* ── Code blocks (already dark themed) ── */
   .help-code-block {
     @apply rounded-lg overflow-hidden border border-gray-700 mb-4;
   }
@@ -129,7 +133,8 @@
 
   /* ── Inline code ── */
   .help-inline-code {
-    @apply px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs;
+    @apply px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs
+           dark:bg-gray-700 dark:text-gray-200;
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
 
@@ -139,22 +144,26 @@
   }
 
   .help-info-box-tip {
-    @apply bg-blue-50 text-blue-800;
+    @apply bg-blue-50 text-blue-800
+           dark:bg-blue-900/30 dark:text-blue-300;
     border-left: 4px solid #3b82f6;
   }
 
   .help-info-box-warning {
-    @apply bg-amber-50 text-amber-800;
+    @apply bg-amber-50 text-amber-800
+           dark:bg-amber-900/30 dark:text-amber-300;
     border-left: 4px solid #f59e0b;
   }
 
   .help-info-box-note {
-    @apply bg-gray-50 text-gray-700;
+    @apply bg-gray-50 text-gray-700
+           dark:bg-gray-800 dark:text-gray-300;
     border-left: 4px solid #9ca3af;
   }
 
   .help-info-box-important {
-    @apply bg-red-50 text-red-800;
+    @apply bg-red-50 text-red-800
+           dark:bg-red-900/30 dark:text-red-300;
     border-left: 4px solid #ef4444;
   }
 
@@ -164,7 +173,8 @@
 
   /* ── Tables ── */
   .help-table-wrap {
-    @apply overflow-x-auto mb-4 rounded-lg border border-gray-200;
+    @apply overflow-x-auto mb-4 rounded-lg border border-gray-200
+           dark:border-gray-700;
   }
 
   .help-table {
@@ -173,17 +183,19 @@
   }
 
   .help-table-th {
-    @apply px-4 py-2 text-left font-medium text-gray-700 bg-gray-50;
+    @apply px-4 py-2 text-left font-medium text-gray-700 bg-gray-50
+           dark:text-gray-300 dark:bg-gray-800;
     border-bottom: 1px solid #e5e7eb;
   }
 
   .help-table-td {
-    @apply px-4 py-2 text-gray-600;
+    @apply px-4 py-2 text-gray-600 dark:text-gray-400;
     border-bottom: 1px solid #f3f4f6;
   }
 
   .help-table-td code {
-    @apply px-1 py-0.5 rounded bg-gray-100 text-gray-800 text-xs;
+    @apply px-1 py-0.5 rounded bg-gray-100 text-gray-800 text-xs
+           dark:bg-gray-700 dark:text-gray-200;
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
 
@@ -199,28 +211,32 @@
   }
 
   .help-method-get {
-    @apply bg-green-100 text-green-800;
+    @apply bg-green-100 text-green-800
+           dark:bg-green-900/40 dark:text-green-300;
   }
 
   .help-method-post {
-    @apply bg-blue-100 text-blue-800;
+    @apply bg-blue-100 text-blue-800
+           dark:bg-blue-900/40 dark:text-blue-300;
   }
 
   .help-method-put {
-    @apply bg-amber-100 text-amber-800;
+    @apply bg-amber-100 text-amber-800
+           dark:bg-amber-900/40 dark:text-amber-300;
   }
 
   .help-method-delete {
-    @apply bg-red-100 text-red-800;
+    @apply bg-red-100 text-red-800
+           dark:bg-red-900/40 dark:text-red-300;
   }
 
   .help-endpoint-url {
-    @apply text-gray-800;
+    @apply text-gray-800 dark:text-gray-200;
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
 
   .help-endpoint-desc {
-    @apply text-gray-500;
+    @apply text-gray-500 dark:text-gray-400;
   }
 
   /* ── Prev / Next navigation ── */
@@ -239,20 +255,20 @@
 
   /* ── Topic content prose ── */
   .help-topic-content p {
-    @apply text-sm text-gray-700 leading-relaxed mb-4;
+    @apply text-sm text-gray-700 leading-relaxed mb-4 dark:text-gray-300;
   }
 
   .help-topic-content h2 {
-    @apply text-lg font-semibold text-gray-900 mt-8 mb-3;
+    @apply text-lg font-semibold text-gray-900 mt-8 mb-3 dark:text-gray-100;
   }
 
   .help-topic-content h3 {
-    @apply text-base font-semibold text-gray-800 mt-6 mb-2;
+    @apply text-base font-semibold text-gray-800 mt-6 mb-2 dark:text-gray-200;
   }
 
   .help-topic-content ul,
   .help-topic-content ol {
-    @apply text-sm text-gray-700 ml-5 mb-4;
+    @apply text-sm text-gray-700 ml-5 mb-4 dark:text-gray-300;
   }
 
   .help-topic-content ul {
@@ -266,4 +282,17 @@
   .help-topic-content li {
     @apply mb-1;
   }
+}
+
+/* Dark mode overrides for raw CSS borders */
+.dark .help-table-th {
+  border-bottom-color: #374151;
+}
+
+.dark .help-table-td {
+  border-bottom-color: #1f2937;
+}
+
+.dark .help-prev-next {
+  border-top-color: #374151;
 }

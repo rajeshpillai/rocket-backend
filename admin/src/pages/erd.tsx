@@ -54,7 +54,7 @@ export function ERD() {
 
       <Show
         when={!loading()}
-        fallback={<p class="text-sm text-gray-500 p-4">Loading...</p>}
+        fallback={<p class="text-sm text-gray-500 dark:text-gray-400 p-4">Loading...</p>}
       >
         <Show
           when={entities().length > 0}
@@ -114,7 +114,7 @@ function ERDDetailPanel(props: ERDDetailPanelProps) {
           <span class="erd-field-type">{props.entity.primary_key.type}</span>
         </div>
         <Show when={props.entity.primary_key.generated}>
-          <span class="text-[10px] text-gray-400">auto-generated</span>
+          <span class="text-[10px] text-gray-400 dark:text-gray-500">auto-generated</span>
         </Show>
       </div>
 
@@ -149,7 +149,7 @@ function ERDDetailPanel(props: ERDDetailPanelProps) {
       {/* Soft Delete */}
       <Show when={props.entity.soft_delete}>
         <div class="diagram-property-section">
-          <span class="text-[10px] text-gray-400">Soft delete enabled</span>
+          <span class="text-[10px] text-gray-400 dark:text-gray-500">Soft delete enabled</span>
         </div>
       </Show>
 
@@ -171,9 +171,9 @@ function ERDDetailPanel(props: ERDDetailPanelProps) {
               return (
                 <div class="erd-relation-item">
                   <span class="font-medium">{rel.name}</span>
-                  <span class="text-gray-400 ml-1">({card})</span>
+                  <span class="text-gray-400 dark:text-gray-500 ml-1">({card})</span>
                   <br />
-                  <span class="text-gray-400">
+                  <span class="text-gray-400 dark:text-gray-500">
                     {isSource ? `${rel.source} \u2192 ${rel.target}` : `${rel.source} \u2192 ${rel.target}`}
                     {rel.source_key ? ` via ${rel.source_key}` : ""}
                   </span>

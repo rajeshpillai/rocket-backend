@@ -251,7 +251,7 @@ export function StateMachinesList() {
       </div>
 
       {loading() ? (
-        <p class="text-sm text-gray-500">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <DataTable
           columns={columns}

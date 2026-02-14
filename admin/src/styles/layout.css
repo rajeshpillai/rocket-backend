@@ -59,7 +59,7 @@
   }
 
   .content-area {
-    @apply ml-64 flex-1 p-8 bg-gray-50;
+    @apply ml-64 flex-1 p-8 bg-gray-50 dark:bg-gray-900;
     min-height: calc(100vh - 1.75rem);
     padding-bottom: 3rem;
     transition: margin-left 0.2s ease;
@@ -98,19 +98,20 @@
   }
 
   .page-title {
-    @apply text-2xl font-bold text-gray-900;
+    @apply text-2xl font-bold text-gray-900 dark:text-gray-100;
   }
 
   .page-subtitle {
-    @apply text-sm text-gray-500 mt-1;
+    @apply text-sm text-gray-500 dark:text-gray-400 mt-1;
   }
 
   .section {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6;
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6
+           dark:bg-gray-800 dark:border-gray-700;
   }
 
   .section-title {
-    @apply text-lg font-semibold text-gray-900 mb-4;
+    @apply text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4;
   }
 
   .sidebar-footer {
@@ -134,23 +135,26 @@
   }
 
   .login-container {
-    @apply min-h-screen flex items-center justify-center bg-gray-100;
+    @apply min-h-screen flex items-center justify-center bg-gray-100
+           dark:bg-gray-900;
   }
 
   .login-card {
-    @apply bg-white p-8 rounded-lg shadow-md w-full max-w-md;
+    @apply bg-white p-8 rounded-lg shadow-md w-full max-w-md
+           dark:bg-gray-800;
   }
 
   .login-title {
-    @apply text-2xl font-bold text-gray-900 text-center mb-1;
+    @apply text-2xl font-bold text-gray-900 dark:text-gray-100 text-center mb-1;
   }
 
   .login-subtitle {
-    @apply text-sm text-gray-500 text-center mb-6;
+    @apply text-sm text-gray-500 dark:text-gray-400 text-center mb-6;
   }
 
   .login-error {
-    @apply bg-red-50 border border-red-200 text-red-700 rounded px-4 py-3 mb-4 text-sm;
+    @apply bg-red-50 border border-red-200 text-red-700 rounded px-4 py-3 mb-4 text-sm
+           dark:bg-red-900/30 dark:border-red-800 dark:text-red-400;
   }
 
   .login-form {

@@ -1,6 +1,7 @@
 import { For } from "solid-js";
 import type { LayoutNode } from "./graph-layout";
 import type { Field, PrimaryKey } from "../../types/entity";
+import { resolvedTheme } from "../../stores/theme";
 
 interface GraphNodeProps {
   node: LayoutNode;
@@ -8,7 +9,9 @@ interface GraphNodeProps {
   onClick: () => void;
 }
 
-const NODE_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
+type ColorMap = Record<string, { fill: string; stroke: string; text: string }>;
+
+const NODE_COLORS_LIGHT: ColorMap = {
   action: { fill: "#eff6ff", stroke: "#3b82f6", text: "#1e40af" },
   condition: { fill: "#fefce8", stroke: "#eab308", text: "#854d0e" },
   approval: { fill: "#f0fdf4", stroke: "#22c55e", text: "#166534" },
@@ -19,13 +22,27 @@ const NODE_COLORS: Record<string, { fill: string; stroke: string; text: string }
   entity: { fill: "#ffffff", stroke: "#6366f1", text: "#312e81" },
 };
 
+const NODE_COLORS_DARK: ColorMap = {
+  action: { fill: "#1e3a5f", stroke: "#60a5fa", text: "#bfdbfe" },
+  condition: { fill: "#422006", stroke: "#facc15", text: "#fef08a" },
+  approval: { fill: "#052e16", stroke: "#4ade80", text: "#bbf7d0" },
+  start: { fill: "#16a34a", stroke: "#22c55e", text: "#ffffff" },
+  end: { fill: "#7f1d1d", stroke: "#f87171", text: "#fecaca" },
+  state: { fill: "#1e293b", stroke: "#94a3b8", text: "#e2e8f0" },
+  initial: { fill: "#1e3a5f", stroke: "#60a5fa", text: "#bfdbfe" },
+  entity: { fill: "#1e293b", stroke: "#818cf8", text: "#c7d2fe" },
+};
+
+const nodeColors = () => resolvedTheme() === "dark" ? NODE_COLORS_DARK : NODE_COLORS_LIGHT;
+const subTextColor = () => resolvedTheme() === "dark" ? "#94a3b8" : "#94a3b8";
+
 const STEP_ICONS: Record<string, string> = {
   action: "\u26A1",
   condition: "\u2753",
   approval: "\u2714",
 };
 
-function ActionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.action; selected: boolean }) {
+function ActionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS_LIGHT.action; selected: boolean }) {
   const x = () => props.node.x - props.node.width / 2;
   const y = () => props.node.y - props.node.height / 2;
   return (
@@ -63,7 +80,7 @@ function ActionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.action
   );
 }
 
-function ConditionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.condition; selected: boolean }) {
+function ConditionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS_LIGHT.condition; selected: boolean }) {
   const cx = () => props.node.x;
   const cy = () => props.node.y;
   const hw = () => props.node.width / 2;
@@ -102,7 +119,7 @@ function ConditionNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.con
   );
 }
 
-function CircleNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.start; selected: boolean; double?: boolean }) {
+function CircleNode(props: { node: LayoutNode; colors: typeof NODE_COLORS_LIGHT.start; selected: boolean; double?: boolean }) {
   const r = () => props.node.width / 2;
   return (
     <>
@@ -138,7 +155,7 @@ function CircleNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.start;
   );
 }
 
-function StateNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.state; selected: boolean; isInitial: boolean }) {
+function StateNode(props: { node: LayoutNode; colors: typeof NODE_COLORS_LIGHT.state; selected: boolean; isInitial: boolean }) {
   const x = () => props.node.x - props.node.width / 2;
   const y = () => props.node.y - props.node.height / 2;
   return (
@@ -171,7 +188,7 @@ const ERD_HEADER_H = 30;
 const ERD_ROW_H = 22;
 const ERD_PAD = 8;
 
-function EntityNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.entity; selected: boolean }) {
+function EntityNode(props: { node: LayoutNode; colors: typeof NODE_COLORS_LIGHT.entity; selected: boolean }) {
   const x = () => props.node.x - props.node.width / 2;
   const y = () => props.node.y - props.node.height / 2;
   const pk = () => props.node.data.primaryKey as PrimaryKey | undefined;
@@ -292,7 +309,7 @@ function EntityNode(props: { node: LayoutNode; colors: typeof NODE_COLORS.entity
 }
 
 export function GraphNode(props: GraphNodeProps) {
-  const colors = () => NODE_COLORS[props.node.type] ?? NODE_COLORS.state;
+  const colors = () => nodeColors()[props.node.type] ?? nodeColors().state;
 
   return (
     <g class="diagram-node" onClick={(e: MouseEvent) => { e.stopPropagation(); props.onClick(); }}>

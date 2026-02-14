@@ -55,14 +55,14 @@ export function FileUploadField(props: FileUploadFieldProps) {
     <div>
       <Show when={fileMeta()}>
         {(meta) => (
-          <div class="flex items-center gap-2 mb-2 p-2 bg-gray-50 border rounded text-sm">
+          <div class="flex items-center gap-2 mb-2 p-2 bg-gray-50 dark:bg-gray-800/50 border dark:border-gray-700 rounded text-sm">
             <span class="font-medium">{meta().filename}</span>
-            <span class="text-gray-400">
+            <span class="text-gray-400 dark:text-gray-500">
               ({Math.round(meta().size / 1024)} KB)
             </span>
             <button
               type="button"
-              class="ml-auto text-red-500 hover:text-red-700 text-xs"
+              class="ml-auto text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs"
               onClick={() => props.onChange("")}
             >
               Remove
@@ -73,7 +73,7 @@ export function FileUploadField(props: FileUploadFieldProps) {
 
       <Show when={!fileMeta()}>
         <Show when={props.value && !fileMeta()}>
-          <div class="text-xs text-gray-500 mb-1">File ID: {props.value}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">File ID: {props.value}</div>
         </Show>
       </Show>
 
@@ -85,11 +85,11 @@ export function FileUploadField(props: FileUploadFieldProps) {
       />
 
       <Show when={uploading()}>
-        <div class="text-sm text-blue-600 mt-1">Uploading...</div>
+        <div class="text-sm text-blue-600 dark:text-blue-400 mt-1">Uploading...</div>
       </Show>
 
       <Show when={error()}>
-        <div class="text-sm text-red-600 mt-1">{error()}</div>
+        <div class="text-sm text-red-600 dark:text-red-400 mt-1">{error()}</div>
       </Show>
     </div>
   );

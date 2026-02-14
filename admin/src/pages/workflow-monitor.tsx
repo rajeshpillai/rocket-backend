@@ -170,7 +170,7 @@ export function WorkflowMonitor() {
       </div>
 
       {loading() ? (
-        <p class="text-sm text-gray-500">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <DataTable
           columns={columns}
@@ -191,24 +191,24 @@ export function WorkflowMonitor() {
             <div class="flex flex-col gap-3">
               <div class="form-row">
                 <div>
-                  <span class="text-xs text-gray-500">Workflow</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Workflow</span>
                   <p class="text-sm font-medium">{inst().workflow_name}</p>
                 </div>
                 <div>
-                  <span class="text-xs text-gray-500">Status</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Status</span>
                   <p>
                     <Badge label={inst().status} color={statusColor(inst().status)} />
                   </p>
                 </div>
                 <div>
-                  <span class="text-xs text-gray-500">Current Step</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Current Step</span>
                   <p class="text-sm font-medium">{inst().current_step || "-"}</p>
                 </div>
               </div>
 
               <Show when={inst().current_step_deadline}>
                 <div>
-                  <span class="text-xs text-gray-500">Deadline</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Deadline</span>
                   <p class="text-sm">
                     {new Date(inst().current_step_deadline!).toLocaleString()}
                   </p>
@@ -216,18 +216,18 @@ export function WorkflowMonitor() {
               </Show>
 
               <div>
-                <span class="text-xs text-gray-500">Context</span>
-                <pre class="text-xs bg-gray-50 p-2 rounded mt-1 overflow-auto" style="max-height: 150px;">
+                <span class="text-xs text-gray-500 dark:text-gray-400">Context</span>
+                <pre class="text-xs bg-gray-50 dark:bg-gray-800/50 p-2 rounded mt-1 overflow-auto" style="max-height: 150px;">
                   {JSON.stringify(inst().context, null, 2)}
                 </pre>
               </div>
 
               <div>
-                <span class="text-xs text-gray-500">History</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">History</span>
                 <div class="mt-1 flex flex-col gap-1">
                   <For each={inst().history}>
                     {(entry) => (
-                      <div class="flex items-center gap-2 text-xs p-1 bg-gray-50 rounded">
+                      <div class="flex items-center gap-2 text-xs p-1 bg-gray-50 dark:bg-gray-800/50 rounded">
                         <Badge
                           label={entry.status}
                           color={
@@ -240,16 +240,16 @@ export function WorkflowMonitor() {
                         />
                         <span class="font-medium">{entry.step}</span>
                         <Show when={entry.by}>
-                          <span class="text-gray-500">by {entry.by}</span>
+                          <span class="text-gray-500 dark:text-gray-400">by {entry.by}</span>
                         </Show>
-                        <span class="text-gray-400 ml-auto">
+                        <span class="text-gray-400 dark:text-gray-500 ml-auto">
                           {new Date(entry.at).toLocaleString()}
                         </span>
                       </div>
                     )}
                   </For>
                   <Show when={inst().history.length === 0}>
-                    <p class="text-xs text-gray-400">No history yet</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500">No history yet</p>
                   </Show>
                 </div>
               </div>

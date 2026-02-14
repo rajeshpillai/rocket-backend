@@ -36,7 +36,7 @@ export function BulkUpdateModal(props: BulkUpdateModalProps) {
   return (
     <Modal open={props.open} onClose={handleClose} title="Bulk Update">
       <div class="flex flex-col gap-4">
-        <p class="text-sm text-gray-600">
+        <p class="text-sm text-gray-600 dark:text-gray-400">
           Update <strong>{props.selectedCount}</strong> selected record(s).
           Choose a field and the new value to apply.
         </p>
@@ -75,7 +75,7 @@ export function BulkUpdateModal(props: BulkUpdateModalProps) {
                       checked={fieldValue() === "true"}
                       onChange={(e) => setFieldValue(String(e.currentTarget.checked))}
                     />
-                    <span class="text-sm text-gray-600">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">
                       {fieldValue() === "true" ? "true" : "false"}
                     </span>
                   </label>

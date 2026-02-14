@@ -206,7 +206,7 @@ export function CsvImport(props: CsvImportProps) {
       {/* Step 1: Upload */}
       <Show when={step() === "upload"}>
         <div class="csv-upload-area">
-          <p class="text-sm text-gray-600 mb-3">
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
             Upload a CSV file to import records into <strong>{props.entity.name}</strong>.
             The first row should contain column headers.
           </p>
@@ -217,7 +217,7 @@ export function CsvImport(props: CsvImportProps) {
             class="form-input"
           />
           <Show when={parseError()}>
-            <p class="text-sm text-red-600 mt-2">{parseError()}</p>
+            <p class="text-sm text-red-600 dark:text-red-400 mt-2">{parseError()}</p>
           </Show>
         </div>
       </Show>
@@ -225,7 +225,7 @@ export function CsvImport(props: CsvImportProps) {
       {/* Step 2: Preview + column mapping */}
       <Show when={step() === "preview"}>
         <div class="csv-preview">
-          <p class="text-sm text-gray-600 mb-3">
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
             {csvRows().length} row(s) found. Map CSV columns to entity fields:
           </p>
 
@@ -253,7 +253,7 @@ export function CsvImport(props: CsvImportProps) {
 
           {/* Preview table */}
           <Show when={previewRows().length > 0}>
-            <p class="text-xs text-gray-500 mt-4 mb-2">
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-4 mb-2">
               Preview (first {Math.min(5, csvRows().length)} rows):
             </p>
             <div class="csv-preview-table-wrap">
@@ -264,9 +264,9 @@ export function CsvImport(props: CsvImportProps) {
                       {(h, idx) => (
                         <th class="table-header-cell">
                           <div class="text-xs">
-                            <div class="text-gray-400">{h}</div>
+                            <div class="text-gray-400 dark:text-gray-500">{h}</div>
                             <Show when={columnMap()[idx()]}>
-                              <div class="text-blue-600">&darr; {columnMap()[idx()]}</div>
+                              <div class="text-blue-600 dark:text-blue-400">&darr; {columnMap()[idx()]}</div>
                             </Show>
                           </div>
                         </th>
@@ -280,7 +280,7 @@ export function CsvImport(props: CsvImportProps) {
                       <tr class="table-row">
                         <For each={row}>
                           {(cell) => (
-                            <td class="table-cell text-xs">{cell || <span class="text-gray-300">empty</span>}</td>
+                            <td class="table-cell text-xs">{cell || <span class="text-gray-300 dark:text-gray-600">empty</span>}</td>
                           )}
                         </For>
                       </tr>
@@ -296,7 +296,7 @@ export function CsvImport(props: CsvImportProps) {
               Back
             </button>
             <div class="flex items-center gap-3">
-              <span class="text-xs text-gray-500">
+              <span class="text-xs text-gray-500 dark:text-gray-400">
                 {mappedFieldCount()} field(s) mapped
               </span>
               <button
@@ -314,7 +314,7 @@ export function CsvImport(props: CsvImportProps) {
       {/* Step 3: Importing */}
       <Show when={step() === "importing"}>
         <div class="csv-progress">
-          <p class="text-sm text-gray-600 mb-3">
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
             Importing... {progress()} / {csvRows().length}
           </p>
           <div class="csv-progress-bar">
@@ -323,7 +323,7 @@ export function CsvImport(props: CsvImportProps) {
               style={{ width: `${(progress() / csvRows().length) * 100}%` }}
             />
           </div>
-          <div class="text-xs text-gray-500 mt-2">
+          <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">
             {successCount()} succeeded, {failCount()} failed
           </div>
         </div>
@@ -333,17 +333,17 @@ export function CsvImport(props: CsvImportProps) {
       <Show when={step() === "done"}>
         <div class="csv-results">
           <p class="text-sm mb-3">
-            <span class="text-green-600 font-medium">{successCount()} imported</span>
+            <span class="text-green-600 dark:text-green-400 font-medium">{successCount()} imported</span>
             {failCount() > 0 && (
-              <span class="text-red-600 font-medium ml-2">{failCount()} failed</span>
+              <span class="text-red-600 dark:text-red-400 font-medium ml-2">{failCount()} failed</span>
             )}
-            <span class="text-gray-500 ml-2">of {csvRows().length} total</span>
+            <span class="text-gray-500 dark:text-gray-400 ml-2">of {csvRows().length} total</span>
           </p>
 
           {/* Show errors if any */}
           <Show when={failCount() > 0}>
             <div class="csv-error-list">
-              <p class="text-xs text-gray-500 mb-1">Failed rows:</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Failed rows:</p>
               <div class="csv-error-scroll">
                 <For each={results().filter((r) => !r.success)}>
                   {(r) => (

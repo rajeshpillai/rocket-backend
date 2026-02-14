@@ -90,7 +90,7 @@ export function StateMachineEditor(props: StateMachineEditorProps) {
   return (
     <div class="flex flex-col gap-4">
       <Show when={props.error}>
-        <div class="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+        <div class="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md text-sm text-red-700 dark:text-red-300">
           {props.error}
         </div>
       </Show>
@@ -140,9 +140,9 @@ export function StateMachineEditor(props: StateMachineEditorProps) {
 
         <For each={props.sm.definition.transitions}>
           {(transition, tIdx) => (
-            <div class="p-3 border border-gray-200 rounded-md flex flex-col gap-2">
+            <div class="p-3 border border-gray-200 dark:border-gray-700 rounded-md flex flex-col gap-2">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-gray-500 font-medium">
+                <span class="text-xs text-gray-500 dark:text-gray-400 font-medium">
                   Transition {tIdx() + 1}
                 </span>
                 <button
@@ -203,7 +203,7 @@ export function StateMachineEditor(props: StateMachineEditorProps) {
               {/* Actions */}
               <div class="flex flex-col gap-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-xs text-gray-500">Actions</span>
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Actions</span>
                   <button
                     class="btn-secondary btn-sm"
                     onClick={() => addAction(tIdx())}
@@ -214,7 +214,7 @@ export function StateMachineEditor(props: StateMachineEditorProps) {
 
                 <For each={transition.actions ?? []}>
                   {(action, aIdx) => (
-                    <div class="p-2 bg-gray-50 rounded flex flex-col gap-1">
+                    <div class="p-2 bg-gray-50 dark:bg-gray-800/50 rounded flex flex-col gap-1">
                       <div class="flex items-center gap-2">
                         <SelectInput
                           label=""

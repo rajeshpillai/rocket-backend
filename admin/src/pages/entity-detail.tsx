@@ -195,12 +195,12 @@ export function EntityDetail() {
       </div>
 
       <Show when={error()}>
-        <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+        <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-md text-sm text-red-700 dark:text-red-300">
           {error()}
         </div>
       </Show>
 
-      <Show when={!loadingData()} fallback={<p class="text-sm text-gray-500">Loading...</p>}>
+      <Show when={!loadingData()} fallback={<p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>}>
         {/* Settings Section */}
         <div class="section">
           <h2 class="section-title">Settings</h2>

@@ -107,7 +107,7 @@ export function WebhookLogs() {
       key: "error",
       header: "Error",
       render: (val): JSX.Element => (
-        <span class="text-sm text-red-600 truncate max-w-xs block" title={String(val)}>
+        <span class="text-sm text-red-600 dark:text-red-400 truncate max-w-xs block" title={String(val)}>
           {val ? String(val) : ""}
         </span>
       ),
@@ -117,7 +117,7 @@ export function WebhookLogs() {
       header: "Created",
       render: (val): JSX.Element => {
         const d = new Date(String(val));
-        return <span class="text-sm text-gray-500">{d.toLocaleString()}</span>;
+        return <span class="text-sm text-gray-500 dark:text-gray-400">{d.toLocaleString()}</span>;
       },
     },
     {
@@ -197,7 +197,7 @@ export function WebhookLogs() {
       </div>
 
       {loading() ? (
-        <p class="text-sm text-gray-500">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <DataTable
           columns={columns}

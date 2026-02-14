@@ -409,7 +409,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
       <StepIndicator steps={STEP_ORDER} currentIndex={stepIndex()} />
 
       <Show when={error()}>
-        <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+        <div class="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md text-sm text-red-700 dark:text-red-300">
           {error()}
         </div>
       </Show>
@@ -530,7 +530,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
             </div>
 
             <div class="flex items-center justify-between mb-3">
-              <h3 class="text-sm font-semibold text-gray-700">Fields</h3>
+              <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Fields</h3>
               <div class="flex items-center gap-2">
                 <div class="quick-add-wrap" ref={quickAddRef1}>
                   <button
@@ -639,7 +639,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
                 </div>
 
                 <div class="flex items-center justify-between mb-3">
-                  <h3 class="text-sm font-semibold text-gray-700">Fields</h3>
+                  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Fields</h3>
                   <div class="flex items-center gap-2">
                     <div class="quick-add-wrap" ref={quickAddRef2}>
                       <button
@@ -791,8 +791,8 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
 
             <Show when={sampleRecords1().length > 0}>
               <div class="mb-4">
-                <h3 class="text-sm font-semibold text-gray-700 mb-2">{entity1().name}</h3>
-                <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{entity1().name}</h3>
+                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
                   <table class="data-table">
                     <thead class="table-header">
                       <tr>
@@ -823,8 +823,8 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
 
             <Show when={entity2Created() && sampleRecords2().length > 0}>
               <div class="mb-4">
-                <h3 class="text-sm font-semibold text-gray-700 mb-2">{entity2()?.name}</h3>
-                <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{entity2()?.name}</h3>
+                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
                   <table class="data-table">
                     <thead class="table-header">
                       <tr>
@@ -854,7 +854,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
             </Show>
 
             <Show when={insertProgress()}>
-              <p class="text-sm text-blue-600 mb-2">{insertProgress()}</p>
+              <p class="text-sm text-blue-600 dark:text-blue-400 mb-2">{insertProgress()}</p>
             </Show>
 
             <div class="wizard-footer">

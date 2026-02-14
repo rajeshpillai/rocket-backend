@@ -20,7 +20,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               <h2 class="modal-title">{props.title}</h2>
             </div>
             <div class="modal-body">
-              <p class="text-sm text-gray-600">{props.message}</p>
+              <p class="text-sm text-gray-600 dark:text-gray-400">{props.message}</p>
             </div>
             <div class="modal-footer">
               <button class="btn-secondary" onClick={() => props.onCancel()}>

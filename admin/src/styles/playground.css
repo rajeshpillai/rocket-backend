@@ -11,20 +11,23 @@
   }
 
   .playground-panel {
-    @apply bg-white rounded-lg border border-gray-200 p-5;
+    @apply bg-white rounded-lg border border-gray-200 p-5
+           dark:bg-gray-800 dark:border-gray-700;
   }
 
   .playground-panel-title {
-    @apply text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2;
+    @apply text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2
+           dark:text-gray-300;
   }
 
   .playground-url-preview {
     @apply font-mono text-sm bg-gray-50 border border-gray-200 rounded-md
-           px-3 py-2 text-gray-700 break-all select-all mb-4;
+           px-3 py-2 text-gray-700 break-all select-all mb-4
+           dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300;
   }
 
   .playground-url-method {
-    @apply font-bold text-blue-600 mr-2;
+    @apply font-bold text-blue-600 mr-2 dark:text-blue-400;
   }
 
   .playground-response-body {
@@ -39,21 +42,23 @@
 
   .playground-headers {
     @apply font-mono text-xs bg-gray-50 border border-gray-200 rounded-md
-           p-3 overflow-auto mt-3;
+           p-3 overflow-auto mt-3
+           dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300;
     max-height: 200px;
   }
 
   .playground-history-row {
     @apply flex items-center gap-3 py-2 px-3 rounded-md
-           hover:bg-gray-50 cursor-pointer transition-colors text-sm;
+           hover:bg-gray-50 cursor-pointer transition-colors text-sm
+           dark:hover:bg-gray-700;
   }
 
   .playground-history-row + .playground-history-row {
-    @apply border-t border-gray-100;
+    @apply border-t border-gray-100 dark:border-gray-700;
   }
 
   .playground-empty {
-    @apply text-sm text-gray-400 text-center py-8;
+    @apply text-sm text-gray-400 text-center py-8 dark:text-gray-500;
   }
 
   .playground-filter-row {

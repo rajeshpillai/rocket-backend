@@ -120,17 +120,17 @@ export function RelatedRecordsEditor(props: RelatedRecordsEditorProps) {
     <div class="rel-editor">
       <div class="rel-editor-header">
         <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-gray-700">{props.relation.name}</h3>
+          <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{props.relation.name}</h3>
           <Badge
             label={props.relation.type.replace(/_/g, " ")}
             color={typeColors[props.relation.type] ?? "gray"}
           />
-          <span class="text-xs text-gray-400">
+          <span class="text-xs text-gray-400 dark:text-gray-500">
             → {props.relation.target}
           </span>
         </div>
         <div class="flex items-center gap-2">
-          <label class="text-xs text-gray-500">Write mode:</label>
+          <label class="text-xs text-gray-500 dark:text-gray-400">Write mode:</label>
           <select
             class="form-select rel-editor-mode-select"
             value={writeMode()}
@@ -147,7 +147,7 @@ export function RelatedRecordsEditor(props: RelatedRecordsEditorProps) {
       <Show
         when={activeRows().length > 0 || deletedRows().length > 0}
         fallback={
-          <p class="text-xs text-gray-400 py-2">
+          <p class="text-xs text-gray-400 dark:text-gray-500 py-2">
             No related records.
           </p>
         }
@@ -176,7 +176,7 @@ export function RelatedRecordsEditor(props: RelatedRecordsEditorProps) {
                           {(f) => (
                             <td class="rel-editor-td">
                               <span class="text-sm truncate block max-w-xs" title={formatCellValue(row.data[f.name])}>
-                                {formatCellValue(row.data[f.name]) || <span class="text-gray-300">null</span>}
+                                {formatCellValue(row.data[f.name]) || <span class="text-gray-300 dark:text-gray-600">null</span>}
                               </span>
                             </td>
                           )}
@@ -242,7 +242,7 @@ export function RelatedRecordsEditor(props: RelatedRecordsEditorProps) {
                     <For each={childFields()}>
                       {(f) => (
                         <td class="rel-editor-td">
-                          <span class="text-sm line-through text-gray-400">
+                          <span class="text-sm line-through text-gray-400 dark:text-gray-500">
                             {formatCellValue(row.data[f.name])}
                           </span>
                         </td>

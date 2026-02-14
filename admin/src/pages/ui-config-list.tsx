@@ -245,7 +245,7 @@ export function UIConfigList() {
       key: "hasListConfig",
       header: "List",
       render: (val): JSX.Element => (
-        <span class="text-sm text-gray-500">
+        <span class="text-sm text-gray-500 dark:text-gray-400">
           {val ? "Configured" : "-"}
         </span>
       ),
@@ -254,7 +254,7 @@ export function UIConfigList() {
       key: "sectionCount",
       header: "Detail Sections",
       render: (val): JSX.Element => (
-        <span class="text-sm text-gray-500">
+        <span class="text-sm text-gray-500 dark:text-gray-400">
           {val === 0 ? "-" : `${val} section${val === 1 ? "" : "s"}`}
         </span>
       ),
@@ -263,7 +263,7 @@ export function UIConfigList() {
       key: "hasFormConfig",
       header: "Form",
       render: (val): JSX.Element => (
-        <span class="text-sm text-gray-500">
+        <span class="text-sm text-gray-500 dark:text-gray-400">
           {val ? "Configured" : "-"}
         </span>
       ),
@@ -272,7 +272,7 @@ export function UIConfigList() {
       key: "hasSidebar",
       header: "Sidebar",
       render: (val): JSX.Element => (
-        <span class="text-sm text-gray-500">
+        <span class="text-sm text-gray-500 dark:text-gray-400">
           {val ? "Configured" : "-"}
         </span>
       ),
@@ -347,7 +347,7 @@ export function UIConfigList() {
       </div>
 
       {loading() ? (
-        <p class="text-sm text-gray-500">Loading...</p>
+        <p class="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
       ) : (
         <DataTable
           columns={columns}

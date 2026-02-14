@@ -113,7 +113,7 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
   return (
     <div class="flex flex-col gap-4">
       <Show when={props.error}>
-        <div class="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+        <div class="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-md text-sm text-red-700 dark:text-red-300">
           {props.error}
         </div>
       </Show>
@@ -123,8 +123,8 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
           <div class="form-group">
             <label class="form-label">
               {field.name}
-              {field.required && <span class="text-red-500 ml-1">*</span>}
-              <span class="text-gray-400 ml-2 text-xs font-normal">
+              {field.required && <span class="text-red-500 dark:text-red-400 ml-1">*</span>}
+              <span class="text-gray-400 dark:text-gray-500 ml-2 text-xs font-normal">
                 {field.type}
               </span>
             </label>
@@ -151,7 +151,7 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
                       updateValue(field.name, String(e.currentTarget.checked))
                     }
                   />
-                  <span class="text-sm text-gray-600">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">
                     {values()[field.name] === "true" ? "true" : "false"}
                   </span>
                 </label>

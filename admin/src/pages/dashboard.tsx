@@ -208,7 +208,7 @@ export function Dashboard() {
           <Show
             when={entityStats().length > 0}
             fallback={
-              <p class="text-sm text-gray-400">No entities defined yet.</p>
+              <p class="text-sm text-gray-400 dark:text-gray-500">No entities defined yet.</p>
             }
           >
             <div class="dashboard-list">
@@ -245,40 +245,40 @@ export function Dashboard() {
             <div class="space-y-3">
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/rules")}
                 >
                   Rules
                 </span>
                 <span class="dashboard-metric-value">
-                  {ruleStats().active} <span class="text-gray-400 text-xs font-normal">/ {ruleStats().total}</span>
+                  {ruleStats().active} <span class="text-gray-400 dark:text-gray-500 text-xs font-normal">/ {ruleStats().total}</span>
                 </span>
               </div>
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/state-machines")}
                 >
                   State Machines
                 </span>
                 <span class="dashboard-metric-value">
-                  {smStats().active} <span class="text-gray-400 text-xs font-normal">/ {smStats().total}</span>
+                  {smStats().active} <span class="text-gray-400 dark:text-gray-500 text-xs font-normal">/ {smStats().total}</span>
                 </span>
               </div>
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/workflows")}
                 >
                   Workflows
                 </span>
                 <span class="dashboard-metric-value">
-                  {workflowStats().active} <span class="text-gray-400 text-xs font-normal">/ {workflowStats().total}</span>
+                  {workflowStats().active} <span class="text-gray-400 dark:text-gray-500 text-xs font-normal">/ {workflowStats().total}</span>
                 </span>
               </div>
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/workflow-monitor")}
                 >
                   Pending Instances
@@ -302,18 +302,18 @@ export function Dashboard() {
             <div class="space-y-3">
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/webhooks")}
                 >
                   Webhooks
                 </span>
                 <span class="dashboard-metric-value">
-                  {webhookStats().active} <span class="text-gray-400 text-xs font-normal">/ {webhookStats().total}</span>
+                  {webhookStats().active} <span class="text-gray-400 dark:text-gray-500 text-xs font-normal">/ {webhookStats().total}</span>
                 </span>
               </div>
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/webhook-logs")}
                 >
                   Failed Deliveries
@@ -327,7 +327,7 @@ export function Dashboard() {
               </div>
               <div class="dashboard-metric">
                 <span
-                  class="dashboard-metric-label cursor-pointer hover:text-blue-600"
+                  class="dashboard-metric-label cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
                   onClick={() => navigate("/permissions")}
                 >
                   Permissions

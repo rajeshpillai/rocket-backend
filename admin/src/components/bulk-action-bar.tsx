@@ -13,7 +13,7 @@ export function BulkActionBar(props: BulkActionBarProps) {
   return (
     <div class="bulk-action-bar">
       <div class="bulk-action-bar-left">
-        <span class="text-sm font-medium text-gray-700">
+        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {props.selectedCount} selected
         </span>
         <button class="btn-ghost btn-sm" onClick={props.onSelectAll}>

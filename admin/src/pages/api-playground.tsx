@@ -435,14 +435,14 @@ export function ApiPlayground() {
                   onInput={(e) => setIncludeParam(e.currentTarget.value)}
                 />
                 <Show when={availableIncludes().length > 0}>
-                  <p class="text-xs text-gray-400 mt-1">
+                  <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     Available:{" "}
                     <For each={availableIncludes()}>
                       {(r, i) => (
                         <>
                           <Show when={i() > 0}>, </Show>
                           <span
-                            class="text-blue-600 cursor-pointer hover:underline"
+                            class="text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
                             onClick={() => toggleInclude(r)}
                           >
                             {r}
@@ -492,14 +492,14 @@ export function ApiPlayground() {
                 onInput={(e) => setIncludeParam(e.currentTarget.value)}
               />
               <Show when={availableIncludes().length > 0}>
-                <p class="text-xs text-gray-400 mt-1">
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Available:{" "}
                   <For each={availableIncludes()}>
                     {(r, i) => (
                       <>
                         <Show when={i() > 0}>, </Show>
                         <span
-                          class="text-blue-600 cursor-pointer hover:underline"
+                          class="text-blue-600 dark:text-blue-400 cursor-pointer hover:underline"
                           onClick={() => toggleInclude(r)}
                         >
                           {r}
@@ -570,8 +570,8 @@ export function ApiPlayground() {
                 <>
                   <div class="playground-response-meta">
                     <Badge label={String(res().status)} color={statusColor(res().status)} />
-                    <span class="text-sm text-gray-500">{res().statusText}</span>
-                    <span class="text-sm text-gray-400">{res().durationMs}ms</span>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">{res().statusText}</span>
+                    <span class="text-sm text-gray-400 dark:text-gray-500">{res().durationMs}ms</span>
                     <button class="btn-ghost btn-sm ml-auto" onClick={copyResponse}>
                       Copy
                     </button>
@@ -612,12 +612,12 @@ export function ApiPlayground() {
               >
                 <Badge label={displayVerbForMethod(entry.method)} color={methodColor(entry.method)} />
                 <span class="font-medium text-sm">{entry.entity}</span>
-                <span class="font-mono text-xs text-gray-500 truncate flex-1">
+                <span class="font-mono text-xs text-gray-500 dark:text-gray-400 truncate flex-1">
                   {entry.url}
                 </span>
                 <Badge label={String(entry.status)} color={statusColor(entry.status)} />
-                <span class="text-gray-400 text-xs">{entry.durationMs}ms</span>
-                <span class="text-gray-400 text-xs">
+                <span class="text-gray-400 dark:text-gray-500 text-xs">{entry.durationMs}ms</span>
+                <span class="text-gray-400 dark:text-gray-500 text-xs">
                   {entry.timestamp.toLocaleTimeString()}
                 </span>
               </div>
