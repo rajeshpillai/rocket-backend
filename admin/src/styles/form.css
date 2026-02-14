@@ -80,4 +80,27 @@
   .tag-remove {
     @apply text-blue-500 hover:text-blue-700 cursor-pointer font-bold;
   }
+
+  /* Quick Add dropdown */
+  .quick-add-wrap {
+    @apply relative;
+  }
+
+  .quick-add-menu {
+    @apply absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200
+           rounded-lg shadow-lg z-50 py-1 max-h-80 overflow-y-auto;
+  }
+
+  .quick-add-item {
+    @apply w-full text-left px-3 py-2 hover:bg-blue-50 flex flex-col gap-0.5
+           border-none bg-transparent cursor-pointer transition-colors;
+  }
+
+  .quick-add-item-label {
+    @apply text-sm font-medium text-gray-800;
+  }
+
+  .quick-add-item-desc {
+    @apply text-xs text-gray-500;
+  }
 }

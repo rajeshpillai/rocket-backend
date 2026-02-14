@@ -1,4 +1,4 @@
-import { createSignal, onMount, For, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { getEntity, createEntity, updateEntity } from "../api/entities";
 import { parseDefinition, type EntityDefinition, type Field, type FieldType } from "../types/entity";
@@ -8,6 +8,112 @@ import { Toggle } from "../components/form/toggle";
 import { SelectInput } from "../components/form/select-input";
 import { addToast } from "../stores/notifications";
 import { useEntities } from "../stores/entities";
+
+// --- Field Templates ---
+
+interface FieldTemplate {
+  label: string;
+  description: string;
+  fields: Field[];
+}
+
+const FIELD_TEMPLATES: FieldTemplate[] = [
+  {
+    label: "Timestamps",
+    description: "created_at + updated_at",
+    fields: [
+      { name: "created_at", type: "timestamp", required: true, auto: "create" },
+      { name: "updated_at", type: "timestamp", required: true, auto: "update" },
+    ],
+  },
+  {
+    label: "Name",
+    description: "first_name + last_name",
+    fields: [
+      { name: "first_name", type: "string", required: true },
+      { name: "last_name", type: "string", required: true },
+    ],
+  },
+  {
+    label: "Contact",
+    description: "email + phone",
+    fields: [
+      { name: "email", type: "string", required: true, unique: true },
+      { name: "phone", type: "string" },
+    ],
+  },
+  {
+    label: "Address",
+    description: "street, city, state, zip, country",
+    fields: [
+      { name: "street", type: "string" },
+      { name: "city", type: "string" },
+      { name: "state", type: "string" },
+      { name: "zip", type: "string" },
+      { name: "country", type: "string" },
+    ],
+  },
+  {
+    label: "Status",
+    description: "status enum (active / inactive / archived)",
+    fields: [
+      { name: "status", type: "string", required: true, default: "active", enum: ["active", "inactive", "archived"] },
+    ],
+  },
+  {
+    label: "Money",
+    description: "amount + currency",
+    fields: [
+      { name: "amount", type: "decimal", required: true, precision: 2 },
+      { name: "currency", type: "string", required: true, default: "USD" },
+    ],
+  },
+  {
+    label: "Description",
+    description: "title + description",
+    fields: [
+      { name: "title", type: "string", required: true },
+      { name: "description", type: "text" },
+    ],
+  },
+  {
+    label: "SEO",
+    description: "title + slug + meta_description",
+    fields: [
+      { name: "title", type: "string", required: true },
+      { name: "slug", type: "string", required: true, unique: true },
+      { name: "meta_description", type: "text" },
+    ],
+  },
+  {
+    label: "Notes",
+    description: "notes text field",
+    fields: [
+      { name: "notes", type: "text" },
+    ],
+  },
+  {
+    label: "Metadata",
+    description: "metadata JSON field",
+    fields: [
+      { name: "metadata", type: "json" },
+    ],
+  },
+  {
+    label: "Active Flag",
+    description: "active boolean",
+    fields: [
+      { name: "active", type: "boolean", required: true, default: true },
+    ],
+  },
+  {
+    label: "Sort Order",
+    description: "sort_order integer",
+    fields: [
+      { name: "sort_order", type: "int", default: 0 },
+    ],
+  },
+];
 
 const emptyField = (): Field => ({
   name: "",
@@ -78,6 +184,42 @@ export function EntityDetail() {
       fields: [...prev.fields, emptyField()],
     }));
   };
+
+  const applyTemplate = (template: FieldTemplate) => {
+    const existing = new Set(definition().fields.map((f) => f.name));
+    const newFields = template.fields.filter((f) => !existing.has(f.name));
+    if (newFields.length === 0) {
+      addToast("success", `All fields from "${template.label}" already exist`);
+      return;
+    }
+    setDefinition((prev) => ({
+      ...prev,
+      fields: [...prev.fields, ...newFields.map((f) => ({ ...f }))],
+    }));
+    const skipped = template.fields.length - newFields.length;
+    const msg = skipped > 0
+      ? `Added ${newFields.length} field(s) from "${template.label}" (${skipped} already existed)`
+      : `Added ${newFields.length} field(s) from "${template.label}"`;
+    addToast("success", msg);
+  };
+
+  // Quick Add dropdown state
+  const [quickAddOpen, setQuickAddOpen] = createSignal(false);
+  let quickAddRef: HTMLDivElement | undefined;
+
+  const handleClickOutside = (e: MouseEvent) => {
+    if (quickAddRef && !quickAddRef.contains(e.target as Node)) {
+      setQuickAddOpen(false);
+    }
+  };
+
+  onMount(() => {
+    document.addEventListener("mousedown", handleClickOutside);
+  });
+
+  onCleanup(() => {
+    document.removeEventListener("mousedown", handleClickOutside);
+  });
 
   const handleSave = async () => {
     const def = definition();
@@ -247,9 +389,34 @@ export function EntityDetail() {
         <div class="section">
           <div class="flex items-center justify-between mb-4">
             <h2 class="section-title mb-0">Fields</h2>
-            <button class="btn-secondary btn-sm" onClick={addField}>
-              + Add Field
-            </button>
+            <div class="flex items-center gap-2">
+              <div class="quick-add-wrap" ref={quickAddRef}>
+                <button
+                  class="btn-secondary btn-sm"
+                  onClick={() => setQuickAddOpen(!quickAddOpen())}
+                >
+                  Quick Add &#9662;
+                </button>
+                <Show when={quickAddOpen()}>
+                  <div class="quick-add-menu">
+                    <For each={FIELD_TEMPLATES}>
+                      {(tpl) => (
+                        <button
+                          class="quick-add-item"
+                          onClick={() => { applyTemplate(tpl); setQuickAddOpen(false); }}
+                        >
+                          <span class="quick-add-item-label">{tpl.label}</span>
+                          <span class="quick-add-item-desc">{tpl.description}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+              <button class="btn-secondary btn-sm" onClick={addField}>
+                + Add Field
+              </button>
+            </div>
           </div>
           <table class="data-table">
             <thead class="table-header">
