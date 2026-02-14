@@ -1,0 +1,85 @@
+@layer components {
+  .dashboard-stats {
+    @apply grid grid-cols-2 md:grid-cols-4 gap-4 mb-6;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-lg border border-gray-200 p-5
+           cursor-pointer hover:shadow-md hover:border-blue-300
+           transition-all;
+  }
+
+  .stat-card-value {
+    @apply text-3xl font-bold text-gray-900;
+  }
+
+  .stat-card-label {
+    @apply text-sm text-gray-500 mt-1;
+  }
+
+  .stat-card-sub {
+    @apply text-xs text-gray-400 mt-0.5;
+  }
+
+  .dashboard-grid {
+    @apply grid grid-cols-1 lg:grid-cols-2 gap-6;
+  }
+
+  .dashboard-section {
+    @apply bg-white rounded-lg border border-gray-200 p-5;
+  }
+
+  .dashboard-section-full {
+    @apply bg-white rounded-lg border border-gray-200 p-5 mb-6;
+  }
+
+  .dashboard-section-title {
+    @apply text-sm font-semibold text-gray-700 mb-3
+           flex items-center justify-between;
+  }
+
+  .dashboard-section-link {
+    @apply text-xs text-blue-600 hover:text-blue-800 cursor-pointer;
+  }
+
+  .dashboard-list {
+    @apply space-y-2;
+  }
+
+  .dashboard-list-item {
+    @apply flex items-center justify-between py-2 px-3
+           rounded-md hover:bg-gray-50 cursor-pointer transition-colors;
+  }
+
+  .dashboard-list-item-name {
+    @apply text-sm font-medium text-gray-900;
+  }
+
+  .dashboard-list-item-meta {
+    @apply text-xs text-gray-400;
+  }
+
+  .dashboard-list-item-value {
+    @apply text-sm font-semibold text-gray-700;
+  }
+
+  .dashboard-metric {
+    @apply flex items-center justify-between py-2;
+  }
+
+  .dashboard-metric-label {
+    @apply text-sm text-gray-600;
+  }
+
+  .dashboard-metric-value {
+    @apply text-sm font-semibold text-gray-900;
+  }
+
+  .dashboard-metric-badge {
+    @apply text-xs px-2 py-0.5 rounded-full;
+  }
+
+  .dashboard-loading {
+    @apply text-xs text-gray-400 animate-pulse;
+  }
+}

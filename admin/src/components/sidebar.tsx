@@ -6,6 +6,7 @@ import { platformLogout, listApps } from "../api/platform";
 import type { AppInfo } from "../types/app";
 
 const navItems = [
+  { href: "/dashboard", label: "Overview", icon: "\u25C8" },
   { href: "/entities", label: "Entities", icon: "\u25A1" },
   { href: "/relations", label: "Relations", icon: "\u21C4" },
   { href: "/erd", label: "ERD", icon: "\u2B21" },

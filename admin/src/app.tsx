@@ -16,6 +16,7 @@ import { PermissionsList } from "./pages/permissions-list";
 import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
 import { UIConfigList } from "./pages/ui-config-list";
+import { Dashboard } from "./pages/dashboard";
 import { ERD } from "./pages/erd";
 import { HelpIndex } from "./pages/help-docs/help-index";
 import { HelpTopicPage } from "./pages/help-docs/help-layout";
@@ -64,6 +65,7 @@ export function App() {
       <Route path="/login" component={Login} />
       <Route path="/" component={() => <Navigate href="/apps" />} />
       <Route path="/apps" component={AppsList} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/entities" component={EntitiesList} />
       <Route path="/entities/new" component={EntityDetail} />
       <Route path="/entities/:name" component={EntityDetail} />

@@ -12,6 +12,7 @@
 @import "./help.css";
 @import "./diagram.css";
 @import "./wizard.css";
+@import "./dashboard.css";
 
 @import "tailwindcss/utilities";
 
