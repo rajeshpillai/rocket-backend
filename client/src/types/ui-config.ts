@@ -125,6 +125,7 @@ export interface ContentSection extends PageSection {
 export interface CommentSection extends PageSection {
   type: "comments";
   relation: string;
+  entity?: string;
   title?: string;
   allow_submit?: boolean;
   submit_fields?: Record<string, CommentFieldConfig>;

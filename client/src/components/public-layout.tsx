@@ -1,6 +1,6 @@
-import { type ParentProps, For, createMemo } from "solid-js";
+import { type ParentProps, For, createMemo, onMount } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
-import { getEntityUIConfig, getAllUIConfigs } from "../stores/ui-config";
+import { getEntityUIConfig, getAllUIConfigs, loadUIConfigs, uiConfigsLoaded } from "../stores/ui-config";
 import { selectedApp, isFixedApp } from "../stores/app";
 import ToastContainer from "./toast";
 
@@ -10,6 +10,12 @@ interface PublicLayoutProps extends ParentProps {
 
 export default function PublicLayout(props: PublicLayoutProps) {
   const location = useLocation();
+
+  onMount(() => {
+    if (!uiConfigsLoaded()) {
+      loadUIConfigs();
+    }
+  });
 
   const publicNavLinks = createMemo(() => {
     const configs = getAllUIConfigs();

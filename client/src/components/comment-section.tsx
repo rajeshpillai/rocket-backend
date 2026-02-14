@@ -66,7 +66,7 @@ export default function CommentSectionComponent(props: CommentSectionProps) {
 
     try {
       const data = formData();
-      const commentEntity = props.config.relation;
+      const commentEntity = props.config.entity ?? props.config.relation;
 
       // Build the payload with the post reference
       const payload: Record<string, unknown> = {
