@@ -103,4 +103,60 @@
   .quick-add-item-desc {
     @apply text-xs text-gray-500;
   }
+
+  /* CSV Import */
+  .csv-import {
+    @apply min-h-[200px];
+  }
+
+  .csv-upload-area {
+    @apply py-4;
+  }
+
+  .csv-mapping-grid {
+    @apply flex flex-col gap-2;
+  }
+
+  .csv-mapping-row {
+    @apply flex items-center gap-3;
+  }
+
+  .csv-mapping-header {
+    @apply text-sm font-mono bg-gray-100 px-2 py-1 rounded truncate;
+    min-width: 120px;
+    max-width: 180px;
+  }
+
+  .csv-mapping-arrow {
+    @apply text-gray-400 text-sm flex-shrink-0;
+  }
+
+  .csv-mapping-select {
+    @apply text-sm;
+    min-width: 160px;
+  }
+
+  .csv-preview-table-wrap {
+    @apply overflow-x-auto max-h-48 border border-gray-200 rounded;
+  }
+
+  .csv-progress-bar {
+    @apply w-full bg-gray-200 rounded-full h-2 overflow-hidden;
+  }
+
+  .csv-progress-fill {
+    @apply h-full bg-blue-600 rounded-full transition-all;
+  }
+
+  .csv-error-list {
+    @apply mt-2;
+  }
+
+  .csv-error-scroll {
+    @apply max-h-40 overflow-y-auto border border-red-100 rounded p-2;
+  }
+
+  .csv-error-item {
+    @apply text-xs text-red-600 py-1 border-b border-red-50 last:border-0;
+  }
 }

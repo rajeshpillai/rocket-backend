@@ -16,6 +16,7 @@ import { Modal } from "../components/modal";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { FilterBar } from "../components/form/filter-bar";
 import { DataRecordEditor } from "./data-record-editor";
+import { CsvImport } from "../components/csv-import";
 import { addToast } from "../stores/notifications";
 
 export function DataBrowser() {
@@ -41,6 +42,9 @@ export function DataBrowser() {
 
   // Delete state
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
+
+  // CSV import state
+  const [csvImportOpen, setCsvImportOpen] = createSignal(false);
 
   onMount(() => loadEntities());
 
@@ -271,6 +275,9 @@ export function DataBrowser() {
             ))}
           </select>
           <Show when={entityDef()}>
+            <button class="btn-secondary" onClick={() => setCsvImportOpen(true)}>
+              Import CSV
+            </button>
             <button class="btn-primary" onClick={openCreate}>
               Create Record
             </button>
@@ -335,6 +342,25 @@ export function DataBrowser() {
               onConfirm={handleDeleteRecord}
               onCancel={() => setDeleteTarget(null)}
             />
+
+            <Modal
+              open={csvImportOpen()}
+              onClose={() => setCsvImportOpen(false)}
+              title={`Import CSV — ${def().name}`}
+              wide
+            >
+              <CsvImport
+                entity={def()}
+                onDone={(count) => {
+                  setCsvImportOpen(false);
+                  if (count > 0) {
+                    addToast("success", `Imported ${count} record(s)`);
+                    fetchData();
+                  }
+                }}
+                onCancel={() => setCsvImportOpen(false)}
+              />
+            </Modal>
           </>
         )}
       </Show>
