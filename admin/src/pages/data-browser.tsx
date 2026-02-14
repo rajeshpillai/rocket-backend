@@ -19,6 +19,9 @@ import { ConfirmDialog } from "../components/confirm-dialog";
 import { FilterBar } from "../components/form/filter-bar";
 import { DataRecordEditor } from "./data-record-editor";
 import { CsvImport } from "../components/csv-import";
+import { BulkActionBar } from "../components/bulk-action-bar";
+import { BulkUpdateModal } from "../components/bulk-update-modal";
+import { batchExecute, generateCsv, downloadFile } from "../utils/bulk-operations";
 import { addToast } from "../stores/notifications";
 
 export function DataBrowser() {
@@ -49,6 +52,12 @@ export function DataBrowser() {
   // CSV import state
   const [csvImportOpen, setCsvImportOpen] = createSignal(false);
 
+  // Bulk operations state
+  const [selectedIds, setSelectedIds] = createSignal<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = createSignal(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = createSignal(false);
+  const [bulkUpdateOpen, setBulkUpdateOpen] = createSignal(false);
+
   onMount(() => {
     loadEntities();
     loadRelations();
@@ -70,6 +79,7 @@ export function DataBrowser() {
       setPage(1);
       setFilters([]);
       setSortField("");
+      setSelectedIds(new Set<string>());
       fetchData(name);
     }
   });
@@ -92,6 +102,7 @@ export function DataBrowser() {
       });
       setRecords(res.data);
       setTotal(res.meta?.total ?? res.data.length);
+      setSelectedIds(new Set<string>());
     } catch (err) {
       if (isApiError(err)) {
         addToast("error", err.error.message);
@@ -115,7 +126,14 @@ export function DataBrowser() {
 
   const handlePageChange = (p: number) => {
     setPage(p);
+    setSelectedIds(new Set<string>());
     fetchData();
+  };
+
+  const getRowId = (row: Record<string, unknown>): string => {
+    const def = entityDef();
+    const pkField = def?.primary_key.field ?? "id";
+    return String(row[pkField]);
   };
 
   const columns = (): Column[] => {
@@ -277,6 +295,115 @@ export function DataBrowser() {
     }
   };
 
+  // ── Bulk Operations ──────────────────────────────
+
+  const handleSelectAll = () => {
+    const ids = new Set(records().map(getRowId));
+    setSelectedIds(ids);
+  };
+
+  const handleBulkDelete = async () => {
+    const entityName = params.entity;
+    if (!entityName) return;
+
+    setBulkDeleteOpen(false);
+    setBulkLoading(true);
+
+    const ids = Array.from(selectedIds());
+    const results = await batchExecute(ids, (id) =>
+      deleteRecord(entityName, id).then(() => {}),
+    );
+
+    const succeeded = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+
+    if (failed === 0) {
+      addToast("success", `${succeeded} record(s) deleted`);
+    } else {
+      addToast("error", `${succeeded} deleted, ${failed} failed`);
+    }
+
+    setSelectedIds(new Set<string>());
+    setBulkLoading(false);
+    await fetchData();
+  };
+
+  const handleBulkUpdate = async (field: string, value: unknown) => {
+    const entityName = params.entity;
+    if (!entityName) return;
+
+    setBulkUpdateOpen(false);
+    setBulkLoading(true);
+
+    const ids = Array.from(selectedIds());
+    const results = await batchExecute(ids, (id) =>
+      updateRecord(entityName, id, { [field]: value }).then(() => {}),
+    );
+
+    const succeeded = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+
+    if (failed === 0) {
+      addToast("success", `${succeeded} record(s) updated`);
+    } else {
+      addToast("error", `${succeeded} updated, ${failed} failed`);
+    }
+
+    setSelectedIds(new Set<string>());
+    setBulkLoading(false);
+    await fetchData();
+  };
+
+  const handleExport = async () => {
+    const def = entityDef();
+    const entityName = params.entity;
+    if (!def || !entityName) return;
+
+    const fieldNames = [def.primary_key.field, ...def.fields.map((f) => f.name)];
+    const selected = selectedIds();
+
+    let exportRecords: Record<string, unknown>[];
+
+    if (selected.size > 0) {
+      // Export selected records from current page
+      exportRecords = records().filter((r) => selected.has(getRowId(r)));
+    } else {
+      // Export all records (paginate through everything)
+      setBulkLoading(true);
+      exportRecords = [];
+      let pg = 1;
+      const pp = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        try {
+          const sortStr = sortField()
+            ? (sortDir() === "DESC" ? `-${sortField()}` : sortField())
+            : undefined;
+          const res = await listRecords(entityName, {
+            filters: filters(),
+            sort: sortStr,
+            page: pg,
+            perPage: pp,
+          });
+          exportRecords.push(...res.data);
+          hasMore = res.data.length === pp;
+          pg++;
+        } catch {
+          addToast("error", "Failed to fetch all records for export");
+          setBulkLoading(false);
+          return;
+        }
+      }
+      setBulkLoading(false);
+    }
+
+    const csv = generateCsv(fieldNames, exportRecords);
+    const date = new Date().toISOString().split("T")[0];
+    downloadFile(csv, `${entityName}-export-${date}.csv`);
+    addToast("success", `Exported ${exportRecords.length} record(s)`);
+  };
+
   return (
     <div>
       <div class="page-header">
@@ -301,6 +428,13 @@ export function DataBrowser() {
             ))}
           </select>
           <Show when={entityDef()}>
+            <button
+              class="btn-secondary"
+              onClick={handleExport}
+              disabled={bulkLoading()}
+            >
+              Export CSV
+            </button>
             <button class="btn-secondary" onClick={() => setCsvImportOpen(true)}>
               Import CSV
             </button>
@@ -324,6 +458,19 @@ export function DataBrowser() {
               }}
             />
 
+            <Show when={selectedIds().size > 0}>
+              <BulkActionBar
+                selectedCount={selectedIds().size}
+                totalCount={records().length}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={() => setSelectedIds(new Set())}
+                onDelete={() => setBulkDeleteOpen(true)}
+                onUpdate={() => setBulkUpdateOpen(true)}
+                onExport={handleExport}
+                loading={bulkLoading()}
+              />
+            </Show>
+
             {loading() ? (
               <p class="text-sm text-gray-500">Loading...</p>
             ) : (
@@ -335,6 +482,10 @@ export function DataBrowser() {
                   sortDir={sortDir()}
                   onSort={handleSort}
                   emptyMessage="No records found."
+                  selectable
+                  selectedIds={selectedIds()}
+                  onSelectionChange={setSelectedIds}
+                  rowId={getRowId}
                 />
                 <Pagination
                   page={page()}
@@ -370,6 +521,23 @@ export function DataBrowser() {
               message={`Are you sure you want to delete this record?`}
               onConfirm={handleDeleteRecord}
               onCancel={() => setDeleteTarget(null)}
+            />
+
+            <ConfirmDialog
+              open={bulkDeleteOpen()}
+              title="Delete Selected Records"
+              message={`Are you sure you want to delete ${selectedIds().size} record(s)? This cannot be undone.`}
+              confirmLabel={`Delete ${selectedIds().size} record(s)`}
+              onConfirm={handleBulkDelete}
+              onCancel={() => setBulkDeleteOpen(false)}
+            />
+
+            <BulkUpdateModal
+              open={bulkUpdateOpen()}
+              onClose={() => setBulkUpdateOpen(false)}
+              entity={def()}
+              selectedCount={selectedIds().size}
+              onConfirm={handleBulkUpdate}
             />
 
             <Modal

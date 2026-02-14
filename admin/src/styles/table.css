@@ -49,4 +49,27 @@
   .table-empty {
     @apply px-4 py-12 text-center text-gray-400 text-sm;
   }
+
+  .table-cell-checkbox {
+    @apply px-3 py-3;
+    width: 2.5rem;
+  }
+
+  .table-header-checkbox {
+    @apply px-3 py-3;
+    width: 2.5rem;
+  }
+
+  .bulk-action-bar {
+    @apply flex items-center justify-between px-4 py-3 mb-3
+           bg-blue-50 border border-blue-200 rounded-lg;
+  }
+
+  .bulk-action-bar-left {
+    @apply flex items-center gap-3;
+  }
+
+  .bulk-action-bar-right {
+    @apply flex items-center gap-2;
+  }
 }
