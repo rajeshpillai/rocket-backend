@@ -16,6 +16,7 @@ import { PermissionsList } from "./pages/permissions-list";
 import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
 import { UIConfigList } from "./pages/ui-config-list";
+import { ERD } from "./pages/erd";
 import { HelpIndex } from "./pages/help-docs/help-index";
 import { HelpTopicPage } from "./pages/help-docs/help-layout";
 import { isAuthenticated } from "./stores/auth";
@@ -67,6 +68,7 @@ export function App() {
       <Route path="/entities/new" component={EntityDetail} />
       <Route path="/entities/:name" component={EntityDetail} />
       <Route path="/relations" component={RelationsList} />
+      <Route path="/erd" component={ERD} />
       <Route path="/rules" component={RulesList} />
       <Route path="/state-machines" component={StateMachinesList} />
       <Route path="/workflows" component={WorkflowsList} />

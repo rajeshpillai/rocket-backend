@@ -2,6 +2,8 @@ import dagre from "@dagrejs/dagre";
 import type { WorkflowPayload } from "../../types/workflow";
 import { gotoDisplay } from "../../types/workflow";
 import type { StateMachinePayload } from "../../types/state-machine";
+import type { EntityDefinition } from "../../types/entity";
+import type { RelationDefinition } from "../../types/relation";
 
 export interface LayoutNode {
   id: string;
@@ -273,5 +275,107 @@ export function layoutStateMachine(sm: StateMachinePayload, extraStates?: string
     edges,
     width: graphInfo?.width ?? 600,
     height: graphInfo?.height ?? 400,
+  };
+}
+
+// --- ERD Layout ---
+
+const CARDINALITY: Record<string, string> = {
+  one_to_one: "1:1",
+  one_to_many: "1:N",
+  many_to_many: "N:N",
+};
+
+const ERD_HEADER_HEIGHT = 30;
+const ERD_ROW_HEIGHT = 22;
+const ERD_PADDING = 8;
+const ERD_CHAR_WIDTH = 7.5;
+const ERD_MIN_WIDTH = 180;
+
+export function layoutERD(
+  entities: EntityDefinition[],
+  relations: RelationDefinition[],
+): GraphLayout {
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: "LR",
+    nodesep: 80,
+    ranksep: 120,
+    marginx: 40,
+    marginy: 40,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const entity of entities) {
+    const fieldCount = entity.fields.length + 1; // +1 for PK row
+    const height = ERD_HEADER_HEIGHT + fieldCount * ERD_ROW_HEIGHT + ERD_PADDING * 2;
+
+    let maxLen = entity.name.length;
+    const pkLabel = `${entity.primary_key.field} : ${entity.primary_key.type}`;
+    maxLen = Math.max(maxLen, pkLabel.length);
+    for (const f of entity.fields) {
+      const fieldLabel = `${f.name} : ${f.type}`;
+      maxLen = Math.max(maxLen, fieldLabel.length);
+    }
+    const width = Math.max(ERD_MIN_WIDTH, maxLen * ERD_CHAR_WIDTH + 40);
+
+    g.setNode(entity.name, {
+      label: entity.name,
+      width,
+      height,
+    });
+  }
+
+  for (const rel of relations) {
+    if (g.hasNode(rel.source) && g.hasNode(rel.target)) {
+      const card = CARDINALITY[rel.type] ?? rel.type;
+      g.setEdge(rel.source, rel.target, {
+        label: `${rel.name} (${card})`,
+      });
+    }
+  }
+
+  dagre.layout(g);
+
+  const erdNodes: LayoutNode[] = [];
+  const erdEdges: LayoutEdge[] = [];
+
+  for (const nodeId of g.nodes()) {
+    const node = g.node(nodeId);
+    if (!node) continue;
+    const entity = entities.find((e) => e.name === nodeId);
+    erdNodes.push({
+      id: nodeId,
+      label: node.label ?? nodeId,
+      type: "entity",
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+      data: entity
+        ? { fields: entity.fields, primaryKey: entity.primary_key, softDelete: entity.soft_delete }
+        : {},
+    });
+  }
+
+  for (const edge of g.edges()) {
+    const edgeData = g.edge(edge);
+    if (!edgeData) continue;
+    erdEdges.push({
+      id: `${edge.v}->${edge.w}`,
+      source: edge.v,
+      target: edge.w,
+      label: edgeData.label as string | undefined,
+      points: edgeData.points ?? [],
+    });
+  }
+
+  const erdGraphInfo = g.graph();
+
+  return {
+    nodes: erdNodes,
+    edges: erdEdges,
+    width: erdGraphInfo?.width ?? 600,
+    height: erdGraphInfo?.height ?? 400,
   };
 }

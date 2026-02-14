@@ -108,8 +108,9 @@
   }
 
   .diagram-canvas-wrap svg {
-    @apply w-full h-full;
+    @apply w-full h-full select-none;
     cursor: grab;
+    -webkit-user-select: none;
   }
 
   .diagram-canvas-wrap svg:active {
@@ -218,5 +219,35 @@
     font-size: 11px;
     fill: #6b7280;
     pointer-events: none;
+  }
+
+  /* ERD detail panel field list */
+  .erd-field-list {
+    @apply flex flex-col gap-0;
+  }
+
+  .erd-field-row {
+    @apply flex items-center justify-between text-xs py-1 px-1
+           border-b border-gray-50 last:border-b-0;
+  }
+
+  .erd-field-name {
+    @apply font-medium text-gray-800;
+  }
+
+  .erd-field-type {
+    @apply text-gray-400 font-mono text-[10px];
+  }
+
+  .erd-field-badges {
+    @apply flex gap-1 ml-1;
+  }
+
+  .erd-field-badge {
+    @apply text-[9px] px-1 py-0 rounded bg-gray-100 text-gray-500;
+  }
+
+  .erd-relation-item {
+    @apply text-xs text-gray-600 py-1 border-b border-gray-50 last:border-b-0;
   }
 }

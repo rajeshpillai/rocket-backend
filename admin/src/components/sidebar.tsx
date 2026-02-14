@@ -8,6 +8,7 @@ import type { AppInfo } from "../types/app";
 const navItems = [
   { href: "/entities", label: "Entities", icon: "\u25A1" },
   { href: "/relations", label: "Relations", icon: "\u21C4" },
+  { href: "/erd", label: "ERD", icon: "\u2B21" },
   { href: "/rules", label: "Rules", icon: "\u2713" },
   { href: "/state-machines", label: "State Machines", icon: "\u21C6" },
   { href: "/workflows", label: "Workflows", icon: "\u27F3" },

@@ -74,6 +74,7 @@ export function GraphCanvas(props: GraphCanvasProps) {
 
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
+    e.preventDefault();
     didPan = false;
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
@@ -145,6 +146,8 @@ export function GraphCanvas(props: GraphCanvasProps) {
         viewBox={vbString()}
         onClick={handleSvgClick}
         onMouseDown={handleMouseDown}
+        onContextMenu={(e: MouseEvent) => e.preventDefault()}
+        style="user-select: none; -webkit-user-select: none;"
       >
         <defs>
           <marker
