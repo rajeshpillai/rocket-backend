@@ -10,7 +10,7 @@ import (
 )
 
 // LoadIncludes fetches related data and attaches it to the parent rows.
-func LoadIncludes(ctx context.Context, q store.Querier, reg *metadata.Registry, entity *metadata.Entity, rows []map[string]any, includes []string) error {
+func LoadIncludes(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, entity *metadata.Entity, rows []map[string]any, includes []string) error {
 	if len(rows) == 0 || len(includes) == 0 {
 		return nil
 	}
@@ -23,12 +23,12 @@ func LoadIncludes(ctx context.Context, q store.Querier, reg *metadata.Registry, 
 
 		if rel.Source == entity.Name {
 			// Forward relation: load children by parent PK
-			if err := loadForwardRelation(ctx, q, reg, entity, rel, rows, incName); err != nil {
+			if err := loadForwardRelation(ctx, q, dialect, reg, entity, rel, rows, incName); err != nil {
 				return err
 			}
 		} else if rel.Target == entity.Name {
 			// Reverse relation: load parents by FK on current entity
-			if err := loadReverseRelation(ctx, q, reg, entity, rel, rows, incName); err != nil {
+			if err := loadReverseRelation(ctx, q, dialect, reg, entity, rel, rows, incName); err != nil {
 				return err
 			}
 		}
@@ -38,7 +38,7 @@ func LoadIncludes(ctx context.Context, q store.Querier, reg *metadata.Registry, 
 }
 
 // loadForwardRelation loads children for one_to_many, one_to_one, or many_to_many.
-func loadForwardRelation(ctx context.Context, q store.Querier, reg *metadata.Registry, parentEntity *metadata.Entity, rel *metadata.Relation, rows []map[string]any, incName string) error {
+func loadForwardRelation(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, parentEntity *metadata.Entity, rel *metadata.Relation, rows []map[string]any, incName string) error {
 	parentPKField := parentEntity.PrimaryKey.Field
 	parentIDs := collectValues(rows, parentPKField)
 	if len(parentIDs) == 0 {
@@ -46,7 +46,7 @@ func loadForwardRelation(ctx context.Context, q store.Querier, reg *metadata.Reg
 	}
 
 	if rel.IsManyToMany() {
-		return loadManyToMany(ctx, q, reg, rel, rows, parentPKField, parentIDs, incName)
+		return loadManyToMany(ctx, q, dialect, reg, rel, rows, parentPKField, parentIDs, incName)
 	}
 
 	targetEntity := reg.GetEntity(rel.Target)
@@ -56,13 +56,15 @@ func loadForwardRelation(ctx context.Context, q store.Querier, reg *metadata.Reg
 
 	// Query children
 	columns := strings.Join(targetEntity.FieldNames(), ", ")
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ANY($1)",
-		columns, targetEntity.Table, rel.TargetKey)
+	pb := dialect.NewParamBuilder()
+	inExpr := dialect.InExpr(rel.TargetKey, pb, parentIDs)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
+		columns, targetEntity.Table, inExpr)
 	if targetEntity.SoftDelete {
 		sql += " AND deleted_at IS NULL"
 	}
 
-	childRows, err := store.QueryRows(ctx, q, sql, parentIDs)
+	childRows, err := store.QueryRows(ctx, q, sql, pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("load include %s: %w", incName, err)
 	}
@@ -91,16 +93,18 @@ func loadForwardRelation(ctx context.Context, q store.Querier, reg *metadata.Reg
 	return nil
 }
 
-func loadManyToMany(ctx context.Context, q store.Querier, reg *metadata.Registry, rel *metadata.Relation, rows []map[string]any, parentPKField string, parentIDs []any, incName string) error {
+func loadManyToMany(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, rel *metadata.Relation, rows []map[string]any, parentPKField string, parentIDs []any, incName string) error {
 	targetEntity := reg.GetEntity(rel.Target)
 	if targetEntity == nil {
 		return fmt.Errorf("unknown target entity: %s", rel.Target)
 	}
 
 	// Query join table
-	joinSQL := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s = ANY($1)",
-		rel.SourceJoinKey, rel.TargetJoinKey, rel.JoinTable, rel.SourceJoinKey)
-	joinRows, err := store.QueryRows(ctx, q, joinSQL, parentIDs)
+	pb := dialect.NewParamBuilder()
+	inExpr := dialect.InExpr(rel.SourceJoinKey, pb, parentIDs)
+	joinSQL := fmt.Sprintf("SELECT %s, %s FROM %s WHERE %s",
+		rel.SourceJoinKey, rel.TargetJoinKey, rel.JoinTable, inExpr)
+	joinRows, err := store.QueryRows(ctx, q, joinSQL, pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("load join table %s: %w", rel.JoinTable, err)
 	}
@@ -125,12 +129,14 @@ func loadManyToMany(ctx context.Context, q store.Querier, reg *metadata.Registry
 
 	// Query target records
 	columns := strings.Join(targetEntity.FieldNames(), ", ")
-	targetSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ANY($1)",
-		columns, targetEntity.Table, targetEntity.PrimaryKey.Field)
+	pb2 := dialect.NewParamBuilder()
+	inExpr2 := dialect.InExpr(targetEntity.PrimaryKey.Field, pb2, targetIDs)
+	targetSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
+		columns, targetEntity.Table, inExpr2)
 	if targetEntity.SoftDelete {
 		targetSQL += " AND deleted_at IS NULL"
 	}
-	targetRows, err := store.QueryRows(ctx, q, targetSQL, targetIDs)
+	targetRows, err := store.QueryRows(ctx, q, targetSQL, pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("load targets for %s: %w", incName, err)
 	}
@@ -166,7 +172,7 @@ func loadManyToMany(ctx context.Context, q store.Querier, reg *metadata.Registry
 }
 
 // loadReverseRelation loads parent records referenced by FK on the current entity.
-func loadReverseRelation(ctx context.Context, q store.Querier, reg *metadata.Registry, entity *metadata.Entity, rel *metadata.Relation, rows []map[string]any, incName string) error {
+func loadReverseRelation(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, entity *metadata.Entity, rel *metadata.Relation, rows []map[string]any, incName string) error {
 	sourceEntity := reg.GetEntity(rel.Source)
 	if sourceEntity == nil {
 		return fmt.Errorf("unknown source entity: %s", rel.Source)
@@ -179,13 +185,15 @@ func loadReverseRelation(ctx context.Context, q store.Querier, reg *metadata.Reg
 	}
 
 	columns := strings.Join(sourceEntity.FieldNames(), ", ")
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ANY($1)",
-		columns, sourceEntity.Table, rel.SourceKey)
+	pb := dialect.NewParamBuilder()
+	inExpr := dialect.InExpr(rel.SourceKey, pb, fkValues)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s",
+		columns, sourceEntity.Table, inExpr)
 	if sourceEntity.SoftDelete {
 		sql += " AND deleted_at IS NULL"
 	}
 
-	parentRows, err := store.QueryRows(ctx, q, sql, fkValues)
+	parentRows, err := store.QueryRows(ctx, q, sql, pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("load reverse include %s: %w", incName, err)
 	}

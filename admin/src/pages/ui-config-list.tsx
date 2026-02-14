@@ -180,14 +180,18 @@ export function UIConfigList() {
       const text = await file.text();
       let entries: ImportEntry[];
       try {
-        entries = JSON.parse(text);
+        const parsed = JSON.parse(text);
+        // Accept both raw array and wrapper object with ui_configs key
+        if (Array.isArray(parsed)) {
+          entries = parsed;
+        } else if (parsed && Array.isArray(parsed.ui_configs)) {
+          entries = parsed.ui_configs;
+        } else {
+          addToast("error", "Expected a JSON array or an object with a \"ui_configs\" array");
+          return;
+        }
       } catch {
         addToast("error", "Invalid JSON file");
-        return;
-      }
-
-      if (!Array.isArray(entries)) {
-        addToast("error", "Expected a JSON array of UI config entries");
         return;
       }
 

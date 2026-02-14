@@ -66,5 +66,5 @@ func ProcessWorkflowTimeouts(s *store.Store, reg *metadata.Registry) {
 // Ensure WorkflowHandler still has a function it needs — loadWorkflowInstance backward compat.
 func loadWorkflowInstance(ctx context.Context, s *store.Store, id string) (*metadata.WorkflowInstance, error) {
 	wfStore := &PgWorkflowStore{}
-	return wfStore.LoadInstance(ctx, s.Pool, id)
+	return wfStore.LoadInstance(ctx, s.DB, s.Dialect, id)
 }

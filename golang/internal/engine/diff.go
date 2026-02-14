@@ -10,14 +10,14 @@ import (
 )
 
 // ExecuteChildWrite dispatches to the appropriate write mode handler.
-func ExecuteChildWrite(ctx context.Context, q store.Querier, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
+func ExecuteChildWrite(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
 	if rw.Relation.IsManyToMany() {
-		return executeManyToManyWrite(ctx, q, reg, parentID, rw)
+		return executeManyToManyWrite(ctx, q, dialect, reg, parentID, rw)
 	}
-	return executeOneToManyWrite(ctx, q, reg, parentID, rw)
+	return executeOneToManyWrite(ctx, q, dialect, reg, parentID, rw)
 }
 
-func executeOneToManyWrite(ctx context.Context, q store.Querier, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
+func executeOneToManyWrite(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
 	rel := rw.Relation
 	targetEntity := reg.GetEntity(rel.Target)
 	if targetEntity == nil {
@@ -26,21 +26,21 @@ func executeOneToManyWrite(ctx context.Context, q store.Querier, reg *metadata.R
 
 	switch rw.WriteMode {
 	case "diff":
-		return executeDiffWrite(ctx, q, targetEntity, rel, parentID, rw.Data)
+		return executeDiffWrite(ctx, q, dialect, targetEntity, rel, parentID, rw.Data)
 	case "replace":
-		return executeReplaceWrite(ctx, q, targetEntity, rel, parentID, rw.Data)
+		return executeReplaceWrite(ctx, q, dialect, targetEntity, rel, parentID, rw.Data)
 	case "append":
-		return executeAppendWrite(ctx, q, targetEntity, rel, parentID, rw.Data)
+		return executeAppendWrite(ctx, q, dialect, targetEntity, rel, parentID, rw.Data)
 	default:
-		return executeDiffWrite(ctx, q, targetEntity, rel, parentID, rw.Data)
+		return executeDiffWrite(ctx, q, dialect, targetEntity, rel, parentID, rw.Data)
 	}
 }
 
-func executeDiffWrite(ctx context.Context, q store.Querier, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
+func executeDiffWrite(ctx context.Context, q store.Querier, dialect store.Dialect, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
 	pkField := targetEntity.PrimaryKey.Field
 
 	// Fetch current children
-	existing, err := fetchCurrentChildren(ctx, q, targetEntity, rel, parentID)
+	existing, err := fetchCurrentChildren(ctx, q, dialect, targetEntity, rel, parentID)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func executeDiffWrite(ctx context.Context, q store.Querier, targetEntity *metada
 		if del, ok := row["_delete"]; ok && del == true {
 			pk := row[pkField]
 			if pk != nil {
-				if err := softDeleteChild(ctx, q, targetEntity, pk); err != nil {
+				if err := softDeleteChild(ctx, q, dialect, targetEntity, pk); err != nil {
 					return err
 				}
 			}
@@ -63,7 +63,7 @@ func executeDiffWrite(ctx context.Context, q store.Querier, targetEntity *metada
 			// Has PK — check if exists
 			if _, exists := existingByPK[fmt.Sprintf("%v", pk)]; exists {
 				// UPDATE
-				if err := updateChild(ctx, q, targetEntity, pk, row); err != nil {
+				if err := updateChild(ctx, q, dialect, targetEntity, pk, row); err != nil {
 					return err
 				}
 			}
@@ -71,7 +71,7 @@ func executeDiffWrite(ctx context.Context, q store.Querier, targetEntity *metada
 		} else {
 			// No PK — INSERT
 			row[rel.TargetKey] = parentID
-			if err := insertChild(ctx, q, targetEntity, row); err != nil {
+			if err := insertChild(ctx, q, dialect, targetEntity, row); err != nil {
 				return err
 			}
 		}
@@ -80,10 +80,10 @@ func executeDiffWrite(ctx context.Context, q store.Querier, targetEntity *metada
 	return nil
 }
 
-func executeReplaceWrite(ctx context.Context, q store.Querier, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
+func executeReplaceWrite(ctx context.Context, q store.Querier, dialect store.Dialect, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
 	pkField := targetEntity.PrimaryKey.Field
 
-	existing, err := fetchCurrentChildren(ctx, q, targetEntity, rel, parentID)
+	existing, err := fetchCurrentChildren(ctx, q, dialect, targetEntity, rel, parentID)
 	if err != nil {
 		return err
 	}
@@ -96,13 +96,13 @@ func executeReplaceWrite(ctx context.Context, q store.Querier, targetEntity *met
 			pkStr := fmt.Sprintf("%v", pk)
 			if _, exists := existingByPK[pkStr]; exists {
 				seen[pkStr] = true
-				if err := updateChild(ctx, q, targetEntity, pk, row); err != nil {
+				if err := updateChild(ctx, q, dialect, targetEntity, pk, row); err != nil {
 					return err
 				}
 			}
 		} else {
 			row[rel.TargetKey] = parentID
-			if err := insertChild(ctx, q, targetEntity, row); err != nil {
+			if err := insertChild(ctx, q, dialect, targetEntity, row); err != nil {
 				return err
 			}
 		}
@@ -112,7 +112,7 @@ func executeReplaceWrite(ctx context.Context, q store.Querier, targetEntity *met
 	for pkStr := range existingByPK {
 		if !seen[pkStr] {
 			pk := existingByPK[pkStr][pkField]
-			if err := softDeleteChild(ctx, q, targetEntity, pk); err != nil {
+			if err := softDeleteChild(ctx, q, dialect, targetEntity, pk); err != nil {
 				return err
 			}
 		}
@@ -121,7 +121,7 @@ func executeReplaceWrite(ctx context.Context, q store.Querier, targetEntity *met
 	return nil
 }
 
-func executeAppendWrite(ctx context.Context, q store.Querier, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
+func executeAppendWrite(ctx context.Context, q store.Querier, dialect store.Dialect, targetEntity *metadata.Entity, rel *metadata.Relation, parentID any, data []map[string]any) error {
 	pkField := targetEntity.PrimaryKey.Field
 
 	for _, row := range data {
@@ -129,7 +129,7 @@ func executeAppendWrite(ctx context.Context, q store.Querier, targetEntity *meta
 			continue // Skip rows with PK in append mode
 		}
 		row[rel.TargetKey] = parentID
-		if err := insertChild(ctx, q, targetEntity, row); err != nil {
+		if err := insertChild(ctx, q, dialect, targetEntity, row); err != nil {
 			return err
 		}
 	}
@@ -137,7 +137,7 @@ func executeAppendWrite(ctx context.Context, q store.Querier, targetEntity *meta
 }
 
 // Many-to-many writes operate on the join table.
-func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
+func executeManyToManyWrite(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, parentID any, rw *RelationWrite) error {
 	rel := rw.Relation
 	targetEntity := reg.GetEntity(rel.Target)
 	if targetEntity == nil {
@@ -148,8 +148,9 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 	switch rw.WriteMode {
 	case "replace":
 		// Delete all current join rows, insert all incoming
-		delSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", rel.JoinTable, rel.SourceJoinKey)
-		if _, err := store.Exec(ctx, q, delSQL, parentID); err != nil {
+		pb := dialect.NewParamBuilder()
+		delSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", rel.JoinTable, rel.SourceJoinKey, pb.Add(parentID))
+		if _, err := store.Exec(ctx, q, delSQL, pb.Params()...); err != nil {
 			return fmt.Errorf("delete join rows: %w", err)
 		}
 		for _, row := range rw.Data {
@@ -160,7 +161,7 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 			if targetID == nil {
 				continue
 			}
-			if err := insertJoinRow(ctx, q, rel, parentID, targetID); err != nil {
+			if err := insertJoinRow(ctx, q, dialect, rel, parentID, targetID); err != nil {
 				return err
 			}
 		}
@@ -175,19 +176,21 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 				continue
 			}
 			// Insert only if not exists
+			pb := dialect.NewParamBuilder()
 			sql := fmt.Sprintf(
-				"INSERT INTO %s (%s, %s) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-				rel.JoinTable, rel.SourceJoinKey, rel.TargetJoinKey)
-			if _, err := store.Exec(ctx, q, sql, parentID, targetID); err != nil {
+				"INSERT INTO %s (%s, %s) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+				rel.JoinTable, rel.SourceJoinKey, rel.TargetJoinKey, pb.Add(parentID), pb.Add(targetID))
+			if _, err := store.Exec(ctx, q, sql, pb.Params()...); err != nil {
 				return fmt.Errorf("insert join row: %w", err)
 			}
 		}
 
 	default: // diff
 		// Fetch current join rows
-		currentSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1",
-			rel.TargetJoinKey, rel.JoinTable, rel.SourceJoinKey)
-		currentRows, err := store.QueryRows(ctx, q, currentSQL, parentID)
+		pb := dialect.NewParamBuilder()
+		currentSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s",
+			rel.TargetJoinKey, rel.JoinTable, rel.SourceJoinKey, pb.Add(parentID))
+		currentRows, err := store.QueryRows(ctx, q, currentSQL, pb.Params()...)
 		if err != nil {
 			return fmt.Errorf("fetch current join rows: %w", err)
 		}
@@ -208,9 +211,10 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 			}
 
 			if del, ok := row["_delete"]; ok && del == true {
-				delSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = $1 AND %s = $2",
-					rel.JoinTable, rel.SourceJoinKey, rel.TargetJoinKey)
-				if _, err := store.Exec(ctx, q, delSQL, parentID, targetID); err != nil {
+				dpb := dialect.NewParamBuilder()
+				delSQL := fmt.Sprintf("DELETE FROM %s WHERE %s = %s AND %s = %s",
+					rel.JoinTable, rel.SourceJoinKey, dpb.Add(parentID), rel.TargetJoinKey, dpb.Add(targetID))
+				if _, err := store.Exec(ctx, q, delSQL, dpb.Params()...); err != nil {
 					return fmt.Errorf("delete join row: %w", err)
 				}
 				continue
@@ -218,7 +222,7 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 
 			targetStr := fmt.Sprintf("%v", targetID)
 			if !currentTargets[targetStr] {
-				if err := insertJoinRow(ctx, q, rel, parentID, targetID); err != nil {
+				if err := insertJoinRow(ctx, q, dialect, rel, parentID, targetID); err != nil {
 					return err
 				}
 			}
@@ -230,9 +234,9 @@ func executeManyToManyWrite(ctx context.Context, q store.Querier, reg *metadata.
 
 // Helper functions
 
-func fetchCurrentChildren(ctx context.Context, q store.Querier, entity *metadata.Entity, rel *metadata.Relation, parentID any) ([]map[string]any, error) {
+func fetchCurrentChildren(ctx context.Context, q store.Querier, dialect store.Dialect, entity *metadata.Entity, rel *metadata.Relation, parentID any) ([]map[string]any, error) {
 	columns := strings.Join(entity.FieldNames(), ", ")
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1", columns, entity.Table, rel.TargetKey)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s", columns, entity.Table, rel.TargetKey, dialect.Placeholder(1))
 	if entity.SoftDelete {
 		sql += " AND deleted_at IS NULL"
 	}
@@ -249,8 +253,8 @@ func indexByPK(rows []map[string]any, pkField string) map[string]map[string]any 
 	return m
 }
 
-func insertChild(ctx context.Context, q store.Querier, entity *metadata.Entity, fields map[string]any) error {
-	sql, params := BuildInsertSQL(entity, fields)
+func insertChild(ctx context.Context, q store.Querier, dialect store.Dialect, entity *metadata.Entity, fields map[string]any) error {
+	sql, params := BuildInsertSQL(entity, fields, dialect)
 	_, err := store.QueryRows(ctx, q, sql, params...)
 	if err != nil {
 		return fmt.Errorf("insert %s: %w", entity.Table, err)
@@ -258,8 +262,8 @@ func insertChild(ctx context.Context, q store.Querier, entity *metadata.Entity, 
 	return nil
 }
 
-func updateChild(ctx context.Context, q store.Querier, entity *metadata.Entity, id any, fields map[string]any) error {
-	sql, params := BuildUpdateSQL(entity, id, fields)
+func updateChild(ctx context.Context, q store.Querier, dialect store.Dialect, entity *metadata.Entity, id any, fields map[string]any) error {
+	sql, params := BuildUpdateSQL(entity, id, fields, dialect)
 	if sql == "" {
 		return nil // nothing to update
 	}
@@ -269,14 +273,14 @@ func updateChild(ctx context.Context, q store.Querier, entity *metadata.Entity, 
 	return nil
 }
 
-func softDeleteChild(ctx context.Context, q store.Querier, entity *metadata.Entity, id any) error {
+func softDeleteChild(ctx context.Context, q store.Querier, dialect store.Dialect, entity *metadata.Entity, id any) error {
 	if entity.SoftDelete {
-		sql, params := BuildSoftDeleteSQL(entity, id)
+		sql, params := BuildSoftDeleteSQL(entity, id, dialect)
 		if _, err := store.Exec(ctx, q, sql, params...); err != nil {
 			return fmt.Errorf("soft delete %s: %w", entity.Table, err)
 		}
 	} else {
-		sql, params := BuildHardDeleteSQL(entity, id)
+		sql, params := BuildHardDeleteSQL(entity, id, dialect)
 		if _, err := store.Exec(ctx, q, sql, params...); err != nil {
 			return fmt.Errorf("hard delete %s: %w", entity.Table, err)
 		}
@@ -284,10 +288,11 @@ func softDeleteChild(ctx context.Context, q store.Querier, entity *metadata.Enti
 	return nil
 }
 
-func insertJoinRow(ctx context.Context, q store.Querier, rel *metadata.Relation, sourceID, targetID any) error {
-	sql := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES ($1, $2)",
-		rel.JoinTable, rel.SourceJoinKey, rel.TargetJoinKey)
-	if _, err := store.Exec(ctx, q, sql, sourceID, targetID); err != nil {
+func insertJoinRow(ctx context.Context, q store.Querier, dialect store.Dialect, rel *metadata.Relation, sourceID, targetID any) error {
+	pb := dialect.NewParamBuilder()
+	sql := fmt.Sprintf("INSERT INTO %s (%s, %s) VALUES (%s, %s)",
+		rel.JoinTable, rel.SourceJoinKey, rel.TargetJoinKey, pb.Add(sourceID), pb.Add(targetID))
+	if _, err := store.Exec(ctx, q, sql, pb.Params()...); err != nil {
 		return fmt.Errorf("insert join row in %s: %w", rel.JoinTable, err)
 	}
 	return nil

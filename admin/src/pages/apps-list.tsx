@@ -13,6 +13,7 @@ export function AppsList() {
   const [showCreate, setShowCreate] = createSignal(false);
   const [name, setName] = createSignal("");
   const [displayName, setDisplayName] = createSignal("");
+  const [dbDriver, setDbDriver] = createSignal("postgres");
   const [creating, setCreating] = createSignal(false);
   const [deleting, setDeleting] = createSignal<string | null>(null);
 
@@ -41,11 +42,12 @@ export function AppsList() {
     e.preventDefault();
     setCreating(true);
     try {
-      await createApp({ name: name(), display_name: displayName() });
+      await createApp({ name: name(), display_name: displayName(), db_driver: dbDriver() });
       addToast("success", `App "${name()}" created`);
       setShowCreate(false);
       setName("");
       setDisplayName("");
+      setDbDriver("postgres");
       load();
     } catch (err) {
       if (isApiError(err)) {
@@ -117,6 +119,25 @@ export function AppsList() {
                 required
               />
             </div>
+            <div class="form-group">
+              <label class="form-label" for="app-driver">
+                Database Driver
+              </label>
+              <select
+                id="app-driver"
+                class="form-input"
+                value={dbDriver()}
+                onChange={(e) => setDbDriver(e.currentTarget.value)}
+              >
+                <option value="postgres">PostgreSQL</option>
+                <option value="sqlite">SQLite</option>
+              </select>
+              <p class="text-muted" style={{ "margin-top": "0.25rem", "font-size": "0.8rem" }}>
+                {dbDriver() === "sqlite"
+                  ? "SQLite: lightweight, file-based, zero infrastructure. Ideal for dev, demos, and small-scale."
+                  : "PostgreSQL: full-featured, production-grade. Requires a running PostgreSQL server."}
+              </p>
+            </div>
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button type="submit" class="btn-primary" disabled={creating()}>
                 {creating() ? "Creating..." : "Create"}
@@ -146,6 +167,7 @@ export function AppsList() {
               <th class="table-header-cell">Name</th>
               <th class="table-header-cell">Display Name</th>
               <th class="table-header-cell">Database</th>
+              <th class="table-header-cell">Driver</th>
               <th class="table-header-cell">Status</th>
               <th class="table-header-cell">Created</th>
               <th class="table-header-cell">Actions</th>
@@ -166,6 +188,11 @@ export function AppsList() {
                   </td>
                   <td class="table-cell">{app.display_name}</td>
                   <td class="table-cell-mono">{app.db_name}</td>
+                  <td class="table-cell">
+                    <span class={`badge ${app.db_driver === "sqlite" ? "badge-info" : "badge-primary"}`}>
+                      {app.db_driver === "sqlite" ? "SQLite" : "PostgreSQL"}
+                    </span>
+                  </td>
                   <td class="table-cell">
                     <span class={`badge ${app.status === "active" ? "badge-success" : "badge-warning"}`}>
                       {app.status}

@@ -2,6 +2,7 @@ package instrument
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"rocket-backend/internal/store"
 )
 
 // EventBuffer collects events in memory and periodically flushes them
@@ -17,16 +18,18 @@ import (
 type EventBuffer struct {
 	mu      sync.Mutex
 	events  []Event
-	pool    *pgxpool.Pool
+	db      *sql.DB
+	dialect store.Dialect
 	maxSize int
 	ticker  *time.Ticker
 	done    chan struct{}
 }
 
 // NewEventBuffer creates a buffer that flushes on a timer or when full.
-func NewEventBuffer(pool *pgxpool.Pool, maxSize int, flushIntervalMs int) *EventBuffer {
+func NewEventBuffer(db *sql.DB, dialect store.Dialect, maxSize int, flushIntervalMs int) *EventBuffer {
 	eb := &EventBuffer{
-		pool:    pool,
+		db:      db,
+		dialect: dialect,
 		maxSize: maxSize,
 		done:    make(chan struct{}),
 	}
@@ -70,24 +73,19 @@ func (eb *EventBuffer) Flush() {
 	eb.mu.Unlock()
 
 	ctx := context.Background()
-	conn, err := eb.pool.Acquire(ctx)
-	if err != nil {
-		log.Printf("ERROR: event buffer acquire conn: %v", err)
-		return
-	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
+	tx, err := eb.db.BeginTx(ctx, nil)
 	if err != nil {
 		log.Printf("ERROR: event buffer begin tx: %v", err)
 		return
 	}
 
-	_, err = tx.Exec(ctx, "SET LOCAL synchronous_commit = off")
-	if err != nil {
-		tx.Rollback(ctx)
-		log.Printf("ERROR: event buffer set sync commit: %v", err)
-		return
+	if syncOff := eb.dialect.SyncCommitOff(); syncOff != "" {
+		_, err = tx.ExecContext(ctx, syncOff)
+		if err != nil {
+			tx.Rollback()
+			log.Printf("ERROR: event buffer set sync commit: %v", err)
+			return
+		}
 	}
 
 	// Build batch insert
@@ -98,7 +96,7 @@ func (eb *EventBuffer) Flush() {
 		offset := i * len(cols)
 		ph := make([]string, len(cols))
 		for j := range cols {
-			ph[j] = fmt.Sprintf("$%d", offset+j+1)
+			ph[j] = eb.dialect.Placeholder(offset + j + 1)
 		}
 		placeholders = append(placeholders, "("+strings.Join(ph, ",")+")")
 
@@ -111,15 +109,15 @@ func (eb *EventBuffer) Flush() {
 		args = append(args, e.TraceID, e.SpanID, e.ParentSpanID, e.EventType, e.Source, e.Component, e.Action, e.Entity, e.RecordID, e.UserID, e.DurationMs, e.Status, metaJSON)
 	}
 
-	sql := fmt.Sprintf("INSERT INTO _events (%s) VALUES %s", strings.Join(cols, ","), strings.Join(placeholders, ","))
-	_, err = tx.Exec(ctx, sql, args...)
+	sqlStr := fmt.Sprintf("INSERT INTO _events (%s) VALUES %s", strings.Join(cols, ","), strings.Join(placeholders, ","))
+	_, err = tx.ExecContext(ctx, sqlStr, args...)
 	if err != nil {
-		tx.Rollback(ctx)
+		tx.Rollback()
 		log.Printf("ERROR: event buffer insert: %v", err)
 		return
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		log.Printf("ERROR: event buffer commit: %v", err)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
@@ -53,8 +52,8 @@ func (h *Handler) List(c *fiber.Ctx) error {
 	}
 
 	// Execute data query
-	qr := BuildSelectSQL(plan)
-	rows, err := store.QueryRows(c.Context(), h.store.Pool, qr.SQL, qr.Params...)
+	qr := BuildSelectSQL(plan, h.store.Dialect)
+	rows, err := store.QueryRows(c.Context(), h.store.DB, qr.SQL, qr.Params...)
 	if err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
@@ -62,8 +61,8 @@ func (h *Handler) List(c *fiber.Ctx) error {
 	}
 
 	// Execute count query
-	cr := BuildCountSQL(plan)
-	countRow, err := store.QueryRow(c.Context(), h.store.Pool, cr.SQL, cr.Params...)
+	cr := BuildCountSQL(plan, h.store.Dialect)
+	countRow, err := store.QueryRow(c.Context(), h.store.DB, cr.SQL, cr.Params...)
 	if err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
@@ -73,7 +72,7 @@ func (h *Handler) List(c *fiber.Ctx) error {
 
 	// Load includes
 	if len(plan.Includes) > 0 {
-		if err := LoadIncludes(c.Context(), h.store.Pool, h.registry, entity, rows, plan.Includes); err != nil {
+		if err := LoadIncludes(c.Context(), h.store.DB, h.store.Dialect, h.registry, entity, rows, plan.Includes); err != nil {
 			span.SetStatus("error")
 			span.SetMetadata("error", err.Error())
 			return fmt.Errorf("load includes: %w", err)
@@ -118,7 +117,7 @@ func (h *Handler) GetByID(c *fiber.Ctx) error {
 		return err
 	}
 
-	row, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
+	row, err := fetchRecord(c.Context(), h.store.DB, entity, id, h.store.Dialect)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			span.SetStatus("error")
@@ -133,7 +132,7 @@ func (h *Handler) GetByID(c *fiber.Ctx) error {
 	includes := parseIncludes(c)
 	if len(includes) > 0 {
 		rows := []map[string]any{row}
-		if err := LoadIncludes(c.Context(), h.store.Pool, h.registry, entity, rows, includes); err != nil {
+		if err := LoadIncludes(c.Context(), h.store.DB, h.store.Dialect, h.registry, entity, rows, includes); err != nil {
 			span.SetStatus("error")
 			span.SetMetadata("error", err.Error())
 			return fmt.Errorf("load includes: %w", err)
@@ -206,7 +205,7 @@ func (h *Handler) Update(c *fiber.Ctx) error {
 	span.SetEntity(entity.Name, id)
 
 	// Verify record exists and check permissions against current state
-	currentRecord, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
+	currentRecord, err := fetchRecord(c.Context(), h.store.DB, entity, id, h.store.Dialect)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			span.SetStatus("error")
@@ -264,7 +263,7 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	span.SetEntity(entity.Name, id)
 
 	// Check permissions against current record
-	currentRecord, err := fetchRecord(c.Context(), h.store.Pool, entity, id)
+	currentRecord, err := fetchRecord(c.Context(), h.store.DB, entity, id, h.store.Dialect)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			span.SetStatus("error")
@@ -287,10 +286,10 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 		span.SetMetadata("error", err.Error())
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(c.Context()) //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck
 
 	// Handle cascades
-	if err := HandleCascadeDelete(c.Context(), tx, h.registry, entity, id); err != nil {
+	if err := HandleCascadeDelete(c.Context(), tx, h.store.Dialect, h.registry, entity, id); err != nil {
 		var appErr *AppError
 		if errors.As(err, &appErr) {
 			span.SetStatus("error")
@@ -305,9 +304,9 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	var sql string
 	var params []any
 	if entity.SoftDelete {
-		sql, params = BuildSoftDeleteSQL(entity, id)
+		sql, params = BuildSoftDeleteSQL(entity, id, h.store.Dialect)
 	} else {
-		sql, params = BuildHardDeleteSQL(entity, id)
+		sql, params = BuildHardDeleteSQL(entity, id, h.store.Dialect)
 	}
 
 	affected, err := store.Exec(c.Context(), tx, sql, params...)
@@ -322,13 +321,13 @@ func (h *Handler) Delete(c *fiber.Ctx) error {
 	}
 
 	// Pre-commit: fire sync (before_delete) webhooks
-	if err := FireSyncWebhooks(c.Context(), tx, h.registry, "before_delete", entity.Name, "delete", currentRecord, nil, user); err != nil {
+	if err := FireSyncWebhooks(c.Context(), tx, h.store.Dialect, h.registry, "before_delete", entity.Name, "delete", currentRecord, nil, user); err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
 		return fmt.Errorf("sync webhook: %w", err)
 	}
 
-	if err := tx.Commit(c.Context()); err != nil {
+	if err := tx.Commit(); err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
 		return fmt.Errorf("commit: %w", err)
@@ -345,7 +344,7 @@ func (h *Handler) resolveEntity(c *fiber.Ctx) (*metadata.Entity, error) {
 	name := c.Params("entity")
 	entity := h.registry.GetEntity(name)
 	if entity == nil {
-		return nil, respondError(c, UnknownEntityError(name))
+		return nil, UnknownEntityError(name)
 	}
 	return entity, nil
 }
@@ -366,12 +365,7 @@ func handleWriteError(c *fiber.Ctx, err error) error {
 	}
 
 	if errors.Is(err, store.ErrUniqueViolation) {
-		msg := "A record with this value already exists"
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Detail != "" {
-			msg = pgErr.Detail
-		}
-		return respondError(c, ConflictError(msg))
+		return respondError(c, ConflictError("A record with this value already exists"))
 	}
 
 	return err

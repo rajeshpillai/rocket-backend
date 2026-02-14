@@ -12,11 +12,11 @@ import (
 
 // WorkflowStore abstracts all persistence operations for workflow instances.
 type WorkflowStore interface {
-	CreateInstance(ctx context.Context, q store.Querier, data WorkflowInstanceData) (string, error)
-	LoadInstance(ctx context.Context, q store.Querier, id string) (*metadata.WorkflowInstance, error)
-	PersistInstance(ctx context.Context, q store.Querier, instance *metadata.WorkflowInstance) error
-	ListPending(ctx context.Context, q store.Querier) ([]*metadata.WorkflowInstance, error)
-	FindTimedOut(ctx context.Context, q store.Querier) ([]*metadata.WorkflowInstance, error)
+	CreateInstance(ctx context.Context, q store.Querier, dialect store.Dialect, data WorkflowInstanceData) (string, error)
+	LoadInstance(ctx context.Context, q store.Querier, dialect store.Dialect, id string) (*metadata.WorkflowInstance, error)
+	PersistInstance(ctx context.Context, q store.Querier, dialect store.Dialect, instance *metadata.WorkflowInstance) error
+	ListPending(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error)
+	FindTimedOut(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error)
 }
 
 // WorkflowInstanceData is the data needed to create a new workflow instance.
@@ -30,18 +30,37 @@ type WorkflowInstanceData struct {
 // PgWorkflowStore implements WorkflowStore against Postgres _workflow_instances.
 type PgWorkflowStore struct{}
 
-func (s *PgWorkflowStore) CreateInstance(ctx context.Context, q store.Querier, data WorkflowInstanceData) (string, error) {
+func (s *PgWorkflowStore) CreateInstance(ctx context.Context, q store.Querier, dialect store.Dialect, data WorkflowInstanceData) (string, error) {
 	ctxJSON, err := json.Marshal(data.Context)
 	if err != nil {
 		return "", fmt.Errorf("marshal workflow context: %w", err)
 	}
 	historyJSON, _ := json.Marshal([]metadata.WorkflowHistoryEntry{})
 
+	pb := dialect.NewParamBuilder()
+	if dialect.UUIDDefault() == "" {
+		// SQLite: generate UUID in application code
+		id := store.GenerateUUID()
+		_, err = store.Exec(ctx, q,
+			fmt.Sprintf(`INSERT INTO _workflow_instances (id, workflow_id, workflow_name, status, current_step, context, history)
+			 VALUES (%s, %s, %s, 'running', %s, %s, %s)`,
+				pb.Add(id), pb.Add(data.WorkflowID), pb.Add(data.WorkflowName),
+				pb.Add(data.CurrentStep), pb.Add(string(ctxJSON)), pb.Add(string(historyJSON))),
+			pb.Params()...)
+		if err != nil {
+			return "", fmt.Errorf("insert workflow instance: %w", err)
+		}
+		return id, nil
+	}
+
+	// PostgreSQL: use RETURNING id with gen_random_uuid() default
 	row, err := store.QueryRow(ctx, q,
-		`INSERT INTO _workflow_instances (workflow_id, workflow_name, status, current_step, context, history)
-		 VALUES ($1, $2, 'running', $3, $4, $5)
+		fmt.Sprintf(`INSERT INTO _workflow_instances (workflow_id, workflow_name, status, current_step, context, history)
+		 VALUES (%s, %s, 'running', %s, %s, %s)
 		 RETURNING id`,
-		data.WorkflowID, data.WorkflowName, data.CurrentStep, ctxJSON, historyJSON)
+			pb.Add(data.WorkflowID), pb.Add(data.WorkflowName),
+			pb.Add(data.CurrentStep), pb.Add(ctxJSON), pb.Add(historyJSON)),
+		pb.Params()...)
 	if err != nil {
 		return "", fmt.Errorf("insert workflow instance: %w", err)
 	}
@@ -49,10 +68,10 @@ func (s *PgWorkflowStore) CreateInstance(ctx context.Context, q store.Querier, d
 	return fmt.Sprintf("%v", row["id"]), nil
 }
 
-func (s *PgWorkflowStore) LoadInstance(ctx context.Context, q store.Querier, id string) (*metadata.WorkflowInstance, error) {
+func (s *PgWorkflowStore) LoadInstance(ctx context.Context, q store.Querier, dialect store.Dialect, id string) (*metadata.WorkflowInstance, error) {
 	row, err := store.QueryRow(ctx, q,
-		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
-		 FROM _workflow_instances WHERE id = $1`, id)
+		fmt.Sprintf(`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
+		 FROM _workflow_instances WHERE id = %s`, dialect.Placeholder(1)), id)
 	if err != nil {
 		return nil, fmt.Errorf("workflow instance not found: %s", id)
 	}
@@ -60,7 +79,7 @@ func (s *PgWorkflowStore) LoadInstance(ctx context.Context, q store.Querier, id 
 	return ParseWorkflowInstanceRow(row)
 }
 
-func (s *PgWorkflowStore) PersistInstance(ctx context.Context, q store.Querier, instance *metadata.WorkflowInstance) error {
+func (s *PgWorkflowStore) PersistInstance(ctx context.Context, q store.Querier, dialect store.Dialect, instance *metadata.WorkflowInstance) error {
 	ctxJSON, err := json.Marshal(instance.Context)
 	if err != nil {
 		return fmt.Errorf("marshal context: %w", err)
@@ -70,16 +89,18 @@ func (s *PgWorkflowStore) PersistInstance(ctx context.Context, q store.Querier, 
 		return fmt.Errorf("marshal history: %w", err)
 	}
 
+	pb := dialect.NewParamBuilder()
 	_, err = store.Exec(ctx, q,
-		`UPDATE _workflow_instances
-		 SET status = $1, current_step = $2, current_step_deadline = $3, context = $4, history = $5, updated_at = NOW()
-		 WHERE id = $6`,
-		instance.Status, nilIfEmpty(instance.CurrentStep), instance.CurrentStepDeadline,
-		ctxJSON, historyJSON, instance.ID)
+		fmt.Sprintf(`UPDATE _workflow_instances
+		 SET status = %s, current_step = %s, current_step_deadline = %s, context = %s, history = %s, updated_at = %s
+		 WHERE id = %s`,
+			pb.Add(instance.Status), pb.Add(nilIfEmpty(instance.CurrentStep)), pb.Add(instance.CurrentStepDeadline),
+			pb.Add(ctxJSON), pb.Add(historyJSON), dialect.NowExpr(), pb.Add(instance.ID)),
+		pb.Params()...)
 	return err
 }
 
-func (s *PgWorkflowStore) ListPending(ctx context.Context, q store.Querier) ([]*metadata.WorkflowInstance, error) {
+func (s *PgWorkflowStore) ListPending(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error) {
 	rows, err := store.QueryRows(ctx, q,
 		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
 		 FROM _workflow_instances WHERE status = 'running' AND current_step IS NOT NULL
@@ -100,13 +121,13 @@ func (s *PgWorkflowStore) ListPending(ctx context.Context, q store.Querier) ([]*
 	return instances, nil
 }
 
-func (s *PgWorkflowStore) FindTimedOut(ctx context.Context, q store.Querier) ([]*metadata.WorkflowInstance, error) {
+func (s *PgWorkflowStore) FindTimedOut(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error) {
 	rows, err := store.QueryRows(ctx, q,
-		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
+		fmt.Sprintf(`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
 		 FROM _workflow_instances
 		 WHERE status = 'running'
 		   AND current_step_deadline IS NOT NULL
-		   AND current_step_deadline < NOW()`)
+		   AND current_step_deadline < %s`, dialect.NowExpr()))
 	if err != nil {
 		return nil, err
 	}

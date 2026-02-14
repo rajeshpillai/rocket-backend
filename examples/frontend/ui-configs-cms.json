@@ -166,6 +166,7 @@
               {
                 "type": "comments",
                 "relation": "comments",
+                "entity": "comment",
                 "title": "Comments",
                 "allow_submit": true,
                 "submit_fields": {

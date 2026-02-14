@@ -2,11 +2,13 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 
 	"rocket-backend/internal/engine"
+	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
 
@@ -43,7 +45,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}
 
 	// Check if user is active
-	active, _ := user["active"].(bool)
+	active := toBool(user["active"])
 	if !active {
 		return engine.UnauthorizedError("Account is disabled")
 	}
@@ -82,11 +84,12 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	ctx := c.Context()
 
 	// Look up refresh token
-	row, err := store.QueryRow(ctx, h.store.Pool,
-		`SELECT rt.id, rt.user_id, rt.expires_at, u.roles, u.active
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(ctx, h.store.DB,
+		fmt.Sprintf(`SELECT rt.id, rt.user_id, rt.expires_at, u.roles, u.active
 		 FROM _refresh_tokens rt
 		 JOIN _users u ON u.id = rt.user_id
-		 WHERE rt.token = $1`, body.RefreshToken)
+		 WHERE rt.token = %s`, pb.Add(body.RefreshToken)), pb.Params()...)
 	if err != nil {
 		return engine.UnauthorizedError("Invalid refresh token")
 	}
@@ -95,21 +98,23 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	expiresAt, _ := row["expires_at"].(time.Time)
 	if time.Now().After(expiresAt) {
 		// Delete expired token
-		_, _ = store.Exec(ctx, h.store.Pool,
-			"DELETE FROM _refresh_tokens WHERE token = $1", body.RefreshToken)
+		pb2 := h.store.Dialect.NewParamBuilder()
+		_, _ = store.Exec(ctx, h.store.DB,
+			fmt.Sprintf("DELETE FROM _refresh_tokens WHERE token = %s", pb2.Add(body.RefreshToken)), pb2.Params()...)
 		return engine.UnauthorizedError("Refresh token expired")
 	}
 
 	// Check user is active
-	active, _ := row["active"].(bool)
+	active := toBool(row["active"])
 	if !active {
 		return engine.UnauthorizedError("Account is disabled")
 	}
 
 	// Delete the used refresh token (rotation)
 	tokenID, _ := row["id"].(string)
-	_, _ = store.Exec(ctx, h.store.Pool,
-		"DELETE FROM _refresh_tokens WHERE id = $1", tokenID)
+	pb3 := h.store.Dialect.NewParamBuilder()
+	_, _ = store.Exec(ctx, h.store.DB,
+		fmt.Sprintf("DELETE FROM _refresh_tokens WHERE id = %s", pb3.Add(tokenID)), pb3.Params()...)
 
 	// Generate new token pair
 	userID, _ := row["user_id"].(string)
@@ -135,8 +140,9 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 		return engine.UnauthorizedError("Refresh token is required")
 	}
 
-	_, _ = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _refresh_tokens WHERE token = $1", body.RefreshToken)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, _ = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _refresh_tokens WHERE token = %s", pb.Add(body.RefreshToken)), pb.Params()...)
 
 	return c.JSON(fiber.Map{"message": "Logged out"})
 }
@@ -152,8 +158,9 @@ func RegisterAuthRoutes(app *fiber.App, h *AuthHandler) {
 // --- helpers ---
 
 func (h *AuthHandler) findUserByEmail(ctx context.Context, email string) (map[string]any, error) {
-	return store.QueryRow(ctx, h.store.Pool,
-		"SELECT id, email, password_hash, roles, active FROM _users WHERE email = $1", email)
+	pb := h.store.Dialect.NewParamBuilder()
+	return store.QueryRow(ctx, h.store.DB,
+		fmt.Sprintf("SELECT id, email, password_hash, roles, active FROM _users WHERE email = %s", pb.Add(email)), pb.Params()...)
 }
 
 func (h *AuthHandler) generateTokenPair(ctx context.Context, userID string, roles []string) (*TokenPair, error) {
@@ -165,9 +172,11 @@ func (h *AuthHandler) generateTokenPair(ctx context.Context, userID string, role
 	refreshToken := GenerateRefreshToken()
 	expiresAt := time.Now().Add(RefreshTokenTTL)
 
-	_, err = store.Exec(ctx, h.store.Pool,
-		`INSERT INTO _refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-		userID, refreshToken, expiresAt)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(ctx, h.store.DB,
+		fmt.Sprintf(`INSERT INTO _refresh_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)`,
+			pb.Add(userID), pb.Add(refreshToken), pb.Add(expiresAt)),
+		pb.Params()...)
 	if err != nil {
 		return nil, engine.NewAppError("INTERNAL_ERROR", 500, "Failed to store refresh token")
 	}
@@ -193,7 +202,25 @@ func extractRoles(v any) []string {
 			}
 		}
 		return result
+	case string:
+		return metadata.ParseStringArray(roles)
+	case []byte:
+		return metadata.ParseStringArray(roles)
 	default:
 		return []string{}
+	}
+}
+
+// toBool converts various types to bool (SQLite returns INTEGER for BOOLEAN).
+func toBool(v any) bool {
+	switch val := v.(type) {
+	case bool:
+		return val
+	case int64:
+		return val != 0
+	case int:
+		return val != 0
+	default:
+		return false
 	}
 }

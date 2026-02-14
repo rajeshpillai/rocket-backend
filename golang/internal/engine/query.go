@@ -8,6 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"rocket-backend/internal/metadata"
+	"rocket-backend/internal/store"
 )
 
 type QueryPlan struct {
@@ -33,17 +34,6 @@ type OrderClause struct {
 type QueryResult struct {
 	SQL    string
 	Params []any
-}
-
-type paramBuilder struct {
-	params []any
-	n      int
-}
-
-func (p *paramBuilder) Add(v any) string {
-	p.n++
-	p.params = append(p.params, v)
-	return fmt.Sprintf("$%d", p.n)
 }
 
 // ParseQueryParams parses Fiber query parameters into a QueryPlan.
@@ -145,8 +135,8 @@ func ParseQueryParams(c *fiber.Ctx, entity *metadata.Entity, reg *metadata.Regis
 }
 
 // BuildSelectSQL builds a parameterized SELECT statement from the query plan.
-func BuildSelectSQL(plan *QueryPlan) QueryResult {
-	pb := &paramBuilder{}
+func BuildSelectSQL(plan *QueryPlan, dialect store.Dialect) QueryResult {
+	pb := dialect.NewParamBuilder()
 	entity := plan.Entity
 
 	columns := strings.Join(entity.FieldNames(), ", ")
@@ -163,7 +153,7 @@ func BuildSelectSQL(plan *QueryPlan) QueryResult {
 
 	// User filters
 	for _, f := range plan.Filters {
-		clause := buildWhereClause(f, pb)
+		clause := buildWhereClause(f, pb, dialect)
 		where = append(where, clause)
 	}
 
@@ -186,12 +176,12 @@ func BuildSelectSQL(plan *QueryPlan) QueryResult {
 	offset := pb.Add((plan.Page - 1) * plan.PerPage)
 	sql += fmt.Sprintf(" LIMIT %s OFFSET %s", limit, offset)
 
-	return QueryResult{SQL: sql, Params: pb.params}
+	return QueryResult{SQL: sql, Params: pb.Params()}
 }
 
 // BuildCountSQL builds a COUNT query with the same filters as the select.
-func BuildCountSQL(plan *QueryPlan) QueryResult {
-	pb := &paramBuilder{}
+func BuildCountSQL(plan *QueryPlan, dialect store.Dialect) QueryResult {
+	pb := dialect.NewParamBuilder()
 	entity := plan.Entity
 
 	var where []string
@@ -199,7 +189,7 @@ func BuildCountSQL(plan *QueryPlan) QueryResult {
 		where = append(where, "deleted_at IS NULL")
 	}
 	for _, f := range plan.Filters {
-		clause := buildWhereClause(f, pb)
+		clause := buildWhereClause(f, pb, dialect)
 		where = append(where, clause)
 	}
 
@@ -208,10 +198,10 @@ func BuildCountSQL(plan *QueryPlan) QueryResult {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
 
-	return QueryResult{SQL: sql, Params: pb.params}
+	return QueryResult{SQL: sql, Params: pb.Params()}
 }
 
-func buildWhereClause(f WhereClause, pb *paramBuilder) string {
+func buildWhereClause(f WhereClause, pb store.ParamBuilder, dialect store.Dialect) string {
 	switch f.Operator {
 	case "eq", "":
 		return fmt.Sprintf("%s = %s", f.Field, pb.Add(f.Value))
@@ -226,9 +216,17 @@ func buildWhereClause(f WhereClause, pb *paramBuilder) string {
 	case "lte":
 		return fmt.Sprintf("%s <= %s", f.Field, pb.Add(f.Value))
 	case "in":
-		return fmt.Sprintf("%s = ANY(%s)", f.Field, pb.Add(f.Value))
+		values, ok := f.Value.([]any)
+		if !ok {
+			return fmt.Sprintf("%s = %s", f.Field, pb.Add(f.Value))
+		}
+		return dialect.InExpr(f.Field, pb, values)
 	case "not_in":
-		return fmt.Sprintf("%s != ALL(%s)", f.Field, pb.Add(f.Value))
+		values, ok := f.Value.([]any)
+		if !ok {
+			return fmt.Sprintf("%s != %s", f.Field, pb.Add(f.Value))
+		}
+		return dialect.NotInExpr(f.Field, pb, values)
 	case "like":
 		return fmt.Sprintf("%s LIKE %s", f.Field, pb.Add(f.Value))
 	default:

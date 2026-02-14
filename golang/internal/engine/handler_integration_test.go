@@ -210,16 +210,16 @@ func TestCreateDuplicate_Returns409(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_unique_users"
 
 	// Cleanup at end (runs even if test fails)
 	defer func() {
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity with unique email field
@@ -275,17 +275,17 @@ func TestFieldRuleEnforcement(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_field_rule_entity"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _rules WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _rules WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity
@@ -360,17 +360,17 @@ func TestComputedFieldEnforcement(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_computed_entity"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _rules WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _rules WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity with subtotal, tax_rate, total
@@ -433,17 +433,17 @@ func TestStateMachineEnforcement(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_sm_entity"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity with status and total fields
@@ -594,17 +594,17 @@ func TestStateMachineCRUD(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_sm_crud_entity"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// Create test entity
@@ -695,17 +695,17 @@ func TestRulesCRUD(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_rules_entity"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _rules WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _rules WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// Create test entity
@@ -798,14 +798,14 @@ func TestWorkflowCRUD(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.DB, "DELETE FROM _workflows")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create workflow
@@ -889,19 +889,19 @@ func TestWorkflowTriggerAndExecution(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_wf_trigger"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.DB, "DELETE FROM _workflows")
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity with status and reviewed fields
@@ -1012,19 +1012,19 @@ func TestWorkflowApprovalFlow(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_wf_approval"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.DB, "DELETE FROM _workflows")
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// 1. Create entity
@@ -1179,19 +1179,19 @@ func TestWorkflowRejection(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_wf_reject"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.DB, "DELETE FROM _workflows")
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// Create entity + state machine + workflow (same as approval test)
@@ -1299,19 +1299,19 @@ func TestWorkflowConditionBranching(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testApp(t, s, reg)
 
 	const entityName = "_test_wf_cond"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflow_instances")
-		store.Exec(ctx, s.Pool, "DELETE FROM _workflows")
-		store.Exec(ctx, s.Pool, "DELETE FROM _state_machines WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _workflow_instances")
+		store.Exec(ctx, s.DB, "DELETE FROM _workflows")
+		store.Exec(ctx, s.DB, "DELETE FROM _state_machines WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// Create entity
@@ -1445,13 +1445,13 @@ func TestAuthLoginRefreshLogout(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// Cleanup test users (keep seed admin)
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
 	}()
 
 	// 1. Login with seed admin
@@ -1534,7 +1534,7 @@ func TestAuthLoginInvalidCredentials(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// 1. Wrong password
@@ -1570,7 +1570,7 @@ func TestMiddlewareRejectsMissingToken(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// 1. No Authorization header
@@ -1608,19 +1608,19 @@ func TestAdminRoleBypass(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	const entityName = "_test_auth_admin_bypass"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	// Login as admin
@@ -1680,19 +1680,19 @@ func TestPermissionGrantsAccess(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	const entityName = "_test_auth_perm_grant"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -1749,19 +1749,19 @@ func TestPermissionDeniesAccess(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	const entityName = "_test_auth_perm_deny"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -1816,19 +1816,19 @@ func TestRowLevelFiltering(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	const entityName = "_test_auth_row_filter"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -1930,19 +1930,19 @@ func TestWritePermissionWithConditions(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	const entityName = "_test_auth_write_cond"
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = $1", entityName)
-		store.Exec(ctx, s.Pool, "DROP TABLE IF EXISTS "+entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _entities WHERE name = $1", entityName)
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		_ = metadata.Reload(ctx, s.Pool, reg)
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = $1", entityName)
+		store.Exec(ctx, s.DB, "DROP TABLE IF EXISTS "+entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _entities WHERE name = $1", entityName)
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		_ = metadata.Reload(ctx, s.DB, reg)
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -2024,13 +2024,13 @@ func TestUserCRUD(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -2157,14 +2157,14 @@ func TestPermissionCRUD(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _permissions WHERE entity = '_test_perm_crud'")
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _permissions WHERE entity = '_test_perm_crud'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")
@@ -2232,13 +2232,13 @@ func TestDisabledUserCannotLogin(t *testing.T) {
 	defer s.Close()
 
 	reg := metadata.NewRegistry()
-	_ = metadata.LoadAll(ctx, s.Pool, reg)
+	_ = metadata.LoadAll(ctx, s.DB, reg)
 	app := testAppWithAuth(t, s, reg)
 
 	// Cleanup
 	defer func() {
-		store.Exec(ctx, s.Pool, "DELETE FROM _refresh_tokens")
-		store.Exec(ctx, s.Pool, "DELETE FROM _users WHERE email != 'admin@localhost'")
+		store.Exec(ctx, s.DB, "DELETE FROM _refresh_tokens")
+		store.Exec(ctx, s.DB, "DELETE FROM _users WHERE email != 'admin@localhost'")
 	}()
 
 	adminToken := loginAs(t, app, "admin@localhost", "changeme")

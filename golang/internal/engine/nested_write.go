@@ -74,12 +74,12 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck
 
-	// Evaluate rules (field → expression → computed)
+	// Evaluate rules (field -> expression -> computed)
 	var old map[string]any
 	if !plan.IsCreate {
-		old, _ = fetchRecord(ctx, tx, plan.Entity, plan.ID)
+		old, _ = fetchRecord(ctx, tx, plan.Entity, plan.ID, s.Dialect)
 	}
 	if old == nil {
 		old = map[string]any{}
@@ -98,8 +98,8 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		return nil, ValidationError(smErrs)
 	}
 
-	// Resolve file fields: UUID string → JSONB metadata object
-	if err := resolveFileFields(ctx, tx, plan.Entity, plan.Fields); err != nil {
+	// Resolve file fields: UUID string -> JSONB metadata object
+	if err := resolveFileFields(ctx, tx, plan.Entity, plan.Fields, s.Dialect); err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("resolve file fields: %w", err)
@@ -109,7 +109,7 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 
 	if plan.IsCreate {
 		// INSERT parent
-		sql, params := BuildInsertSQL(plan.Entity, plan.Fields)
+		sql, params := BuildInsertSQL(plan.Entity, plan.Fields, s.Dialect)
 		row, err := store.QueryRow(ctx, tx, sql, params...)
 		if err != nil {
 			span.SetStatus("error")
@@ -120,7 +120,7 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	} else {
 		// UPDATE parent
 		parentID = plan.ID
-		sql, params := BuildUpdateSQL(plan.Entity, plan.ID, plan.Fields)
+		sql, params := BuildUpdateSQL(plan.Entity, plan.ID, plan.Fields, s.Dialect)
 		if sql != "" {
 			if _, err := store.Exec(ctx, tx, sql, params...); err != nil {
 				span.SetStatus("error")
@@ -132,7 +132,7 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 
 	// Execute child writes
 	for _, childOp := range plan.ChildOps {
-		if err := ExecuteChildWrite(ctx, tx, reg, parentID, childOp); err != nil {
+		if err := ExecuteChildWrite(ctx, tx, s.Dialect, reg, parentID, childOp); err != nil {
 			span.SetStatus("error")
 			span.SetMetadata("error", err.Error())
 			return nil, fmt.Errorf("child write for %s: %w", childOp.Relation.Name, err)
@@ -144,21 +144,21 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	if plan.IsCreate {
 		action = "create"
 	}
-	if err := FireSyncWebhooks(ctx, tx, reg, "before_write", plan.Entity.Name, action, plan.Fields, old, plan.User); err != nil {
+	if err := FireSyncWebhooks(ctx, tx, s.Dialect, reg, "before_write", plan.Entity.Name, action, plan.Fields, old, plan.User); err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("sync webhook: %w", err)
 	}
 
 	// Commit
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
 	// Fetch the full record
-	record, err := fetchRecord(ctx, s.Pool, plan.Entity, parentID)
+	record, err := fetchRecord(ctx, s.DB, plan.Entity, parentID, s.Dialect)
 	if err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
@@ -187,14 +187,14 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	return record, nil
 }
 
-func fetchRecord(ctx context.Context, q store.Querier, entity *metadata.Entity, id any) (map[string]any, error) {
+func fetchRecord(ctx context.Context, q store.Querier, entity *metadata.Entity, id any, dialect store.Dialect) (map[string]any, error) {
 	columns := entity.FieldNames()
 	if entity.SoftDelete && entity.GetField("deleted_at") == nil {
 		columns = append(columns, "deleted_at")
 	}
 
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1",
-		joinColumns(columns), entity.Table, entity.PrimaryKey.Field)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s",
+		joinColumns(columns), entity.Table, entity.PrimaryKey.Field, dialect.Placeholder(1))
 	if entity.SoftDelete {
 		sql += " AND deleted_at IS NULL"
 	}
@@ -215,7 +215,7 @@ func joinColumns(cols []string) string {
 
 // resolveFileFields converts UUID strings in file-type fields to full JSONB metadata objects.
 // If the value is already a map (full metadata), it passes through unchanged.
-func resolveFileFields(ctx context.Context, q store.Querier, entity *metadata.Entity, fields map[string]any) error {
+func resolveFileFields(ctx context.Context, q store.Querier, entity *metadata.Entity, fields map[string]any, dialect store.Dialect) error {
 	for _, f := range entity.Fields {
 		if f.Type != "file" {
 			continue
@@ -235,7 +235,7 @@ func resolveFileFields(ctx context.Context, q store.Querier, entity *metadata.En
 		}
 
 		row, err := store.QueryRow(ctx, q,
-			"SELECT id, filename, size, mime_type FROM _files WHERE id = $1", strVal)
+			fmt.Sprintf("SELECT id, filename, size, mime_type FROM _files WHERE id = %s", dialect.Placeholder(1)), strVal)
 		if err != nil {
 			return NewAppError("NOT_FOUND", 404, fmt.Sprintf("File %s not found", strVal))
 		}

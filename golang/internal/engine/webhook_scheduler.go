@@ -60,13 +60,13 @@ func ProcessWebhookRetries(s *store.Store) {
 func (ws *WebhookScheduler) processRetries() {
 	ctx := context.Background()
 
-	rows, err := store.QueryRows(ctx, ws.store.Pool,
-		`SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body,
+	rows, err := store.QueryRows(ctx, ws.store.DB,
+		fmt.Sprintf(`SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body,
 		        status, attempt, max_attempts, idempotency_key
 		 FROM _webhook_logs
-		 WHERE status = 'retrying' AND next_retry_at < NOW()
+		 WHERE status = 'retrying' AND next_retry_at < %s
 		 ORDER BY next_retry_at ASC
-		 LIMIT 50`)
+		 LIMIT 50`, ws.store.Dialect.NowExpr()))
 	if err != nil {
 		log.Printf("ERROR: webhook scheduler query failed: %v", err)
 		return
@@ -134,12 +134,15 @@ func (ws *WebhookScheduler) retryDelivery(ctx context.Context, row map[string]an
 		nextRetry = &t
 	}
 
-	_, err := store.Exec(ctx, ws.store.Pool,
-		`UPDATE _webhook_logs
-		 SET status = $1, attempt = $2, response_status = $3, response_body = $4,
-		     error = $5, next_retry_at = $6, updated_at = NOW()
-		 WHERE id = $7`,
-		newStatus, attempt, result.StatusCode, result.ResponseBody, errMsg, nextRetry, logID)
+	pb := ws.store.Dialect.NewParamBuilder()
+	_, err := store.Exec(ctx, ws.store.DB,
+		fmt.Sprintf(`UPDATE _webhook_logs
+		 SET status = %s, attempt = %s, response_status = %s, response_body = %s,
+		     error = %s, next_retry_at = %s, updated_at = %s
+		 WHERE id = %s`,
+			pb.Add(newStatus), pb.Add(attempt), pb.Add(result.StatusCode), pb.Add(result.ResponseBody),
+			pb.Add(errMsg), pb.Add(nextRetry), ws.store.Dialect.NowExpr(), pb.Add(logID)),
+		pb.Params()...)
 	if err != nil {
 		log.Printf("ERROR: webhook scheduler update for %s: %v", logID, err)
 		return

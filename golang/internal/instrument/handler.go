@@ -1,25 +1,27 @@
 package instrument
 
 import (
+	"database/sql"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"rocket-backend/internal/store"
 )
 
 // EventHandler exposes REST endpoints for querying and emitting events.
 type EventHandler struct {
-	pool *pgxpool.Pool
+	db      *sql.DB
+	dialect store.Dialect
 }
 
-// NewEventHandler creates an EventHandler backed by the given pool.
-func NewEventHandler(pool *pgxpool.Pool) *EventHandler {
-	return &EventHandler{pool: pool}
+// NewEventHandler creates an EventHandler backed by the given db and dialect.
+func NewEventHandler(db *sql.DB, dialect store.Dialect) *EventHandler {
+	return &EventHandler{db: db, dialect: dialect}
 }
 
 // Emit handles POST /_events — emit a custom business event (any authenticated user).
@@ -53,52 +55,52 @@ func (h *EventHandler) List(c *fiber.Ctx) error {
 	argIdx := 1
 
 	if v := c.Query("source"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("source = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("source = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("component"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("component = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("component = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("action"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("action = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("action = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("entity"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("entity = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("entity = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("event_type"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("event_type = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("event_type = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("trace_id"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("trace_id = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("trace_id = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("user_id"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("user_id = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("user_id = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("status"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("status = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("from"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("created_at >= %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("to"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("created_at <= %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
@@ -131,7 +133,7 @@ func (h *EventHandler) List(c *fiber.Ctx) error {
 
 	// Count query
 	countSQL := "SELECT COUNT(*) as count FROM _events" + whereClause
-	countRow, err := store.QueryRow(ctx, h.pool, countSQL, args...)
+	countRow, err := store.QueryRow(ctx, h.db, countSQL, args...)
 	if err != nil {
 		return fmt.Errorf("count events: %w", err)
 	}
@@ -139,11 +141,11 @@ func (h *EventHandler) List(c *fiber.Ctx) error {
 
 	// Data query
 	dataSQL := fmt.Sprintf(
-		"SELECT id, trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata, created_at FROM _events%s ORDER BY %s LIMIT $%d OFFSET $%d",
-		whereClause, orderBy, argIdx, argIdx+1,
+		"SELECT id, trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata, created_at FROM _events%s ORDER BY %s LIMIT %s OFFSET %s",
+		whereClause, orderBy, h.dialect.Placeholder(argIdx), h.dialect.Placeholder(argIdx+1),
 	)
 	dataArgs := append(args, perPage, offset)
-	rows, err := store.QueryRows(ctx, h.pool, dataSQL, dataArgs...)
+	rows, err := store.QueryRows(ctx, h.db, dataSQL, dataArgs...)
 	if err != nil {
 		return fmt.Errorf("list events: %w", err)
 	}
@@ -169,8 +171,8 @@ func (h *EventHandler) GetTrace(c *fiber.Ctx) error {
 		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "trace_id is required"}})
 	}
 
-	rows, err := store.QueryRows(ctx, h.pool,
-		"SELECT id, trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata, created_at FROM _events WHERE trace_id = $1 ORDER BY created_at ASC",
+	rows, err := store.QueryRows(ctx, h.db,
+		fmt.Sprintf("SELECT id, trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata, created_at FROM _events WHERE trace_id = %s ORDER BY created_at ASC", h.dialect.Placeholder(1)),
 		traceID,
 	)
 	if err != nil {
@@ -229,9 +231,9 @@ func (h *EventHandler) GetTrace(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{
-			"trace_id":         traceID,
-			"root_span":        rootSpan,
-			"spans":            rows,
+			"trace_id":          traceID,
+			"root_span":         rootSpan,
+			"spans":             rows,
 			"total_duration_ms": totalDurationMs,
 		},
 	})
@@ -247,29 +249,38 @@ func (h *EventHandler) GetStats(c *fiber.Ctx) error {
 	argIdx := 1
 
 	if v := c.Query("from"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("created_at >= %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("to"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("created_at <= %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 	if v := c.Query("entity"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("entity = $%d", argIdx))
+		conditions = append(conditions, fmt.Sprintf("entity = %s", h.dialect.Placeholder(argIdx)))
 		args = append(args, v)
 		argIdx++
 	}
 
 	whereClause := " WHERE " + strings.Join(conditions, " AND ")
 
+	// Build percentile and filter-count expressions
+	var p95Expr string
+	if h.dialect.SupportsPercentile() {
+		p95Expr = h.dialect.PercentileExpr(0.95, "duration_ms")
+	} else {
+		p95Expr = "NULL"
+	}
+	filterCountExpr := h.dialect.FilterCountExpr("status = 'error'")
+
 	// By-source stats
 	bySourceSQL := fmt.Sprintf(
-		`SELECT source, COUNT(*) as count, AVG(duration_ms) as avg_duration_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_duration_ms, COUNT(*) FILTER (WHERE status = 'error') as error_count FROM _events%s GROUP BY source ORDER BY count DESC`,
-		whereClause,
+		`SELECT source, COUNT(*) as count, AVG(duration_ms) as avg_duration_ms, %s as p95_duration_ms, %s as error_count FROM _events%s GROUP BY source ORDER BY count DESC`,
+		p95Expr, filterCountExpr, whereClause,
 	)
-	bySourceRows, err := store.QueryRows(ctx, h.pool, bySourceSQL, args...)
+	bySourceRows, err := store.QueryRows(ctx, h.db, bySourceSQL, args...)
 	if err != nil {
 		return fmt.Errorf("stats by source: %w", err)
 	}
@@ -280,17 +291,17 @@ func (h *EventHandler) GetStats(c *fiber.Ctx) error {
 	overallIdx := 1
 
 	if v := c.Query("from"); v != "" {
-		overallConditions = append(overallConditions, fmt.Sprintf("created_at >= $%d", overallIdx))
+		overallConditions = append(overallConditions, fmt.Sprintf("created_at >= %s", h.dialect.Placeholder(overallIdx)))
 		overallArgs = append(overallArgs, v)
 		overallIdx++
 	}
 	if v := c.Query("to"); v != "" {
-		overallConditions = append(overallConditions, fmt.Sprintf("created_at <= $%d", overallIdx))
+		overallConditions = append(overallConditions, fmt.Sprintf("created_at <= %s", h.dialect.Placeholder(overallIdx)))
 		overallArgs = append(overallArgs, v)
 		overallIdx++
 	}
 	if v := c.Query("entity"); v != "" {
-		overallConditions = append(overallConditions, fmt.Sprintf("entity = $%d", overallIdx))
+		overallConditions = append(overallConditions, fmt.Sprintf("entity = %s", h.dialect.Placeholder(overallIdx)))
 		overallArgs = append(overallArgs, v)
 		overallIdx++
 	}
@@ -301,8 +312,8 @@ func (h *EventHandler) GetStats(c *fiber.Ctx) error {
 	}
 
 	totalSQL := fmt.Sprintf(
-		`SELECT COUNT(*) as total_events, AVG(duration_ms) as avg_latency_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_latency_ms, COUNT(*) FILTER (WHERE status = 'error') as error_count FROM _events%s`,
-		overallWhere,
+		`SELECT COUNT(*) as total_events, AVG(duration_ms) as avg_latency_ms, %s as p95_latency_ms, %s as error_count FROM _events%s`,
+		p95Expr, filterCountExpr, overallWhere,
 	)
 
 	totalEvents := 0
@@ -310,7 +321,7 @@ func (h *EventHandler) GetStats(c *fiber.Ctx) error {
 	var p95LatencyMs any
 	var errorRate float64
 
-	totalRow, err := store.QueryRow(ctx, h.pool, totalSQL, overallArgs...)
+	totalRow, err := store.QueryRow(ctx, h.db, totalSQL, overallArgs...)
 	if err == nil {
 		totalEvents = toInt(totalRow["total_events"])
 		avgLatencyMs = totalRow["avg_latency_ms"]
@@ -323,15 +334,70 @@ func (h *EventHandler) GetStats(c *fiber.Ctx) error {
 		}
 	}
 
+	// If dialect does not support percentile_cont, compute p95 in Go
+	if !h.dialect.SupportsPercentile() && totalEvents > 0 {
+		p95SQL := fmt.Sprintf("SELECT duration_ms FROM _events%s AND duration_ms IS NOT NULL ORDER BY duration_ms", overallWhere)
+		if overallWhere == "" {
+			p95SQL = "SELECT duration_ms FROM _events WHERE duration_ms IS NOT NULL ORDER BY duration_ms"
+		}
+		p95Rows, p95Err := store.QueryRows(ctx, h.db, p95SQL, overallArgs...)
+		if p95Err == nil && len(p95Rows) > 0 {
+			idx := int(float64(len(p95Rows)) * 0.95)
+			if idx >= len(p95Rows) {
+				idx = len(p95Rows) - 1
+			}
+			p95LatencyMs = p95Rows[idx]["duration_ms"]
+		}
+	}
+
 	bySource := make([]fiber.Map, 0, len(bySourceRows))
 	for _, row := range bySourceRows {
+		p95Val := row["p95_duration_ms"]
+		// For SQLite, compute per-source p95 in Go if needed
+		if !h.dialect.SupportsPercentile() {
+			p95Val = nil // Set to null for by-source on non-percentile dialects
+		}
 		bySource = append(bySource, fiber.Map{
 			"source":          row["source"],
 			"count":           toInt(row["count"]),
 			"avg_duration_ms": row["avg_duration_ms"],
-			"p95_duration_ms": row["p95_duration_ms"],
+			"p95_duration_ms": p95Val,
 			"error_count":     toInt(row["error_count"]),
 		})
+	}
+
+	// If dialect does not support percentile, compute per-source p95 in Go
+	if !h.dialect.SupportsPercentile() && len(bySource) > 0 {
+		for i, bs := range bySource {
+			source, _ := bs["source"].(string)
+			if source == "" {
+				continue
+			}
+			srcArgs := make([]any, len(args))
+			copy(srcArgs, args)
+			srcArgs = append(srcArgs, source)
+			srcP95SQL := fmt.Sprintf(
+				"SELECT duration_ms FROM _events%s AND source = %s ORDER BY duration_ms",
+				whereClause, h.dialect.Placeholder(argIdx),
+			)
+			srcP95Rows, srcErr := store.QueryRows(ctx, h.db, srcP95SQL, srcArgs...)
+			if srcErr == nil && len(srcP95Rows) > 0 {
+				durations := make([]float64, 0, len(srcP95Rows))
+				for _, r := range srcP95Rows {
+					if d := toFloat(r["duration_ms"]); d > 0 {
+						durations = append(durations, d)
+					}
+				}
+				if len(durations) > 0 {
+					sort.Float64s(durations)
+					idx := int(float64(len(durations)) * 0.95)
+					if idx >= len(durations) {
+						idx = len(durations) - 1
+					}
+					bySource[i]["p95_duration_ms"] = durations[idx]
+				}
+			}
+		}
 	}
 
 	return c.JSON(fiber.Map{
@@ -359,6 +425,27 @@ func toInt(v any) int {
 	case string:
 		n, _ := strconv.Atoi(val)
 		return n
+	default:
+		return 0
+	}
+}
+
+// toFloat safely converts various numeric types to float64.
+func toFloat(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
 	default:
 		return 0
 	}

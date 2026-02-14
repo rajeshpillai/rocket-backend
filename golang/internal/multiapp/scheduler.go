@@ -88,6 +88,6 @@ func (s *MultiAppScheduler) processAllWebhookRetries() {
 func (s *MultiAppScheduler) processAllEventCleanup() {
 	ctx := context.Background()
 	for _, ac := range s.manager.AllContexts() {
-		instrument.CleanupOldEvents(ctx, ac.Store.Pool, s.instrConfig.RetentionDays)
+		instrument.CleanupOldEvents(ctx, ac.Store.DB, ac.Store.Dialect, s.instrConfig.RetentionDays)
 	}
 }

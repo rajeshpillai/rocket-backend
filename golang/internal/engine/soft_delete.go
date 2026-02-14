@@ -10,35 +10,35 @@ import (
 
 // HandleCascadeDelete processes on_delete policies for all relations
 // where the deleted entity is the source.
-func HandleCascadeDelete(ctx context.Context, q store.Querier, reg *metadata.Registry, entity *metadata.Entity, recordID any) error {
+func HandleCascadeDelete(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, entity *metadata.Entity, recordID any) error {
 	relations := reg.GetRelationsForSource(entity.Name)
 	for _, rel := range relations {
-		if err := executeCascade(ctx, q, reg, rel, recordID); err != nil {
+		if err := executeCascade(ctx, q, dialect, reg, rel, recordID); err != nil {
 			return fmt.Errorf("cascade delete for relation %s: %w", rel.Name, err)
 		}
 	}
 	return nil
 }
 
-func executeCascade(ctx context.Context, q store.Querier, reg *metadata.Registry, rel *metadata.Relation, parentID any) error {
+func executeCascade(ctx context.Context, q store.Querier, dialect store.Dialect, reg *metadata.Registry, rel *metadata.Relation, parentID any) error {
 	switch rel.OnDelete {
 	case "cascade":
 		if rel.IsManyToMany() {
 			// Hard-delete join table rows
-			sql := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", rel.JoinTable, rel.SourceJoinKey)
+			sql := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", rel.JoinTable, rel.SourceJoinKey, dialect.Placeholder(1))
 			if _, err := store.Exec(ctx, q, sql, parentID); err != nil {
 				return err
 			}
 		} else {
 			targetEntity := reg.GetEntity(rel.Target)
 			if targetEntity != nil && targetEntity.SoftDelete {
-				sql := fmt.Sprintf("UPDATE %s SET deleted_at = NOW() WHERE %s = $1 AND deleted_at IS NULL",
-					targetEntity.Table, rel.TargetKey)
+				sql := fmt.Sprintf("UPDATE %s SET deleted_at = %s WHERE %s = %s AND deleted_at IS NULL",
+					targetEntity.Table, dialect.NowExpr(), rel.TargetKey, dialect.Placeholder(1))
 				if _, err := store.Exec(ctx, q, sql, parentID); err != nil {
 					return err
 				}
 			} else if targetEntity != nil {
-				sql := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", targetEntity.Table, rel.TargetKey)
+				sql := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", targetEntity.Table, rel.TargetKey, dialect.Placeholder(1))
 				if _, err := store.Exec(ctx, q, sql, parentID); err != nil {
 					return err
 				}
@@ -48,8 +48,8 @@ func executeCascade(ctx context.Context, q store.Querier, reg *metadata.Registry
 	case "set_null":
 		targetEntity := reg.GetEntity(rel.Target)
 		if targetEntity != nil {
-			sql := fmt.Sprintf("UPDATE %s SET %s = NULL WHERE %s = $1",
-				targetEntity.Table, rel.TargetKey, rel.TargetKey)
+			sql := fmt.Sprintf("UPDATE %s SET %s = NULL WHERE %s = %s",
+				targetEntity.Table, rel.TargetKey, rel.TargetKey, dialect.Placeholder(1))
 			if _, err := store.Exec(ctx, q, sql, parentID); err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func executeCascade(ctx context.Context, q store.Querier, reg *metadata.Registry
 	case "restrict":
 		targetEntity := reg.GetEntity(rel.Target)
 		if targetEntity != nil {
-			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = $1", targetEntity.Table, rel.TargetKey)
+			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = %s", targetEntity.Table, rel.TargetKey, dialect.Placeholder(1))
 			if targetEntity.SoftDelete {
 				countSQL += " AND deleted_at IS NULL"
 			}
@@ -79,7 +79,7 @@ func executeCascade(ctx context.Context, q store.Querier, reg *metadata.Registry
 
 	case "detach":
 		if rel.IsManyToMany() {
-			sql := fmt.Sprintf("DELETE FROM %s WHERE %s = $1", rel.JoinTable, rel.SourceJoinKey)
+			sql := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", rel.JoinTable, rel.SourceJoinKey, dialect.Placeholder(1))
 			if _, err := store.Exec(ctx, q, sql, parentID); err != nil {
 				return err
 			}

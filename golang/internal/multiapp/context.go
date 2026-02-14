@@ -43,7 +43,7 @@ func (ac *AppContext) BuildHandlers() {
 	if ac.fileStorage != nil {
 		ac.FileHandler = engine.NewFileHandler(ac.Store, ac.fileStorage, ac.maxFileSize, ac.Name)
 	}
-	ac.EventHandler = instrument.NewEventHandler(ac.Store.Pool)
+	ac.EventHandler = instrument.NewEventHandler(ac.Store.DB, ac.Store.Dialect)
 }
 
 // AppInfo is a summary of an app returned by List.
@@ -51,6 +51,7 @@ type AppInfo struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name"`
 	DBName      string `json:"db_name"`
+	DBDriver    string `json:"db_driver"`
 	Status      string `json:"status"`
 	CreatedAt   any    `json:"created_at"`
 	UpdatedAt   any    `json:"updated_at"`

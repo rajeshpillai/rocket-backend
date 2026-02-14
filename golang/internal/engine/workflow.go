@@ -18,6 +18,7 @@ type WFEngine struct {
 	wfStore         WorkflowStore
 	registry        *metadata.Registry
 	pool            store.Querier
+	dialect         store.Dialect
 	stepExecutors   map[string]StepExecutor
 	actionExecutors map[string]ActionExecutor
 	evaluator       ExpressionEvaluator
@@ -26,6 +27,7 @@ type WFEngine struct {
 // NewWFEngine creates a WFEngine with the given dependencies.
 func NewWFEngine(
 	pool store.Querier,
+	dialect store.Dialect,
 	registry *metadata.Registry,
 	wfStore WorkflowStore,
 	stepExecutors map[string]StepExecutor,
@@ -34,6 +36,7 @@ func NewWFEngine(
 ) *WFEngine {
 	return &WFEngine{
 		pool:            pool,
+		dialect:         dialect,
 		registry:        registry,
 		wfStore:         wfStore,
 		stepExecutors:   stepExecutors,
@@ -45,7 +48,8 @@ func NewWFEngine(
 // NewDefaultWFEngine creates a WFEngine with default executors and Postgres store.
 func NewDefaultWFEngine(s *store.Store, reg *metadata.Registry) *WFEngine {
 	return NewWFEngine(
-		s.Pool,
+		s.DB,
+		s.Dialect,
 		reg,
 		&PgWorkflowStore{},
 		DefaultStepExecutors(),
@@ -90,7 +94,7 @@ func (e *WFEngine) TriggerWorkflowsViaEngine(ctx context.Context,
 func (e *WFEngine) ResolveAction(ctx context.Context,
 	instanceID string, action string, userID string) (*metadata.WorkflowInstance, error) {
 
-	instance, err := e.wfStore.LoadInstance(ctx, e.pool, instanceID)
+	instance, err := e.wfStore.LoadInstance(ctx, e.pool, e.dialect, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +141,7 @@ func (e *WFEngine) ResolveAction(ctx context.Context,
 	if nextGoto == "" || nextGoto == "end" {
 		instance.Status = "completed"
 		instance.CurrentStep = ""
-		if err := e.wfStore.PersistInstance(ctx, e.pool, instance); err != nil {
+		if err := e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance); err != nil {
 			return nil, err
 		}
 		return instance, nil
@@ -148,12 +152,12 @@ func (e *WFEngine) ResolveAction(ctx context.Context,
 		return nil, err
 	}
 
-	return e.wfStore.LoadInstance(ctx, e.pool, instance.ID)
+	return e.wfStore.LoadInstance(ctx, e.pool, e.dialect, instance.ID)
 }
 
 // ProcessTimeouts finds and handles timed-out workflow instances.
 func (e *WFEngine) ProcessTimeouts(ctx context.Context) {
-	instances, err := e.wfStore.FindTimedOut(ctx, e.pool)
+	instances, err := e.wfStore.FindTimedOut(ctx, e.pool, e.dialect)
 	if err != nil {
 		log.Printf("ERROR: workflow timeout query failed: %v", err)
 		return
@@ -179,7 +183,7 @@ func (e *WFEngine) createInstance(ctx context.Context,
 
 	firstStepID := wf.Steps[0].ID
 
-	instanceID, err := e.wfStore.CreateInstance(ctx, e.pool, WorkflowInstanceData{
+	instanceID, err := e.wfStore.CreateInstance(ctx, e.pool, e.dialect, WorkflowInstanceData{
 		WorkflowID:   wf.ID,
 		WorkflowName: wf.Name,
 		CurrentStep:  firstStepID,
@@ -229,7 +233,7 @@ func (e *WFEngine) advanceWorkflow(ctx context.Context,
 			instance.Status = "failed"
 			span.SetStatus("error")
 			span.SetMetadata("error", "step not found")
-			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+			return e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance)
 		}
 
 		executor, ok := e.stepExecutors[step.Type]
@@ -245,20 +249,20 @@ func (e *WFEngine) advanceWorkflow(ctx context.Context,
 			instance.Status = "failed"
 			span.SetStatus("error")
 			span.SetMetadata("error", err.Error())
-			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+			return e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance)
 		}
 
 		if result.Paused {
 			span.SetStatus("ok")
 			span.SetMetadata("paused_at", instance.CurrentStep)
-			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+			return e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance)
 		}
 
 		if result.NextGoto == "" || result.NextGoto == "end" {
 			instance.Status = "completed"
 			instance.CurrentStep = ""
 			span.SetStatus("ok")
-			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+			return e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance)
 		}
 
 		instance.CurrentStep = result.NextGoto
@@ -298,7 +302,7 @@ func (e *WFEngine) handleTimeout(ctx context.Context, instance *metadata.Workflo
 			instance.Status = "failed"
 		}
 		instance.CurrentStep = ""
-		return e.wfStore.PersistInstance(ctx, e.pool, instance)
+		return e.wfStore.PersistInstance(ctx, e.pool, e.dialect, instance)
 	}
 
 	instance.CurrentStep = nextGoto
@@ -327,7 +331,7 @@ func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Re
 // ListPendingInstances returns workflow instances that are running (awaiting approval).
 func ListPendingInstances(ctx context.Context, s *store.Store) ([]*metadata.WorkflowInstance, error) {
 	wfStore := &PgWorkflowStore{}
-	return wfStore.ListPending(ctx, s.Pool)
+	return wfStore.ListPending(ctx, s.DB, s.Dialect)
 }
 
 // ── Context helpers ──

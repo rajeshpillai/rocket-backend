@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestMapPgError_UniqueViolation(t *testing.T) {
+func TestMapError_PG_UniqueViolation(t *testing.T) {
+	dialect := &PostgresDialect{}
 	pgErr := &pgconn.PgError{
 		Code:           "23505",
 		Message:        "duplicate key value violates unique constraint \"idx_users_email\"",
@@ -17,7 +18,7 @@ func TestMapPgError_UniqueViolation(t *testing.T) {
 	}
 	wrapped := fmt.Errorf("exec: %w", pgErr)
 
-	mapped := MapPgError(wrapped)
+	mapped := MapError(dialect, wrapped)
 
 	if !errors.Is(mapped, ErrUniqueViolation) {
 		t.Fatalf("expected ErrUniqueViolation, got: %v", mapped)
@@ -33,16 +34,18 @@ func TestMapPgError_UniqueViolation(t *testing.T) {
 	}
 }
 
-func TestMapPgError_OtherError(t *testing.T) {
+func TestMapError_PG_OtherError(t *testing.T) {
+	dialect := &PostgresDialect{}
 	err := fmt.Errorf("some other error")
-	mapped := MapPgError(err)
+	mapped := MapError(dialect, err)
 	if mapped != err {
 		t.Fatalf("expected same error back, got: %v", mapped)
 	}
 }
 
-func TestMapPgError_Nil(t *testing.T) {
-	mapped := MapPgError(nil)
+func TestMapError_PG_Nil(t *testing.T) {
+	dialect := &PostgresDialect{}
+	mapped := MapError(dialect, nil)
 	if mapped != nil {
 		t.Fatalf("expected nil, got: %v", mapped)
 	}

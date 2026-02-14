@@ -181,7 +181,7 @@ func DispatchWebhook(ctx context.Context, url, method string, headers map[string
 }
 
 // LogWebhookDelivery inserts a row into _webhook_logs.
-func LogWebhookDelivery(ctx context.Context, q store.Querier, wh *metadata.Webhook, payload *WebhookPayload, headers map[string]string, bodyJSON []byte, result *DispatchResult) {
+func LogWebhookDelivery(ctx context.Context, q store.Querier, dialect store.Dialect, wh *metadata.Webhook, payload *WebhookPayload, headers map[string]string, bodyJSON []byte, result *DispatchResult) {
 	status := "delivered"
 	errMsg := result.Error
 	if errMsg != "" || result.StatusCode < 200 || result.StatusCode >= 300 {
@@ -202,14 +202,17 @@ func LogWebhookDelivery(ctx context.Context, q store.Querier, wh *metadata.Webho
 		nextRetry = &t
 	}
 
+	pb := dialect.NewParamBuilder()
+	id := store.GenerateUUID()
 	_, err := store.Exec(ctx, q,
-		`INSERT INTO _webhook_logs (webhook_id, entity, hook, url, method, request_headers, request_body,
+		fmt.Sprintf(`INSERT INTO _webhook_logs (id, webhook_id, entity, hook, url, method, request_headers, request_body,
 		 response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-		wh.ID, wh.Entity, wh.Hook, wh.URL, wh.Method,
-		string(headersJSON), string(bodyJSON),
-		result.StatusCode, result.ResponseBody,
-		status, 1, wh.Retry.MaxAttempts, nextRetry, errMsg, payload.IdempotencyKey)
+		 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)`,
+			pb.Add(id), pb.Add(wh.ID), pb.Add(wh.Entity), pb.Add(wh.Hook), pb.Add(wh.URL), pb.Add(wh.Method),
+			pb.Add(string(headersJSON)), pb.Add(string(bodyJSON)),
+			pb.Add(result.StatusCode), pb.Add(result.ResponseBody),
+			pb.Add(status), pb.Add(1), pb.Add(wh.Retry.MaxAttempts), pb.Add(nextRetry), pb.Add(errMsg), pb.Add(payload.IdempotencyKey)),
+		pb.Params()...)
 	if err != nil {
 		log.Printf("ERROR: failed to log webhook delivery for %s: %v", wh.ID, err)
 	}
@@ -246,14 +249,14 @@ func FireAsyncWebhooks(ctx context.Context, s *store.Store, reg *metadata.Regist
 			headers := ResolveHeaders(wh.Headers)
 			bodyJSON, _ := json.Marshal(payload)
 			result := DispatchWebhook(context.Background(), wh.URL, wh.Method, headers, bodyJSON)
-			LogWebhookDelivery(context.Background(), s.Pool, wh, payload, headers, bodyJSON, result)
+			LogWebhookDelivery(context.Background(), s.DB, s.Dialect, wh, payload, headers, bodyJSON, result)
 		}(wh)
 	}
 }
 
 // FireSyncWebhooks dispatches sync webhooks inside a transaction.
 // Returns an error if any webhook fails (non-2xx or network error), causing rollback.
-func FireSyncWebhooks(ctx context.Context, tx store.Querier, reg *metadata.Registry,
+func FireSyncWebhooks(ctx context.Context, tx store.Querier, dialect store.Dialect, reg *metadata.Registry,
 	hook, entity, action string, record, old map[string]any, user *metadata.UserContext) error {
 
 	webhooks := reg.GetWebhooksForEntityHook(entity, hook)
@@ -281,7 +284,7 @@ func FireSyncWebhooks(ctx context.Context, tx store.Querier, reg *metadata.Regis
 		result := DispatchWebhook(ctx, wh.URL, wh.Method, headers, bodyJSON)
 
 		// Log delivery (inside the transaction)
-		LogWebhookDelivery(ctx, tx, wh, payload, headers, bodyJSON, result)
+		LogWebhookDelivery(ctx, tx, dialect, wh, payload, headers, bodyJSON, result)
 
 		if result.Error != "" {
 			return fmt.Errorf("webhook %s failed: %s", wh.ID, result.Error)

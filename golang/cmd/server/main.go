@@ -36,7 +36,7 @@ func main() {
 	log.Println("Management database connected")
 
 	// 3. Bootstrap platform tables (_apps, _platform_users, _platform_refresh_tokens)
-	if err := multiapp.PlatformBootstrap(ctx, mgmtStore.Pool); err != nil {
+	if err := multiapp.PlatformBootstrap(ctx, mgmtStore); err != nil {
 		log.Fatalf("Failed to bootstrap platform tables: %v", err)
 	}
 	log.Println("Platform tables ready")

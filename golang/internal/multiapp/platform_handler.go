@@ -2,6 +2,7 @@ package multiapp
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"rocket-backend/internal/auth"
 	"rocket-backend/internal/engine"
+	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
 
@@ -57,13 +59,15 @@ func (h *PlatformHandler) Login(c *fiber.Ctx) error {
 
 	ctx := c.Context()
 
-	user, err := store.QueryRow(ctx, h.store.Pool,
-		"SELECT id, email, password_hash, roles, active FROM _platform_users WHERE email = $1", body.Email)
+	pb := h.store.Dialect.NewParamBuilder()
+	user, err := store.QueryRow(ctx, h.store.DB,
+		fmt.Sprintf("SELECT id, email, password_hash, roles, active FROM _platform_users WHERE email = %s", pb.Add(body.Email)),
+		pb.Params()...)
 	if err != nil {
 		return engine.UnauthorizedError("Invalid email or password")
 	}
 
-	active, _ := user["active"].(bool)
+	active := toBool(user["active"])
 	if !active {
 		return engine.UnauthorizedError("Account is disabled")
 	}
@@ -97,30 +101,36 @@ func (h *PlatformHandler) Refresh(c *fiber.Ctx) error {
 
 	ctx := c.Context()
 
-	row, err := store.QueryRow(ctx, h.store.Pool,
-		`SELECT rt.id, rt.user_id, rt.expires_at, u.roles, u.active
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(ctx, h.store.DB,
+		fmt.Sprintf(`SELECT rt.id, rt.user_id, rt.expires_at, u.roles, u.active
 		 FROM _platform_refresh_tokens rt
 		 JOIN _platform_users u ON u.id = rt.user_id
-		 WHERE rt.token = $1`, body.RefreshToken)
+		 WHERE rt.token = %s`, pb.Add(body.RefreshToken)),
+		pb.Params()...)
 	if err != nil {
 		return engine.UnauthorizedError("Invalid refresh token")
 	}
 
 	expiresAt, _ := row["expires_at"].(time.Time)
 	if time.Now().After(expiresAt) {
-		_, _ = store.Exec(ctx, h.store.Pool,
-			"DELETE FROM _platform_refresh_tokens WHERE token = $1", body.RefreshToken)
+		pb2 := h.store.Dialect.NewParamBuilder()
+		_, _ = store.Exec(ctx, h.store.DB,
+			fmt.Sprintf("DELETE FROM _platform_refresh_tokens WHERE token = %s", pb2.Add(body.RefreshToken)),
+			pb2.Params()...)
 		return engine.UnauthorizedError("Refresh token expired")
 	}
 
-	active, _ := row["active"].(bool)
+	active := toBool(row["active"])
 	if !active {
 		return engine.UnauthorizedError("Account is disabled")
 	}
 
 	tokenID, _ := row["id"].(string)
-	_, _ = store.Exec(ctx, h.store.Pool,
-		"DELETE FROM _platform_refresh_tokens WHERE id = $1", tokenID)
+	pb3 := h.store.Dialect.NewParamBuilder()
+	_, _ = store.Exec(ctx, h.store.DB,
+		fmt.Sprintf("DELETE FROM _platform_refresh_tokens WHERE id = %s", pb3.Add(tokenID)),
+		pb3.Params()...)
 
 	userID, _ := row["user_id"].(string)
 	roles := extractRoles(row["roles"])
@@ -144,8 +154,10 @@ func (h *PlatformHandler) Logout(c *fiber.Ctx) error {
 		return engine.UnauthorizedError("Refresh token is required")
 	}
 
-	_, _ = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _platform_refresh_tokens WHERE token = $1", body.RefreshToken)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, _ = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _platform_refresh_tokens WHERE token = %s", pb.Add(body.RefreshToken)),
+		pb.Params()...)
 
 	return c.JSON(fiber.Map{"message": "Logged out"})
 }
@@ -173,6 +185,7 @@ func (h *PlatformHandler) CreateApp(c *fiber.Ctx) error {
 	var body struct {
 		Name        string `json:"name"`
 		DisplayName string `json:"display_name"`
+		DBDriver    string `json:"db_driver"`
 	}
 	if err := c.BodyParser(&body); err != nil {
 		return engine.NewAppError("INVALID_PAYLOAD", 400, "Invalid request body")
@@ -187,8 +200,11 @@ func (h *PlatformHandler) CreateApp(c *fiber.Ctx) error {
 	if body.DisplayName == "" {
 		body.DisplayName = body.Name
 	}
+	if body.DBDriver != "" && body.DBDriver != "postgres" && body.DBDriver != "sqlite" {
+		return engine.NewAppError("VALIDATION_FAILED", 422, "db_driver must be 'postgres' or 'sqlite'")
+	}
 
-	ac, err := h.manager.Create(c.Context(), body.Name, body.DisplayName)
+	ac, err := h.manager.Create(c.Context(), body.Name, body.DisplayName, body.DBDriver)
 	if err != nil {
 		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to create app: "+err.Error())
 	}
@@ -197,6 +213,7 @@ func (h *PlatformHandler) CreateApp(c *fiber.Ctx) error {
 		"name":         ac.Name,
 		"display_name": body.DisplayName,
 		"db_name":      ac.DBName,
+		"db_driver":    ac.Store.Dialect.Name(),
 		"status":       "active",
 	}})
 }
@@ -220,9 +237,11 @@ func (h *PlatformHandler) generateTokenPair(ctx context.Context, userID string, 
 	refreshToken := auth.GenerateRefreshToken()
 	expiresAt := time.Now().Add(auth.RefreshTokenTTL)
 
-	_, err = store.Exec(ctx, h.store.Pool,
-		`INSERT INTO _platform_refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-		userID, refreshToken, expiresAt)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(ctx, h.store.DB,
+		fmt.Sprintf(`INSERT INTO _platform_refresh_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)`,
+			pb.Add(userID), pb.Add(refreshToken), pb.Add(expiresAt)),
+		pb.Params()...)
 	if err != nil {
 		return nil, engine.NewAppError("INTERNAL_ERROR", 500, "Failed to store refresh token")
 	}
@@ -248,7 +267,25 @@ func extractRoles(v any) []string {
 			}
 		}
 		return result
+	case string:
+		return metadata.ParseStringArray(roles)
+	case []byte:
+		return metadata.ParseStringArray(roles)
 	default:
 		return []string{}
+	}
+}
+
+// toBool converts various types to bool (SQLite returns INTEGER for BOOLEAN).
+func toBool(v any) bool {
+	switch val := v.(type) {
+	case bool:
+		return val
+	case int64:
+		return val != 0
+	case int:
+		return val != 0
+	default:
+		return false
 	}
 }

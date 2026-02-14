@@ -73,10 +73,11 @@ func (h *FileHandler) Upload(c *fiber.Ctx) error {
 		uploadedBy = &user.ID
 	}
 
-	sql := `INSERT INTO _files (id, filename, storage_path, mime_type, size, uploaded_by)
-	        VALUES ($1, $2, $3, $4, $5, $6)`
-	_, err = store.Exec(c.Context(), h.store.Pool, sql,
-		fileID, filename, storagePath, mimeType, file.Size, uploadedBy)
+	pb := h.store.Dialect.NewParamBuilder()
+	insertSQL := fmt.Sprintf(`INSERT INTO _files (id, filename, storage_path, mime_type, size, uploaded_by)
+	        VALUES (%s, %s, %s, %s, %s, %s)`,
+		pb.Add(fileID), pb.Add(filename), pb.Add(storagePath), pb.Add(mimeType), pb.Add(file.Size), pb.Add(uploadedBy))
+	_, err = store.Exec(c.Context(), h.store.DB, insertSQL, pb.Params()...)
 	if err != nil {
 		// Clean up stored file on DB failure
 		_ = h.storage.Delete(c.Context(), storagePath)
@@ -109,8 +110,9 @@ func (h *FileHandler) Serve(c *fiber.Ctx) error {
 	id := c.Params("id")
 	span.SetMetadata("file_id", id)
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT filename, storage_path, mime_type, size FROM _files WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT filename, storage_path, mime_type, size FROM _files WHERE id = %s", pb.Add(id)), pb.Params()...)
 	if err != nil {
 		span.SetStatus("error")
 		return respondError(c, NewAppError("NOT_FOUND", 404, fmt.Sprintf("File %s not found", id)))
@@ -144,8 +146,9 @@ func (h *FileHandler) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")
 	span.SetMetadata("file_id", id)
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT storage_path FROM _files WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT storage_path FROM _files WHERE id = %s", pb.Add(id)), pb.Params()...)
 	if err != nil {
 		span.SetStatus("error")
 		return respondError(c, NewAppError("NOT_FOUND", 404, fmt.Sprintf("File %s not found", id)))
@@ -159,7 +162,9 @@ func (h *FileHandler) Delete(c *fiber.Ctx) error {
 		return fmt.Errorf("delete stored file: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool, "DELETE FROM _files WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _files WHERE id = %s", pb2.Add(id)), pb2.Params()...)
 	if err != nil {
 		span.SetStatus("error")
 		span.SetMetadata("error", err.Error())
@@ -171,7 +176,7 @@ func (h *FileHandler) Delete(c *fiber.Ctx) error {
 }
 
 func (h *FileHandler) List(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, filename, mime_type, size, uploaded_by, created_at FROM _files ORDER BY created_at DESC")
 	if err != nil {
 		return fmt.Errorf("list _files: %w", err)

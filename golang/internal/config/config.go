@@ -35,17 +35,34 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
+	Driver   string `mapstructure:"driver"`
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
 	Name     string `mapstructure:"name"`
 	PoolSize int    `mapstructure:"pool_size"`
+	Path     string `mapstructure:"path"` // directory for SQLite database files
 }
 
+// DSN returns the driver-specific data source name.
+func (d DatabaseConfig) DSN() string {
+	if d.Driver == "sqlite" {
+		return d.Path + "/" + d.Name + ".db"
+	}
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		d.User, d.Password, d.Host, d.Port, d.Name)
+}
+
+// ConnString returns the PostgreSQL connection string (for backward compatibility).
 func (d DatabaseConfig) ConnString() string {
 	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		d.User, d.Password, d.Host, d.Port, d.Name)
+}
+
+// IsSQLite returns true if the driver is sqlite.
+func (d DatabaseConfig) IsSQLite() bool {
+	return d.Driver == "sqlite"
 }
 
 func Load() (*Config, error) {
@@ -55,9 +72,11 @@ func Load() (*Config, error) {
 	viper.AddConfigPath("../..")
 
 	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("database.driver", "postgres")
 	viper.SetDefault("database.host", "localhost")
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("database.pool_size", 10)
+	viper.SetDefault("database.path", "./data")
 	viper.SetDefault("jwt_secret", "changeme-secret")
 	viper.SetDefault("platform_jwt_secret", "changeme-platform-secret")
 	viper.SetDefault("app_pool_size", 5)

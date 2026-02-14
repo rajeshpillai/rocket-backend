@@ -85,7 +85,7 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler, middleware ...fiber.Handler
 // --- Entity Endpoints ---
 
 func (h *Handler) ListEntities(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT name, table_name, definition, created_at, updated_at FROM _entities ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("list entities: %w", err)
@@ -98,8 +98,10 @@ func (h *Handler) ListEntities(c *fiber.Ctx) error {
 
 func (h *Handler) GetEntity(c *fiber.Ctx) error {
 	name := c.Params("name")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", name)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = %s", pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Entity not found: " + name}})
 	}
@@ -127,9 +129,11 @@ func (h *Handler) CreateEntity(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal entity: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3)",
-		entity.Name, entity.Table, defJSON)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _entities (name, table_name, definition) VALUES (%s, %s, %s)",
+			pb.Add(entity.Name), pb.Add(entity.Table), pb.Add(defJSON)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert entity: %w", err)
 	}
@@ -140,7 +144,7 @@ func (h *Handler) CreateEntity(c *fiber.Ctx) error {
 	}
 
 	// Reload registry
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -169,9 +173,11 @@ func (h *Handler) UpdateEntity(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal entity: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _entities SET table_name = $1, definition = $2, updated_at = NOW() WHERE name = $3",
-		entity.Table, defJSON, name)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _entities SET table_name = %s, definition = %s, updated_at = %s WHERE name = %s",
+			pb.Add(entity.Table), pb.Add(defJSON), h.store.Dialect.NowExpr(), pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("update entity: %w", err)
 	}
@@ -180,7 +186,7 @@ func (h *Handler) UpdateEntity(c *fiber.Ctx) error {
 		return fmt.Errorf("migrate entity %s: %w", entity.Name, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -195,19 +201,23 @@ func (h *Handler) DeleteEntity(c *fiber.Ctx) error {
 	}
 
 	// Delete relations first (FK constraint)
-	_, err := store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _relations WHERE source = $1 OR target = $1", name)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _relations WHERE source = %s OR target = %s", pb.Add(name), pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete relations for entity %s: %w", name, err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _entities WHERE name = $1", name)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _entities WHERE name = %s", pb2.Add(name)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete entity %s: %w", name, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -217,7 +227,7 @@ func (h *Handler) DeleteEntity(c *fiber.Ctx) error {
 // --- Relation Endpoints ---
 
 func (h *Handler) ListRelations(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT name, source, target, definition, created_at, updated_at FROM _relations ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("list relations: %w", err)
@@ -230,8 +240,10 @@ func (h *Handler) ListRelations(c *fiber.Ctx) error {
 
 func (h *Handler) GetRelation(c *fiber.Ctx) error {
 	name := c.Params("name")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", name)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = %s", pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Relation not found: " + name}})
 	}
@@ -258,9 +270,11 @@ func (h *Handler) CreateRelation(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal relation: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4)",
-		rel.Name, rel.Source, rel.Target, defJSON)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _relations (name, source, target, definition) VALUES (%s, %s, %s, %s)",
+			pb.Add(rel.Name), pb.Add(rel.Source), pb.Add(rel.Target), pb.Add(defJSON)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert relation: %w", err)
 	}
@@ -276,7 +290,7 @@ func (h *Handler) CreateRelation(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -305,14 +319,16 @@ func (h *Handler) UpdateRelation(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal relation: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _relations SET source = $1, target = $2, definition = $3, updated_at = NOW() WHERE name = $4",
-		rel.Source, rel.Target, defJSON, name)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _relations SET source = %s, target = %s, definition = %s, updated_at = %s WHERE name = %s",
+			pb.Add(rel.Source), pb.Add(rel.Target), pb.Add(defJSON), h.store.Dialect.NowExpr(), pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("update relation: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -326,13 +342,15 @@ func (h *Handler) DeleteRelation(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Relation not found: " + name}})
 	}
 
-	_, err := store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _relations WHERE name = $1", name)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _relations WHERE name = %s", pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete relation %s: %w", name, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -342,7 +360,7 @@ func (h *Handler) DeleteRelation(c *fiber.Ctx) error {
 // --- Rule Endpoints ---
 
 func (h *Handler) ListRules(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules ORDER BY entity, priority")
 	if err != nil {
 		return fmt.Errorf("list rules: %w", err)
@@ -350,15 +368,23 @@ func (h *Handler) ListRules(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(rows, []string{"active"})
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetRule(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active"})
 	}
 	return c.JSON(fiber.Map{"data": row})
 }
@@ -378,15 +404,18 @@ func (h *Handler) CreateRule(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal rule definition: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-		rule.Entity, rule.Hook, rule.Type, defJSON, rule.Priority, rule.Active)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _rules (id, entity, hook, type, definition, priority, active) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+			pb.Add(id), pb.Add(rule.Entity), pb.Add(rule.Hook), pb.Add(rule.Type), pb.Add(defJSON), pb.Add(rule.Priority), pb.Add(rule.Active)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert rule: %w", err)
 	}
 	rule.ID = fmt.Sprintf("%v", row["id"])
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -395,8 +424,10 @@ func (h *Handler) CreateRule(c *fiber.Ctx) error {
 
 func (h *Handler) UpdateRule(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _rules WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _rules WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
 	}
@@ -416,14 +447,16 @@ func (h *Handler) UpdateRule(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal rule definition: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _rules SET entity = $1, hook = $2, type = $3, definition = $4, priority = $5, active = $6, updated_at = NOW() WHERE id = $7",
-		rule.Entity, rule.Hook, rule.Type, defJSON, rule.Priority, rule.Active, id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _rules SET entity = %s, hook = %s, type = %s, definition = %s, priority = %s, active = %s, updated_at = %s WHERE id = %s",
+			pb2.Add(rule.Entity), pb2.Add(rule.Hook), pb2.Add(rule.Type), pb2.Add(defJSON), pb2.Add(rule.Priority), pb2.Add(rule.Active), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update rule: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -432,19 +465,23 @@ func (h *Handler) UpdateRule(c *fiber.Ctx) error {
 
 func (h *Handler) DeleteRule(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _rules WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _rules WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Rule not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _rules WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _rules WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete rule %s: %w", id, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -454,7 +491,7 @@ func (h *Handler) DeleteRule(c *fiber.Ctx) error {
 // --- State Machine Endpoints ---
 
 func (h *Handler) ListStateMachines(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines ORDER BY entity")
 	if err != nil {
 		return fmt.Errorf("list state machines: %w", err)
@@ -462,15 +499,23 @@ func (h *Handler) ListStateMachines(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(rows, []string{"active"})
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetStateMachine(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active"})
 	}
 	return c.JSON(fiber.Map{"data": row})
 }
@@ -490,15 +535,18 @@ func (h *Handler) CreateStateMachine(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal state machine definition: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4) RETURNING id",
-		sm.Entity, sm.Field, defJSON, sm.Active)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _state_machines (id, entity, field, definition, active) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+			pb.Add(id), pb.Add(sm.Entity), pb.Add(sm.Field), pb.Add(defJSON), pb.Add(sm.Active)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert state machine: %w", err)
 	}
 	sm.ID = fmt.Sprintf("%v", row["id"])
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -507,8 +555,10 @@ func (h *Handler) CreateStateMachine(c *fiber.Ctx) error {
 
 func (h *Handler) UpdateStateMachine(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _state_machines WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _state_machines WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
 	}
@@ -528,14 +578,16 @@ func (h *Handler) UpdateStateMachine(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal state machine definition: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _state_machines SET entity = $1, field = $2, definition = $3, active = $4, updated_at = NOW() WHERE id = $5",
-		sm.Entity, sm.Field, defJSON, sm.Active, id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _state_machines SET entity = %s, field = %s, definition = %s, active = %s, updated_at = %s WHERE id = %s",
+			pb2.Add(sm.Entity), pb2.Add(sm.Field), pb2.Add(defJSON), pb2.Add(sm.Active), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update state machine: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -544,19 +596,23 @@ func (h *Handler) UpdateStateMachine(c *fiber.Ctx) error {
 
 func (h *Handler) DeleteStateMachine(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _state_machines WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _state_machines WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "State machine not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _state_machines WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _state_machines WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete state machine %s: %w", id, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -566,7 +622,7 @@ func (h *Handler) DeleteStateMachine(c *fiber.Ctx) error {
 // --- Workflow Endpoints ---
 
 func (h *Handler) ListWorkflows(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("list workflows: %w", err)
@@ -574,15 +630,23 @@ func (h *Handler) ListWorkflows(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(rows, []string{"active"})
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetWorkflow(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active"})
 	}
 	return c.JSON(fiber.Map{"data": row})
 }
@@ -610,15 +674,18 @@ func (h *Handler) CreateWorkflow(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal workflow steps: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-		wf.Name, triggerJSON, contextJSON, stepsJSON, wf.Active)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _workflows (id, name, trigger, context, steps, active) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+			pb.Add(id), pb.Add(wf.Name), pb.Add(triggerJSON), pb.Add(contextJSON), pb.Add(stepsJSON), pb.Add(wf.Active)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert workflow: %w", err)
 	}
 	wf.ID = fmt.Sprintf("%v", row["id"])
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -627,8 +694,10 @@ func (h *Handler) CreateWorkflow(c *fiber.Ctx) error {
 
 func (h *Handler) UpdateWorkflow(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _workflows WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _workflows WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
 	}
@@ -656,14 +725,16 @@ func (h *Handler) UpdateWorkflow(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal workflow steps: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _workflows SET name = $1, trigger = $2, context = $3, steps = $4, active = $5, updated_at = NOW() WHERE id = $6",
-		wf.Name, triggerJSON, contextJSON, stepsJSON, wf.Active, id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _workflows SET name = %s, trigger = %s, context = %s, steps = %s, active = %s, updated_at = %s WHERE id = %s",
+			pb2.Add(wf.Name), pb2.Add(triggerJSON), pb2.Add(contextJSON), pb2.Add(stepsJSON), pb2.Add(wf.Active), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update workflow: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -672,19 +743,23 @@ func (h *Handler) UpdateWorkflow(c *fiber.Ctx) error {
 
 func (h *Handler) DeleteWorkflow(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _workflows WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _workflows WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Workflow not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _workflows WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _workflows WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete workflow %s: %w", id, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -813,7 +888,7 @@ func validateWorkflow(wf *metadata.Workflow, reg *metadata.Registry) error {
 // --- User Endpoints ---
 
 func (h *Handler) ListUsers(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, email, roles, active, created_at, updated_at FROM _users ORDER BY email")
 	if err != nil {
 		return fmt.Errorf("list users: %w", err)
@@ -821,16 +896,29 @@ func (h *Handler) ListUsers(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(rows, []string{"active"})
+	}
+	// Normalize roles from TEXT[]/JSON text to []string
+	for _, row := range rows {
+		row["roles"] = metadata.ParseStringArray(row["roles"])
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetUser(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active"})
+	}
+	row["roles"] = metadata.ParseStringArray(row["roles"])
 	return c.JSON(fiber.Map{"data": row})
 }
 
@@ -865,20 +953,26 @@ func (h *Handler) CreateUser(c *fiber.Ctx) error {
 		body.Roles = []string{}
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _users (email, password_hash, roles, active) VALUES ($1, $2, $3, $4) RETURNING id, email, roles, active, created_at, updated_at",
-		body.Email, hash, body.Roles, active)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _users (id, email, password_hash, roles, active) VALUES (%s, %s, %s, %s, %s) RETURNING id, email, roles, active, created_at, updated_at",
+			pb.Add(id), pb.Add(body.Email), pb.Add(hash), pb.Add(h.store.Dialect.ArrayParam(body.Roles)), pb.Add(active)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
+	row["roles"] = metadata.ParseStringArray(row["roles"])
 
 	return c.Status(201).JSON(fiber.Map{"data": row})
 }
 
 func (h *Handler) UpdateUser(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _users WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _users WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
 	}
@@ -907,40 +1001,54 @@ func (h *Handler) UpdateUser(c *fiber.Ctx) error {
 		if err != nil {
 			return fmt.Errorf("hash password: %w", err)
 		}
-		_, err = store.Exec(c.Context(), h.store.Pool,
-			"UPDATE _users SET email = $1, password_hash = $2, roles = $3, active = $4, updated_at = NOW() WHERE id = $5",
-			body.Email, hash, body.Roles, body.Active, id)
+		pb2 := h.store.Dialect.NewParamBuilder()
+		_, err = store.Exec(c.Context(), h.store.DB,
+			fmt.Sprintf("UPDATE _users SET email = %s, password_hash = %s, roles = %s, active = %s, updated_at = %s WHERE id = %s",
+				pb2.Add(body.Email), pb2.Add(hash), pb2.Add(h.store.Dialect.ArrayParam(body.Roles)), pb2.Add(body.Active), h.store.Dialect.NowExpr(), pb2.Add(id)),
+			pb2.Params()...)
 		if err != nil {
 			return fmt.Errorf("update user: %w", err)
 		}
 	} else {
-		_, err = store.Exec(c.Context(), h.store.Pool,
-			"UPDATE _users SET email = $1, roles = $2, active = $3, updated_at = NOW() WHERE id = $4",
-			body.Email, body.Roles, body.Active, id)
+		pb2 := h.store.Dialect.NewParamBuilder()
+		_, err = store.Exec(c.Context(), h.store.DB,
+			fmt.Sprintf("UPDATE _users SET email = %s, roles = %s, active = %s, updated_at = %s WHERE id = %s",
+				pb2.Add(body.Email), pb2.Add(h.store.Dialect.ArrayParam(body.Roles)), pb2.Add(body.Active), h.store.Dialect.NowExpr(), pb2.Add(id)),
+			pb2.Params()...)
 		if err != nil {
 			return fmt.Errorf("update user: %w", err)
 		}
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", id)
+	pb3 := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = %s", pb3.Add(id)),
+		pb3.Params()...)
 	if err != nil {
 		return fmt.Errorf("fetch updated user: %w", err)
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active"})
+	}
+	row["roles"] = metadata.ParseStringArray(row["roles"])
 
 	return c.JSON(fiber.Map{"data": row})
 }
 
 func (h *Handler) DeleteUser(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _users WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _users WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "User not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _users WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _users WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete user %s: %w", id, err)
 	}
@@ -951,7 +1059,7 @@ func (h *Handler) DeleteUser(c *fiber.Ctx) error {
 // --- Permission Endpoints ---
 
 func (h *Handler) ListPermissions(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions ORDER BY entity, action")
 	if err != nil {
 		return fmt.Errorf("list permissions: %w", err)
@@ -959,16 +1067,23 @@ func (h *Handler) ListPermissions(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	// Normalize roles from TEXT[]/JSON text to []string
+	for _, row := range rows {
+		row["roles"] = metadata.ParseStringArray(row["roles"])
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetPermission(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
 	}
+	row["roles"] = metadata.ParseStringArray(row["roles"])
 	return c.JSON(fiber.Map{"data": row})
 }
 
@@ -997,15 +1112,18 @@ func (h *Handler) CreatePermission(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal conditions: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4) RETURNING id",
-		perm.Entity, perm.Action, perm.Roles, condJSON)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _permissions (id, entity, action, roles, conditions) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+			pb.Add(id), pb.Add(perm.Entity), pb.Add(perm.Action), pb.Add(h.store.Dialect.ArrayParam(perm.Roles)), pb.Add(condJSON)),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert permission: %w", err)
 	}
 	perm.ID = fmt.Sprintf("%v", row["id"])
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -1014,8 +1132,10 @@ func (h *Handler) CreatePermission(c *fiber.Ctx) error {
 
 func (h *Handler) UpdatePermission(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _permissions WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _permissions WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
 	}
@@ -1041,14 +1161,16 @@ func (h *Handler) UpdatePermission(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal conditions: %w", err)
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _permissions SET entity = $1, action = $2, roles = $3, conditions = $4, updated_at = NOW() WHERE id = $5",
-		perm.Entity, perm.Action, perm.Roles, condJSON, id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _permissions SET entity = %s, action = %s, roles = %s, conditions = %s, updated_at = %s WHERE id = %s",
+			pb2.Add(perm.Entity), pb2.Add(perm.Action), pb2.Add(h.store.Dialect.ArrayParam(perm.Roles)), pb2.Add(condJSON), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update permission: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -1057,19 +1179,23 @@ func (h *Handler) UpdatePermission(c *fiber.Ctx) error {
 
 func (h *Handler) DeletePermission(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _permissions WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _permissions WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Permission not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _permissions WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _permissions WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete permission %s: %w", id, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -1079,7 +1205,7 @@ func (h *Handler) DeletePermission(c *fiber.Ctx) error {
 // --- Webhook Endpoints ---
 
 func (h *Handler) ListWebhooks(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks ORDER BY entity, hook")
 	if err != nil {
 		return fmt.Errorf("list webhooks: %w", err)
@@ -1087,15 +1213,23 @@ func (h *Handler) ListWebhooks(c *fiber.Ctx) error {
 	if rows == nil {
 		rows = []map[string]any{}
 	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(rows, []string{"active", "async"})
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 func (h *Handler) GetWebhook(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active", "async"})
 	}
 	return c.JSON(fiber.Map{"data": row})
 }
@@ -1136,17 +1270,24 @@ func (h *Handler) CreateWebhook(c *fiber.Ctx) error {
 	headersJSON, _ := json.Marshal(body["headers"])
 	retryJSON, _ := json.Marshal(body["retry"])
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		`INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf(`INSERT INTO _webhooks (id, entity, hook, url, method, headers, condition, async, retry, active)
+		 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		 RETURNING id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at`,
-		body["entity"], body["hook"], body["url"], body["method"],
-		string(headersJSON), body["condition"], body["async"], string(retryJSON), body["active"])
+			pb.Add(id), pb.Add(body["entity"]), pb.Add(body["hook"]), pb.Add(body["url"]), pb.Add(body["method"]),
+			pb.Add(string(headersJSON)), pb.Add(body["condition"]), pb.Add(body["async"]), pb.Add(string(retryJSON)), pb.Add(body["active"])),
+		pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("insert webhook: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active", "async"})
+	}
+
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -1155,8 +1296,10 @@ func (h *Handler) CreateWebhook(c *fiber.Ctx) error {
 
 func (h *Handler) UpdateWebhook(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _webhooks WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _webhooks WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
 	}
@@ -1173,23 +1316,30 @@ func (h *Handler) UpdateWebhook(c *fiber.Ctx) error {
 	headersJSON, _ := json.Marshal(body["headers"])
 	retryJSON, _ := json.Marshal(body["retry"])
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		`UPDATE _webhooks SET entity = $1, hook = $2, url = $3, method = $4, headers = $5,
-		 condition = $6, async = $7, retry = $8, active = $9, updated_at = NOW() WHERE id = $10`,
-		body["entity"], body["hook"], body["url"], body["method"],
-		string(headersJSON), body["condition"], body["async"], string(retryJSON), body["active"], id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf(`UPDATE _webhooks SET entity = %s, hook = %s, url = %s, method = %s, headers = %s,
+		 condition = %s, async = %s, retry = %s, active = %s, updated_at = %s WHERE id = %s`,
+			pb2.Add(body["entity"]), pb2.Add(body["hook"]), pb2.Add(body["url"]), pb2.Add(body["method"]),
+			pb2.Add(string(headersJSON)), pb2.Add(body["condition"]), pb2.Add(body["async"]), pb2.Add(string(retryJSON)), pb2.Add(body["active"]), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update webhook: %w", err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", id)
+	pb3 := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = %s", pb3.Add(id)),
+		pb3.Params()...)
 	if err != nil {
 		return fmt.Errorf("fetch updated webhook: %w", err)
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans([]map[string]any{row}, []string{"active", "async"})
 	}
 
 	return c.JSON(fiber.Map{"data": row})
@@ -1197,19 +1347,23 @@ func (h *Handler) UpdateWebhook(c *fiber.Ctx) error {
 
 func (h *Handler) DeleteWebhook(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _webhooks WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _webhooks WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _webhooks WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _webhooks WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete webhook %s: %w", id, err)
 	}
 
-	if err := metadata.Reload(c.Context(), h.store.Pool, h.registry); err != nil {
+	if err := metadata.Reload(c.Context(), h.store.DB, h.registry); err != nil {
 		return fmt.Errorf("reload registry: %w", err)
 	}
 
@@ -1220,24 +1374,17 @@ func (h *Handler) DeleteWebhook(c *fiber.Ctx) error {
 
 func (h *Handler) ListWebhookLogs(c *fiber.Ctx) error {
 	query := "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs"
+	pb := h.store.Dialect.NewParamBuilder()
 	var conditions []string
-	var args []any
-	argIdx := 1
 
 	if v := c.Query("webhook_id"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("webhook_id = $%d", argIdx))
-		args = append(args, v)
-		argIdx++
+		conditions = append(conditions, fmt.Sprintf("webhook_id = %s", pb.Add(v)))
 	}
 	if v := c.Query("status"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
-		args = append(args, v)
-		argIdx++
+		conditions = append(conditions, fmt.Sprintf("status = %s", pb.Add(v)))
 	}
 	if v := c.Query("entity"); v != "" {
-		conditions = append(conditions, fmt.Sprintf("entity = $%d", argIdx))
-		args = append(args, v)
-		argIdx++
+		conditions = append(conditions, fmt.Sprintf("entity = %s", pb.Add(v)))
 	}
 
 	if len(conditions) > 0 {
@@ -1245,7 +1392,7 @@ func (h *Handler) ListWebhookLogs(c *fiber.Ctx) error {
 	}
 	query += " ORDER BY created_at DESC LIMIT 200"
 
-	rows, err := store.QueryRows(c.Context(), h.store.Pool, query, args...)
+	rows, err := store.QueryRows(c.Context(), h.store.DB, query, pb.Params()...)
 	if err != nil {
 		return fmt.Errorf("list webhook logs: %w", err)
 	}
@@ -1257,8 +1404,10 @@ func (h *Handler) ListWebhookLogs(c *fiber.Ctx) error {
 
 func (h *Handler) GetWebhookLog(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook log not found: " + id}})
 	}
@@ -1267,8 +1416,10 @@ func (h *Handler) GetWebhookLog(c *fiber.Ctx) error {
 
 func (h *Handler) RetryWebhookLog(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, status, attempt, max_attempts FROM _webhook_logs WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, status, attempt, max_attempts FROM _webhook_logs WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Webhook log not found: " + id}})
 	}
@@ -1278,14 +1429,19 @@ func (h *Handler) RetryWebhookLog(c *fiber.Ctx) error {
 		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "Can only retry failed or retrying webhook logs"}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"UPDATE _webhook_logs SET status = 'retrying', next_retry_at = NOW(), updated_at = NOW() WHERE id = $1", id)
+	nowExpr := h.store.Dialect.NowExpr()
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _webhook_logs SET status = 'retrying', next_retry_at = %s, updated_at = %s WHERE id = %s", nowExpr, nowExpr, pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("retry webhook log %s: %w", id, err)
 	}
 
-	row, err = store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, webhook_id, entity, hook, url, method, status, attempt, max_attempts, next_retry_at, updated_at FROM _webhook_logs WHERE id = $1", id)
+	pb3 := h.store.Dialect.NewParamBuilder()
+	row, err = store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, webhook_id, entity, hook, url, method, status, attempt, max_attempts, next_retry_at, updated_at FROM _webhook_logs WHERE id = %s", pb3.Add(id)),
+		pb3.Params()...)
 	if err != nil {
 		return fmt.Errorf("fetch retried webhook log: %w", err)
 	}
@@ -1329,7 +1485,7 @@ func validateWebhook(body map[string]any) string {
 // --- UI Config Endpoints ---
 
 func (h *Handler) ListUIConfigs(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope")
 	if err != nil {
 		return fmt.Errorf("list ui configs: %w", err)
@@ -1342,8 +1498,10 @@ func (h *Handler) ListUIConfigs(c *fiber.Ctx) error {
 
 func (h *Handler) GetUIConfig(c *fiber.Ctx) error {
 	id := c.Params("id")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
 	}
@@ -1362,8 +1520,10 @@ func (h *Handler) CreateUIConfig(c *fiber.Ctx) error {
 	}
 
 	// Verify entity exists
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT name FROM _entities WHERE name = $1", entity)
+	pbCheck := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT name FROM _entities WHERE name = %s", pbCheck.Add(entity)),
+		pbCheck.Params()...)
 	if err != nil {
 		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity not found: " + entity}})
 	}
@@ -1382,11 +1542,14 @@ func (h *Handler) CreateUIConfig(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id, entity, scope, config, created_at, updated_at",
-		entity, scope, configJSON)
+	id := store.GenerateUUID()
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _ui_configs (id, entity, scope, config) VALUES (%s, %s, %s, %s) RETURNING id, entity, scope, config, created_at, updated_at",
+			pb.Add(id), pb.Add(entity), pb.Add(scope), pb.Add(configJSON)),
+		pb.Params()...)
 	if err != nil {
-		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "UNIQUE") {
 			return c.Status(409).JSON(fiber.Map{"error": fiber.Map{"code": "CONFLICT", "message": fmt.Sprintf("UI config already exists for entity %s scope %s", entity, scope)}})
 		}
 		return fmt.Errorf("insert ui config: %w", err)
@@ -1397,8 +1560,10 @@ func (h *Handler) CreateUIConfig(c *fiber.Ctx) error {
 
 func (h *Handler) UpdateUIConfig(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _ui_configs WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _ui_configs WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
 	}
@@ -1427,9 +1592,11 @@ func (h *Handler) UpdateUIConfig(c *fiber.Ctx) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"UPDATE _ui_configs SET entity = $1, scope = $2, config = $3, updated_at = NOW() WHERE id = $4 RETURNING id, entity, scope, config, created_at, updated_at",
-		entity, scope, configJSON, id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("UPDATE _ui_configs SET entity = %s, scope = %s, config = %s, updated_at = %s WHERE id = %s RETURNING id, entity, scope, config, created_at, updated_at",
+			pb2.Add(entity), pb2.Add(scope), pb2.Add(configJSON), h.store.Dialect.NowExpr(), pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("update ui config: %w", err)
 	}
@@ -1439,14 +1606,18 @@ func (h *Handler) UpdateUIConfig(c *fiber.Ctx) error {
 
 func (h *Handler) DeleteUIConfig(c *fiber.Ctx) error {
 	id := c.Params("id")
-	_, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id FROM _ui_configs WHERE id = $1", id)
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _ui_configs WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "UI config not found: " + id}})
 	}
 
-	_, err = store.Exec(c.Context(), h.store.Pool,
-		"DELETE FROM _ui_configs WHERE id = $1", id)
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _ui_configs WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete ui config %s: %w", id, err)
 	}
@@ -1457,8 +1628,10 @@ func (h *Handler) DeleteUIConfig(c *fiber.Ctx) error {
 // GetUIConfigByEntity returns the default-scope UI config for an entity (non-admin endpoint).
 func (h *Handler) GetUIConfigByEntity(c *fiber.Ctx) error {
 	entity := c.Params("entity")
-	row, err := store.QueryRow(c.Context(), h.store.Pool,
-		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = $1 AND scope = 'default'", entity)
+	pb := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = %s AND scope = 'default'", pb.Add(entity)),
+		pb.Params()...)
 	if err != nil {
 		return c.JSON(fiber.Map{"data": nil})
 	}
@@ -1467,7 +1640,7 @@ func (h *Handler) GetUIConfigByEntity(c *fiber.Ctx) error {
 
 // ListAllUIConfigs returns all UI configs (non-admin endpoint for client sidebar grouping).
 func (h *Handler) ListAllUIConfigs(c *fiber.Ctx) error {
-	rows, err := store.QueryRows(c.Context(), h.store.Pool,
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
 		"SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE scope = 'default' ORDER BY entity")
 	if err != nil {
 		return fmt.Errorf("list all ui configs: %w", err)
@@ -1484,7 +1657,7 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	ctx := c.Context()
 
 	// Entities: definition column IS the full entity object
-	entityRows, err := store.QueryRows(ctx, h.store.Pool,
+	entityRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT definition FROM _entities ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("export entities: %w", err)
@@ -1495,7 +1668,7 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// Relations: definition column IS the full relation object
-	relRows, err := store.QueryRows(ctx, h.store.Pool,
+	relRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT definition FROM _relations ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("export relations: %w", err)
@@ -1506,10 +1679,13 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// Rules
-	ruleRows, err := store.QueryRows(ctx, h.store.Pool,
+	ruleRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority")
 	if err != nil {
 		return fmt.Errorf("export rules: %w", err)
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(ruleRows, []string{"active"})
 	}
 	rules := make([]map[string]any, 0, len(ruleRows))
 	for _, row := range ruleRows {
@@ -1520,10 +1696,13 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// State machines
-	smRows, err := store.QueryRows(ctx, h.store.Pool,
+	smRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, field, definition, active FROM _state_machines ORDER BY entity")
 	if err != nil {
 		return fmt.Errorf("export state machines: %w", err)
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(smRows, []string{"active"})
 	}
 	stateMachines := make([]map[string]any, 0, len(smRows))
 	for _, row := range smRows {
@@ -1534,10 +1713,13 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// Workflows
-	wfRows, err := store.QueryRows(ctx, h.store.Pool,
+	wfRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT name, trigger, context, steps, active FROM _workflows ORDER BY name")
 	if err != nil {
 		return fmt.Errorf("export workflows: %w", err)
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(wfRows, []string{"active"})
 	}
 	workflows := make([]map[string]any, 0, len(wfRows))
 	for _, row := range wfRows {
@@ -1548,7 +1730,7 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// Permissions
-	permRows, err := store.QueryRows(ctx, h.store.Pool,
+	permRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, action, roles, conditions FROM _permissions ORDER BY entity, action")
 	if err != nil {
 		return fmt.Errorf("export permissions: %w", err)
@@ -1557,15 +1739,18 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	for _, row := range permRows {
 		permissions = append(permissions, map[string]any{
 			"entity": row["entity"], "action": row["action"],
-			"roles": row["roles"], "conditions": row["conditions"],
+			"roles": metadata.ParseStringArray(row["roles"]), "conditions": row["conditions"],
 		})
 	}
 
 	// Webhooks
-	whRows, err := store.QueryRows(ctx, h.store.Pool,
+	whRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook")
 	if err != nil {
 		return fmt.Errorf("export webhooks: %w", err)
+	}
+	if h.store.Dialect.NeedsBoolFix() {
+		store.NormalizeBooleans(whRows, []string{"active", "async"})
 	}
 	webhooks := make([]map[string]any, 0, len(whRows))
 	for _, row := range whRows {
@@ -1577,7 +1762,7 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 	}
 
 	// UI Configs
-	uiRows, err := store.QueryRows(ctx, h.store.Pool,
+	uiRows, err := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope")
 	if err != nil {
 		return fmt.Errorf("export ui configs: %w", err)
@@ -1605,16 +1790,16 @@ func (h *Handler) Export(c *fiber.Ctx) error {
 
 func (h *Handler) Import(c *fiber.Ctx) error {
 	var payload struct {
-		Version       int                              `json:"version"`
-		Entities      []map[string]any                 `json:"entities"`
-		Relations     []map[string]any                 `json:"relations"`
-		Rules         []map[string]any                 `json:"rules"`
-		StateMachines []map[string]any                 `json:"state_machines"`
-		Workflows     []map[string]any                 `json:"workflows"`
-		Permissions   []map[string]any                 `json:"permissions"`
-		Webhooks      []map[string]any                 `json:"webhooks"`
-		UIConfigs     []map[string]any                 `json:"ui_configs"`
-		SampleData    map[string][]map[string]any      `json:"sample_data"`
+		Version       int                         `json:"version"`
+		Entities      []map[string]any            `json:"entities"`
+		Relations     []map[string]any            `json:"relations"`
+		Rules         []map[string]any            `json:"rules"`
+		StateMachines []map[string]any            `json:"state_machines"`
+		Workflows     []map[string]any            `json:"workflows"`
+		Permissions   []map[string]any            `json:"permissions"`
+		Webhooks      []map[string]any            `json:"webhooks"`
+		UIConfigs     []map[string]any            `json:"ui_configs"`
+		SampleData    map[string][]map[string]any `json:"sample_data"`
 	}
 	if err := c.BodyParser(&payload); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
@@ -1647,9 +1832,11 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 			errors = append(errors, fmt.Sprintf("Entity %s: %v", name, err))
 			continue
 		}
-		_, err = store.Exec(ctx, h.store.Pool,
-			"INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3)",
-			name, table, defJSON)
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err = store.Exec(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _entities (name, table_name, definition) VALUES (%s, %s, %s)",
+				pb.Add(name), pb.Add(table), pb.Add(defJSON)),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Entity %s: %v", name, err))
 			continue
@@ -1663,7 +1850,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Reload so relations can reference the new entities
-	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
+	_ = metadata.Reload(ctx, h.store.DB, h.registry)
 
 	// Step 2: Relations
 	for _, raw := range payload.Relations {
@@ -1681,9 +1868,11 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 			errors = append(errors, fmt.Sprintf("Relation %s: %v", name, err))
 			continue
 		}
-		_, err = store.Exec(ctx, h.store.Pool,
-			"INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4)",
-			name, source, target, defJSON)
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err = store.Exec(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _relations (name, source, target, definition) VALUES (%s, %s, %s, %s)",
+				pb.Add(name), pb.Add(source), pb.Add(target), pb.Add(defJSON)),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Relation %s: %v", name, err))
 			continue
@@ -1701,7 +1890,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Step 3: Rules (dedup by entity+hook+type+definition)
-	existingRules, _ := store.QueryRows(ctx, h.store.Pool,
+	existingRules, _ := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, hook, type, definition FROM _rules")
 	ruleSet := make(map[string]bool)
 	for _, r := range existingRules {
@@ -1715,9 +1904,12 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		if ruleSet[key] {
 			continue
 		}
-		_, err := store.QueryRow(ctx, h.store.Pool,
-			"INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-			raw["entity"], raw["hook"], raw["type"], defJSON, raw["priority"], raw["active"])
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _rules (id, entity, hook, type, definition, priority, active) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+				pb.Add(id), pb.Add(raw["entity"]), pb.Add(raw["hook"]), pb.Add(raw["type"]), pb.Add(defJSON), pb.Add(raw["priority"]), pb.Add(raw["active"])),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Rule (%v/%v): %v", raw["entity"], raw["hook"], err))
 			continue
@@ -1727,7 +1919,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Step 4: State machines (dedup by entity+field)
-	existingSMs, _ := store.QueryRows(ctx, h.store.Pool,
+	existingSMs, _ := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, field FROM _state_machines")
 	smSet := make(map[string]bool)
 	for _, r := range existingSMs {
@@ -1739,9 +1931,12 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 			continue
 		}
 		defJSON, _ := json.Marshal(raw["definition"])
-		_, err := store.QueryRow(ctx, h.store.Pool,
-			"INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1,$2,$3,$4) RETURNING id",
-			raw["entity"], raw["field"], defJSON, raw["active"])
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _state_machines (id, entity, field, definition, active) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+				pb.Add(id), pb.Add(raw["entity"]), pb.Add(raw["field"]), pb.Add(defJSON), pb.Add(raw["active"])),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("State machine (%v/%v): %v", raw["entity"], raw["field"], err))
 			continue
@@ -1756,16 +1951,22 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		if name == "" {
 			continue
 		}
-		_, err := store.QueryRow(ctx, h.store.Pool, "SELECT id FROM _workflows WHERE name = $1", name)
+		pbCheck := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf("SELECT id FROM _workflows WHERE name = %s", pbCheck.Add(name)),
+			pbCheck.Params()...)
 		if err == nil {
 			continue // already exists
 		}
 		triggerJSON, _ := json.Marshal(raw["trigger"])
 		contextJSON, _ := json.Marshal(raw["context"])
 		stepsJSON, _ := json.Marshal(raw["steps"])
-		_, err = store.QueryRow(ctx, h.store.Pool,
-			"INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-			name, triggerJSON, contextJSON, stepsJSON, raw["active"])
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err = store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _workflows (id, name, trigger, context, steps, active) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+				pb.Add(id), pb.Add(name), pb.Add(triggerJSON), pb.Add(contextJSON), pb.Add(stepsJSON), pb.Add(raw["active"])),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Workflow %s: %v", name, err))
 			continue
@@ -1774,7 +1975,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Step 6: Permissions (dedup by entity+action)
-	existingPerms, _ := store.QueryRows(ctx, h.store.Pool,
+	existingPerms, _ := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, action FROM _permissions")
 	permSet := make(map[string]bool)
 	for _, r := range existingPerms {
@@ -1786,9 +1987,14 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 			continue
 		}
 		condJSON, _ := json.Marshal(raw["conditions"])
-		_, err := store.QueryRow(ctx, h.store.Pool,
-			"INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1,$2,$3,$4) RETURNING id",
-			raw["entity"], raw["action"], raw["roles"], condJSON)
+		// Convert roles from any to []string for ArrayParam
+		rolesRaw := metadata.ParseStringArray(raw["roles"])
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf("INSERT INTO _permissions (id, entity, action, roles, conditions) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+				pb.Add(id), pb.Add(raw["entity"]), pb.Add(raw["action"]), pb.Add(h.store.Dialect.ArrayParam(rolesRaw)), pb.Add(condJSON)),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Permission (%v/%v): %v", raw["entity"], raw["action"], err))
 			continue
@@ -1798,7 +2004,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Step 7: Webhooks (dedup by entity+hook+url)
-	existingWHs, _ := store.QueryRows(ctx, h.store.Pool,
+	existingWHs, _ := store.QueryRows(ctx, h.store.DB,
 		"SELECT entity, hook, url FROM _webhooks")
 	whSet := make(map[string]bool)
 	for _, r := range existingWHs {
@@ -1831,11 +2037,14 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 		if condition == nil {
 			condition = ""
 		}
-		_, err := store.QueryRow(ctx, h.store.Pool,
-			`INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-			raw["entity"], hook, raw["url"], method,
-			string(headersJSON), condition, async, string(retryJSON), active)
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf(`INSERT INTO _webhooks (id, entity, hook, url, method, headers, condition, async, retry, active)
+			 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id`,
+				pb.Add(id), pb.Add(raw["entity"]), pb.Add(hook), pb.Add(raw["url"]), pb.Add(method),
+				pb.Add(string(headersJSON)), pb.Add(condition), pb.Add(async), pb.Add(string(retryJSON)), pb.Add(active)),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("Webhook (%v/%v/%v): %v", raw["entity"], raw["hook"], raw["url"], err))
 			continue
@@ -1856,11 +2065,14 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 			scope = "default"
 		}
 		configJSON, _ := json.Marshal(raw["config"])
-		_, err := store.QueryRow(ctx, h.store.Pool,
-			`INSERT INTO _ui_configs (entity, scope, config) VALUES ($1,$2,$3)
-			 ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()
+		id := store.GenerateUUID()
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(ctx, h.store.DB,
+			fmt.Sprintf(`INSERT INTO _ui_configs (id, entity, scope, config) VALUES (%s, %s, %s, %s)
+			 ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = %s
 			 RETURNING id`,
-			entity, scope, configJSON)
+				pb.Add(id), pb.Add(entity), pb.Add(scope), pb.Add(configJSON), h.store.Dialect.NowExpr()),
+			pb.Params()...)
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("UI config (%v/%v): %v", entity, scope, err))
 			continue
@@ -1869,7 +2081,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 	}
 
 	// Final reload
-	_ = metadata.Reload(ctx, h.store.Pool, h.registry)
+	_ = metadata.Reload(ctx, h.store.DB, h.registry)
 
 	// Step 9: Sample data (insert records into business tables)
 	if len(payload.SampleData) > 0 {
@@ -1892,16 +2104,15 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 				fieldTypes[f.Name] = f.Type
 			}
 			for _, record := range records {
+				pb := h.store.Dialect.NewParamBuilder()
 				cols := make([]string, 0, len(record))
 				placeholders := make([]string, 0, len(record))
-				values := make([]any, 0, len(record))
-				i := 1
 				for key, val := range record {
 					ft, ok := fieldTypes[key]
 					if !ok {
 						continue
 					}
-					// Convert JSON float64 to proper Go types for pgx
+					// Convert JSON float64 to proper Go types
 					if v, isFloat := val.(float64); isFloat {
 						switch ft {
 						case "integer", "int", "bigint":
@@ -1909,9 +2120,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 						}
 					}
 					cols = append(cols, `"`+key+`"`)
-					placeholders = append(placeholders, fmt.Sprintf("$%d", i))
-					values = append(values, val)
-					i++
+					placeholders = append(placeholders, pb.Add(val))
 				}
 				if len(cols) == 0 {
 					continue
@@ -1920,7 +2129,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 					`INSERT INTO %q (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
 					entity.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", "),
 				)
-				_, err := store.Exec(ctx, h.store.Pool, query, values...)
+				_, err := store.Exec(ctx, h.store.DB, query, pb.Params()...)
 				if err != nil {
 					errors = append(errors, fmt.Sprintf("Record %s: %v", name, err))
 					continue
@@ -1954,18 +2163,15 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 				continue
 			}
 			for _, record := range records {
+				pb := h.store.Dialect.NewParamBuilder()
 				cols := make([]string, 0, len(record))
 				placeholders := make([]string, 0, len(record))
-				values := make([]any, 0, len(record))
-				i := 1
 				for k, v := range record {
 					if !validCols[k] {
 						continue
 					}
 					cols = append(cols, `"`+k+`"`)
-					placeholders = append(placeholders, fmt.Sprintf("$%d", i))
-					values = append(values, v)
-					i++
+					placeholders = append(placeholders, pb.Add(v))
 				}
 				if len(cols) == 0 {
 					continue
@@ -1974,7 +2180,7 @@ func (h *Handler) Import(c *fiber.Ctx) error {
 					`INSERT INTO %q (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
 					tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "),
 				)
-				_, err := store.Exec(ctx, h.store.Pool, query, values...)
+				_, err := store.Exec(ctx, h.store.DB, query, pb.Params()...)
 				if err != nil {
 					errors = append(errors, fmt.Sprintf("Record %s: %v", key, err))
 					continue

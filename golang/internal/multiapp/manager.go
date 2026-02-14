@@ -54,28 +54,37 @@ func (m *AppManager) Get(ctx context.Context, appName string) (*AppContext, erro
 }
 
 // Create provisions a new app: creates database, bootstraps, caches.
-func (m *AppManager) Create(ctx context.Context, name, displayName string) (*AppContext, error) {
+// dbDriver can be "postgres" or "sqlite"; if empty, defaults to the server's configured driver.
+func (m *AppManager) Create(ctx context.Context, name, displayName, dbDriver string) (*AppContext, error) {
+	if dbDriver == "" {
+		dbDriver = m.dbConfig.Driver
+		if dbDriver == "" {
+			dbDriver = "postgres"
+		}
+	}
 	dbName := "rocket_" + name
 	jwtSecret := generateJWTSecret()
 
-	// Create the database
-	if err := store.CreateDatabase(ctx, m.mgmtStore.Pool, dbName); err != nil {
+	// Create the database using the app's chosen driver
+	appDialect := store.NewDialect(dbDriver)
+	if err := appDialect.CreateDatabase(ctx, m.mgmtStore.DB, dbName, m.dbConfig.Path); err != nil {
 		return nil, fmt.Errorf("create database %s: %w", dbName, err)
 	}
 
-	// Register in _apps
-	_, err := m.mgmtStore.Pool.Exec(ctx,
-		`INSERT INTO _apps (name, display_name, db_name, jwt_secret) VALUES ($1, $2, $3, $4)`,
-		name, displayName, dbName, jwtSecret,
-	)
+	// Register in _apps (with db_driver)
+	pb := m.mgmtStore.Dialect.NewParamBuilder()
+	_, err := m.mgmtStore.DB.ExecContext(ctx,
+		fmt.Sprintf("INSERT INTO _apps (name, display_name, db_name, db_driver, jwt_secret) VALUES (%s, %s, %s, %s, %s)",
+			pb.Add(name), pb.Add(displayName), pb.Add(dbName), pb.Add(dbDriver), pb.Add(jwtSecret)),
+		pb.Params()...)
 	if err != nil {
 		// Clean up: drop the database if registration fails
-		_ = store.DropDatabase(ctx, m.mgmtStore.Pool, dbName)
+		_ = appDialect.DropDatabase(ctx, m.mgmtStore.DB, dbName, m.dbConfig.Path)
 		return nil, fmt.Errorf("register app: %w", err)
 	}
 
-	// Connect to the new database
-	appCfg := store.ConnStringForDB(m.dbConfig, dbName)
+	// Connect to the new database using the app's driver
+	appCfg := m.appDBConfig(dbDriver, dbName)
 	appStore, err := store.NewWithPoolSize(ctx, appCfg, m.poolSize)
 	if err != nil {
 		return nil, fmt.Errorf("connect to app database %s: %w", dbName, err)
@@ -89,7 +98,7 @@ func (m *AppManager) Create(ctx context.Context, name, displayName string) (*App
 
 	// Build app context
 	reg := metadata.NewRegistry()
-	if err := metadata.LoadAll(ctx, appStore.Pool, reg); err != nil {
+	if err := metadata.LoadAll(ctx, appStore.DB, reg); err != nil {
 		log.Printf("WARN: Failed to load metadata for app %s: %v", name, err)
 	}
 
@@ -103,7 +112,7 @@ func (m *AppManager) Create(ctx context.Context, name, displayName string) (*App
 		maxFileSize: m.maxFileSize,
 	}
 	if m.instrConfig.Enabled {
-		ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
+		ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
 	}
 	ac.BuildHandlers()
 
@@ -127,21 +136,28 @@ func (m *AppManager) Delete(ctx context.Context, name string) error {
 	}
 	m.mu.Unlock()
 
-	// Look up db_name from _apps
-	var dbName string
-	err := m.mgmtStore.Pool.QueryRow(ctx, "SELECT db_name FROM _apps WHERE name = $1", name).Scan(&dbName)
+	// Look up db_name and db_driver from _apps
+	var dbName, dbDriver string
+	pb := m.mgmtStore.Dialect.NewParamBuilder()
+	err := m.mgmtStore.DB.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT db_name, db_driver FROM _apps WHERE name = %s", pb.Add(name)),
+		pb.Params()...).Scan(&dbName, &dbDriver)
 	if err != nil {
 		return fmt.Errorf("app not found: %s", name)
 	}
 
 	// Remove from _apps
-	_, err = m.mgmtStore.Pool.Exec(ctx, "DELETE FROM _apps WHERE name = $1", name)
+	pb2 := m.mgmtStore.Dialect.NewParamBuilder()
+	_, err = m.mgmtStore.DB.ExecContext(ctx,
+		fmt.Sprintf("DELETE FROM _apps WHERE name = %s", pb2.Add(name)),
+		pb2.Params()...)
 	if err != nil {
 		return fmt.Errorf("delete app record: %w", err)
 	}
 
-	// Drop the database
-	if err := store.DropDatabase(ctx, m.mgmtStore.Pool, dbName); err != nil {
+	// Drop the database using the app's driver
+	appDialect := store.NewDialect(dbDriver)
+	if err := appDialect.DropDatabase(ctx, m.mgmtStore.DB, dbName, m.dbConfig.Path); err != nil {
 		return fmt.Errorf("drop database %s: %w", dbName, err)
 	}
 
@@ -150,8 +166,8 @@ func (m *AppManager) Delete(ctx context.Context, name string) error {
 
 // List returns all registered apps.
 func (m *AppManager) List(ctx context.Context) ([]AppInfo, error) {
-	rows, err := store.QueryRows(ctx, m.mgmtStore.Pool,
-		"SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps ORDER BY name",
+	rows, err := store.QueryRows(ctx, m.mgmtStore.DB,
+		"SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps ORDER BY name",
 	)
 	if err != nil {
 		return nil, err
@@ -159,10 +175,15 @@ func (m *AppManager) List(ctx context.Context) ([]AppInfo, error) {
 
 	apps := make([]AppInfo, 0, len(rows))
 	for _, row := range rows {
+		dbDriver := "postgres"
+		if v, ok := row["db_driver"]; ok && v != nil {
+			dbDriver = v.(string)
+		}
 		apps = append(apps, AppInfo{
 			Name:        row["name"].(string),
 			DisplayName: row["display_name"].(string),
 			DBName:      row["db_name"].(string),
+			DBDriver:    dbDriver,
 			Status:      row["status"].(string),
 			CreatedAt:   row["created_at"],
 			UpdatedAt:   row["updated_at"],
@@ -173,16 +194,22 @@ func (m *AppManager) List(ctx context.Context) ([]AppInfo, error) {
 
 // GetApp returns a single app's info from _apps.
 func (m *AppManager) GetApp(ctx context.Context, name string) (*AppInfo, error) {
-	row, err := store.QueryRow(ctx, m.mgmtStore.Pool,
-		"SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps WHERE name = $1", name,
-	)
+	pb := m.mgmtStore.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(ctx, m.mgmtStore.DB,
+		fmt.Sprintf("SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps WHERE name = %s", pb.Add(name)),
+		pb.Params()...)
 	if err != nil {
 		return nil, err
+	}
+	dbDriver := "postgres"
+	if v, ok := row["db_driver"]; ok && v != nil {
+		dbDriver = v.(string)
 	}
 	return &AppInfo{
 		Name:        row["name"].(string),
 		DisplayName: row["display_name"].(string),
 		DBName:      row["db_name"].(string),
+		DBDriver:    dbDriver,
 		Status:      row["status"].(string),
 		CreatedAt:   row["created_at"],
 		UpdatedAt:   row["updated_at"],
@@ -191,8 +218,8 @@ func (m *AppManager) GetApp(ctx context.Context, name string) (*AppInfo, error) 
 
 // LoadAll eagerly initializes all active apps from _apps at startup.
 func (m *AppManager) LoadAll(ctx context.Context) error {
-	rows, err := store.QueryRows(ctx, m.mgmtStore.Pool,
-		"SELECT name, db_name, jwt_secret FROM _apps WHERE status = 'active'",
+	rows, err := store.QueryRows(ctx, m.mgmtStore.DB,
+		"SELECT name, db_name, db_driver, jwt_secret FROM _apps WHERE status = 'active'",
 	)
 	if err != nil {
 		// No rows is fine — no apps yet
@@ -202,9 +229,13 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 	for _, row := range rows {
 		name := row["name"].(string)
 		dbName := row["db_name"].(string)
+		dbDriver := m.dbConfig.Driver
+		if v, ok := row["db_driver"]; ok && v != nil {
+			dbDriver = v.(string)
+		}
 		jwtSecret := row["jwt_secret"].(string)
 
-		appCfg := store.ConnStringForDB(m.dbConfig, dbName)
+		appCfg := m.appDBConfig(dbDriver, dbName)
 		appStore, err := store.NewWithPoolSize(ctx, appCfg, m.poolSize)
 		if err != nil {
 			log.Printf("WARN: Failed to connect to app %s (db: %s): %v", name, dbName, err)
@@ -219,7 +250,7 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 		}
 
 		reg := metadata.NewRegistry()
-		if err := metadata.LoadAll(ctx, appStore.Pool, reg); err != nil {
+		if err := metadata.LoadAll(ctx, appStore.DB, reg); err != nil {
 			log.Printf("WARN: Failed to load metadata for app %s: %v", name, err)
 		}
 
@@ -233,7 +264,7 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 			maxFileSize: m.maxFileSize,
 		}
 		if m.instrConfig.Enabled {
-			ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
+			ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
 		}
 		ac.BuildHandlers()
 
@@ -281,10 +312,11 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 		return ac, nil
 	}
 
-	var dbName, jwtSecret, status string
-	err := m.mgmtStore.Pool.QueryRow(ctx,
-		"SELECT db_name, jwt_secret, status FROM _apps WHERE name = $1", appName,
-	).Scan(&dbName, &jwtSecret, &status)
+	var dbName, dbDriver, jwtSecret, status string
+	pb := m.mgmtStore.Dialect.NewParamBuilder()
+	err := m.mgmtStore.DB.QueryRowContext(ctx,
+		fmt.Sprintf("SELECT db_name, db_driver, jwt_secret, status FROM _apps WHERE name = %s", pb.Add(appName)),
+		pb.Params()...).Scan(&dbName, &dbDriver, &jwtSecret, &status)
 	if err != nil {
 		return nil, fmt.Errorf("app not found: %s", appName)
 	}
@@ -292,14 +324,14 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 		return nil, fmt.Errorf("app %s is %s", appName, status)
 	}
 
-	appCfg := store.ConnStringForDB(m.dbConfig, dbName)
+	appCfg := m.appDBConfig(dbDriver, dbName)
 	appStore, err := store.NewWithPoolSize(ctx, appCfg, m.poolSize)
 	if err != nil {
 		return nil, fmt.Errorf("connect to app %s: %w", appName, err)
 	}
 
 	reg := metadata.NewRegistry()
-	if err := metadata.LoadAll(ctx, appStore.Pool, reg); err != nil {
+	if err := metadata.LoadAll(ctx, appStore.DB, reg); err != nil {
 		log.Printf("WARN: Failed to load metadata for app %s: %v", appName, err)
 	}
 
@@ -313,12 +345,20 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 		maxFileSize: m.maxFileSize,
 	}
 	if m.instrConfig.Enabled {
-		ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
+		ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
 	}
 	ac.BuildHandlers()
 	m.apps[appName] = ac
 
 	return ac, nil
+}
+
+// appDBConfig builds a DatabaseConfig for an app database with the given driver.
+func (m *AppManager) appDBConfig(driver, dbName string) config.DatabaseConfig {
+	cfg := m.dbConfig
+	cfg.Driver = driver
+	cfg.Name = dbName
+	return cfg
 }
 
 func generateJWTSecret() string {
