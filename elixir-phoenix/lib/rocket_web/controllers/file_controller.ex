@@ -2,7 +2,7 @@ defmodule RocketWeb.FileController do
   @moduledoc "File upload, serve, delete, and list endpoints."
   use RocketWeb, :controller
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Storage.Local, as: FileStorage
   alias Rocket.Engine.AppError
   alias Rocket.Instrument.Instrumenter
@@ -35,7 +35,7 @@ defmodule RocketWeb.FileController do
               {:ok, storage_path} ->
                 user_id = get_user_id(conn)
 
-                case Postgres.exec(db,
+                case Store.exec(db,
                        "INSERT INTO _files (id, filename, storage_path, mime_type, size, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6)",
                        [file_id, filename, storage_path, mime_type, size, user_id]) do
                   {:ok, _} ->
@@ -83,7 +83,7 @@ defmodule RocketWeb.FileController do
     try do
       db = get_conn(conn)
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "SELECT filename, storage_path, mime_type, size FROM _files WHERE id = $1",
              [id]) do
         {:ok, row} ->
@@ -125,13 +125,13 @@ defmodule RocketWeb.FileController do
     try do
       db = get_conn(conn)
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "SELECT storage_path FROM _files WHERE id = $1",
              [id]) do
         {:ok, row} ->
           storage_path = row["storage_path"]
           FileStorage.delete(storage_path)
-          Postgres.exec(db, "DELETE FROM _files WHERE id = $1", [id])
+          Store.exec(db, "DELETE FROM _files WHERE id = $1", [id])
           _span = Instrumenter.set_status(span, "ok")
           json(conn, %{data: %{deleted: true}})
 
@@ -152,7 +152,7 @@ defmodule RocketWeb.FileController do
   def list_files(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db,
+    case Store.query_rows(db,
            "SELECT id, filename, mime_type, size, uploaded_by, created_at FROM _files ORDER BY created_at DESC") do
       {:ok, rows} ->
         json(conn, %{data: rows || []})
@@ -164,7 +164,7 @@ defmodule RocketWeb.FileController do
 
   # ── Helpers ──
 
-  defp get_conn(conn), do: conn.assigns[:db_conn] || Rocket.Repo
+  defp get_conn(conn), do: conn.assigns[:db_conn] || Rocket.Store.mgmt_conn()
 
   defp get_app_name(conn) do
     case conn.assigns[:app_context] do

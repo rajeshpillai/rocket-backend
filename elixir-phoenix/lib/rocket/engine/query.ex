@@ -200,6 +200,18 @@ defmodule Rocket.Engine.Query do
     {where, params, n}
   end
 
+  defp build_where_clause(%WhereClause{operator: "in"} = f, params, n) do
+    dialect = Rocket.Store.dialect()
+    {clause, extra_params, n} = dialect.in_expr(f.field, f.value, n)
+    {clause, params ++ extra_params, n}
+  end
+
+  defp build_where_clause(%WhereClause{operator: "not_in"} = f, params, n) do
+    dialect = Rocket.Store.dialect()
+    {clause, extra_params, n} = dialect.not_in_expr(f.field, f.value, n)
+    {clause, params ++ extra_params, n}
+  end
+
   defp build_where_clause(%WhereClause{} = f, params, n) do
     n = n + 1
     ph = "$#{n}"
@@ -213,8 +225,6 @@ defmodule Rocket.Engine.Query do
         "gte" -> "#{f.field} >= #{ph}"
         "lt" -> "#{f.field} < #{ph}"
         "lte" -> "#{f.field} <= #{ph}"
-        "in" -> "#{f.field} = ANY(#{ph})"
-        "not_in" -> "#{f.field} != ALL(#{ph})"
         "like" -> "#{f.field} LIKE #{ph}"
         _ -> "#{f.field} = #{ph}"
       end

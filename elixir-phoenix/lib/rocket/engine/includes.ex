@@ -1,7 +1,7 @@
 defmodule Rocket.Engine.Includes do
   @moduledoc "Loads related data and attaches to parent rows using separate queries."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.{Entity, Relation, Registry}
 
   def load_includes(_conn, _registry, _entity, rows, _includes) when rows == [], do: {:ok, rows}
@@ -56,11 +56,14 @@ defmodule Rocket.Engine.Includes do
       {:ok, rows}
     else
       columns = target_entity |> Entity.field_names() |> Enum.join(", ")
-      sql = "SELECT #{columns} FROM #{target_entity.table} WHERE #{rel.target_key} = ANY($1)"
+      dialect = Store.dialect()
+      {in_clause, in_params, _n} = dialect.in_expr(rel.target_key, parent_ids, 0)
+      sql = "SELECT #{columns} FROM #{target_entity.table} WHERE #{in_clause}"
       sql = if target_entity.soft_delete, do: sql <> " AND deleted_at IS NULL", else: sql
 
-      case Postgres.query_rows(conn, sql, [parent_ids]) do
+      case Store.query_rows(conn, sql, in_params) do
         {:ok, child_rows} ->
+          child_rows = Store.fix_booleans(child_rows, target_entity)
           grouped =
             Enum.group_by(child_rows, fn child -> to_string(child[rel.target_key]) end)
 
@@ -91,10 +94,12 @@ defmodule Rocket.Engine.Includes do
       {:ok, rows}
     else
       # Query join table
+      dialect = Store.dialect()
+      {in_clause, in_params, _n} = dialect.in_expr(rel.source_join_key, parent_ids, 0)
       join_sql =
-        "SELECT #{rel.source_join_key}, #{rel.target_join_key} FROM #{rel.join_table} WHERE #{rel.source_join_key} = ANY($1)"
+        "SELECT #{rel.source_join_key}, #{rel.target_join_key} FROM #{rel.join_table} WHERE #{in_clause}"
 
-      case Postgres.query_rows(conn, join_sql, [parent_ids]) do
+      case Store.query_rows(conn, join_sql, in_params) do
         {:ok, join_rows} when join_rows == [] ->
           rows = Enum.map(rows, fn row -> Map.put(row, inc_name, []) end)
           {:ok, rows}
@@ -108,11 +113,13 @@ defmodule Rocket.Engine.Includes do
 
           # Query targets
           columns = target_entity |> Entity.field_names() |> Enum.join(", ")
-          target_sql = "SELECT #{columns} FROM #{target_entity.table} WHERE #{target_entity.primary_key.field} = ANY($1)"
+          {in_clause2, in_params2, _n} = dialect.in_expr(target_entity.primary_key.field, target_ids, 0)
+          target_sql = "SELECT #{columns} FROM #{target_entity.table} WHERE #{in_clause2}"
           target_sql = if target_entity.soft_delete, do: target_sql <> " AND deleted_at IS NULL", else: target_sql
 
-          case Postgres.query_rows(conn, target_sql, [target_ids]) do
+          case Store.query_rows(conn, target_sql, in_params2) do
             {:ok, target_rows} ->
+              target_rows = Store.fix_booleans(target_rows, target_entity)
               # Index targets by PK
               target_by_pk =
                 Map.new(target_rows, fn tr ->
@@ -161,11 +168,14 @@ defmodule Rocket.Engine.Includes do
         {:ok, rows}
       else
         columns = source_entity |> Entity.field_names() |> Enum.join(", ")
-        sql = "SELECT #{columns} FROM #{source_entity.table} WHERE #{rel.source_key} = ANY($1)"
+        dialect = Store.dialect()
+        {in_clause, in_params, _n} = dialect.in_expr(rel.source_key, fk_values, 0)
+        sql = "SELECT #{columns} FROM #{source_entity.table} WHERE #{in_clause}"
         sql = if source_entity.soft_delete, do: sql <> " AND deleted_at IS NULL", else: sql
 
-        case Postgres.query_rows(conn, sql, [fk_values]) do
+        case Store.query_rows(conn, sql, in_params) do
           {:ok, parent_rows} ->
+            parent_rows = Store.fix_booleans(parent_rows, source_entity)
             parent_by_pk =
               Map.new(parent_rows, fn pr ->
                 {to_string(pr[rel.source_key]), pr}

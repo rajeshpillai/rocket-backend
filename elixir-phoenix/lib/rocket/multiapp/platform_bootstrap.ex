@@ -1,67 +1,66 @@
 defmodule Rocket.MultiApp.PlatformBootstrap do
   @moduledoc "Bootstrap platform tables in the management database."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   require Logger
 
-  @platform_tables [
-    """
-    CREATE TABLE IF NOT EXISTS _apps (
-      name TEXT PRIMARY KEY,
-      display_name TEXT NOT NULL,
-      db_name TEXT NOT NULL UNIQUE,
-      jwt_secret TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS _platform_users (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      roles TEXT[] DEFAULT '{platform_admin}',
-      active BOOLEAN DEFAULT true,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS _platform_refresh_tokens (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES _platform_users(id) ON DELETE CASCADE,
-      token UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_platform_refresh_tokens_token ON _platform_refresh_tokens(token)",
-    "CREATE INDEX IF NOT EXISTS idx_platform_refresh_tokens_expires ON _platform_refresh_tokens(expires_at)"
-  ]
-
   def bootstrap(conn) do
-    Enum.each(@platform_tables, fn sql ->
-      case Postgres.exec(conn, sql, []) do
+    dialect = Store.dialect()
+
+    dialect.platform_tables_sql()
+    |> String.split(";")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.each(fn sql ->
+      case Store.exec(conn, sql, []) do
         {:ok, _} -> :ok
         {:error, err} -> Logger.error("Platform bootstrap SQL error: #{inspect(err)}")
       end
     end)
 
-    seed_platform_admin(conn)
+    migrate_apps_table(conn, dialect)
+    seed_platform_admin(conn, dialect)
   end
 
-  defp seed_platform_admin(conn) do
-    case Postgres.query_row(conn, "SELECT COUNT(*)::bigint as count FROM _platform_users", []) do
-      {:ok, %{"count" => count}} when count > 0 ->
+  defp migrate_apps_table(conn, dialect) do
+    # Add db_driver column if missing (migration for existing installations)
+    cols = dialect.get_columns(conn, "_apps")
+
+    if !Map.has_key?(cols, "db_driver") do
+      default_driver = dialect.name()
+
+      case Store.exec(conn, "ALTER TABLE _apps ADD COLUMN db_driver TEXT NOT NULL DEFAULT '#{default_driver}'", []) do
+        {:ok, _} ->
+          Logger.info("Migrated _apps: added db_driver column (default: #{default_driver})")
+
+        {:error, err} ->
+          Logger.error("Failed to add db_driver column: #{inspect(err)}")
+      end
+    end
+  end
+
+  defp seed_platform_admin(conn, dialect) do
+    case Store.query_row(conn, "SELECT COUNT(*) as count FROM _platform_users", []) do
+      {:ok, %{"count" => count}} when is_integer(count) and count > 0 ->
         :ok
 
       _ ->
         hash = Bcrypt.hash_pwd_salt("changeme")
+        roles = dialect.array_param(["platform_admin"])
 
-        case Postgres.exec(conn,
-               "INSERT INTO _platform_users (email, password_hash, roles) VALUES ($1, $2, $3)",
-               ["platform@localhost", hash, ["platform_admin"]]) do
+        {sql, params} =
+          if dialect.uuid_default() == "" do
+            # SQLite: no gen_random_uuid(), generate UUID manually
+            id = Ecto.UUID.generate()
+
+            {"INSERT INTO _platform_users (id, email, password_hash, roles) VALUES ($1, $2, $3, $4)",
+             [id, "platform@localhost", hash, roles]}
+          else
+            {"INSERT INTO _platform_users (email, password_hash, roles) VALUES ($1, $2, $3)",
+             ["platform@localhost", hash, roles]}
+          end
+
+        case Store.exec(conn, sql, params) do
           {:ok, _} ->
             Logger.warning("Default platform admin created (platform@localhost / changeme) — change the password immediately")
 

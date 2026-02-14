@@ -7,12 +7,20 @@ defmodule Rocket.MultiApp.AppContext do
     :jwt_secret,
     :db_pool,
     :registry,
-    :event_buffer
+    :event_buffer,
+    :dialect
   ]
 
   @doc "Initialize an AppContext: connect to DB, bootstrap, load metadata."
-  def init(name, db_name, jwt_secret, db_config) do
-    case start_pool(db_name, db_config) do
+  def init(name, db_name, jwt_secret, db_config, db_driver \\ nil) do
+    # Resolve per-app dialect
+    db_driver = db_driver || Rocket.Store.dialect().name()
+    app_dialect = Rocket.Store.Dialect.new(db_driver)
+
+    # Set per-app dialect for this init process so Store calls use the right dialect
+    Process.put(:rocket_dialect, app_dialect)
+
+    case start_pool(db_name, db_config, app_dialect) do
       {:ok, pool} ->
         # Bootstrap system tables (idempotent)
         Rocket.Store.Bootstrap.bootstrap(pool)
@@ -53,9 +61,12 @@ defmodule Rocket.MultiApp.AppContext do
           jwt_secret: jwt_secret,
           db_pool: pool,
           registry: registry_name,
-          event_buffer: event_buffer
+          event_buffer: event_buffer,
+          dialect: app_dialect
         }
 
+        # Clean up process dictionary after init
+        Process.delete(:rocket_dialect)
         {:ok, ctx}
 
       {:error, err} ->
@@ -85,17 +96,30 @@ defmodule Rocket.MultiApp.AppContext do
     _ -> :ok
   end
 
-  defp start_pool(db_name, db_config) do
-    opts = [
-      hostname: db_config[:hostname] || "localhost",
-      port: db_config[:port] || 5433,
-      username: db_config[:username] || "rocket",
-      password: db_config[:password] || "rocket",
-      database: db_name,
-      pool_size: db_config[:pool_size] || 5
-    ]
+  defp start_pool(db_name, db_config, dialect) do
+    case dialect.name() do
+      "sqlite" ->
+        data_dir = db_config[:data_dir] || "./data"
+        path = Path.join(data_dir, "#{db_name}.db")
 
-    Postgrex.start_link(opts)
+        DBConnection.start_link(Exqlite.Connection,
+          database: path,
+          journal_mode: :wal,
+          pool_size: db_config[:pool_size] || 5
+        )
+
+      _ ->
+        opts = [
+          hostname: db_config[:hostname] || "localhost",
+          port: db_config[:port] || 5433,
+          username: db_config[:username] || "rocket",
+          password: db_config[:password] || "rocket",
+          database: db_name,
+          pool_size: db_config[:pool_size] || 5
+        ]
+
+        Postgrex.start_link(opts)
+    end
   end
 
   defp registry_name(app_name) do

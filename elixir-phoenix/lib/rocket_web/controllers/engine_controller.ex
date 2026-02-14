@@ -2,7 +2,7 @@ defmodule RocketWeb.EngineController do
   @moduledoc "Dynamic REST controller — 5 CRUD endpoints per entity."
   use RocketWeb, :controller
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.{Query, NestedWrite, Includes, SoftDelete, AppError}
   alias Rocket.Auth.Permissions
@@ -40,8 +40,9 @@ defmodule RocketWeb.EngineController do
         qr = Query.build_select_sql(plan)
         cr = Query.build_count_sql(plan)
 
-        with {:ok, rows} <- Postgres.query_rows(db, qr.sql, qr.params),
-             {:ok, count_row} <- Postgres.query_row(db, cr.sql, cr.params) do
+        with {:ok, rows} <- Store.query_rows(db, qr.sql, qr.params),
+             {:ok, count_row} <- Store.query_row(db, cr.sql, cr.params) do
+          rows = Store.fix_booleans(rows, entity)
           total = count_row["count"] || 0
 
           {:ok, rows} =
@@ -144,7 +145,7 @@ defmodule RocketWeb.EngineController do
     try do
       with {:ok, entity} <- resolve_entity(registry, entity_name),
            :ok <- check_perm(user, entity_name, "create", registry) do
-        body = Map.drop(params, ["entity"])
+        body = Map.drop(params, ["entity", "app"])
         db = get_conn(conn)
 
         case NestedWrite.plan_write(entity, registry, body, nil) do
@@ -198,7 +199,7 @@ defmodule RocketWeb.EngineController do
         case NestedWrite.fetch_record(db, entity, id) do
           {:ok, existing} ->
             with :ok <- check_perm(user, entity_name, "update", registry, existing) do
-              body = Map.drop(params, ["entity", "id"])
+              body = Map.drop(params, ["entity", "id", "app"])
 
               case NestedWrite.plan_write(entity, registry, body, id) do
                 {:ok, plan} ->
@@ -270,7 +271,7 @@ defmodule RocketWeb.EngineController do
                       SoftDelete.build_hard_delete_sql(entity, id)
                     end
 
-                  case Postgres.exec(db, sql, params) do
+                  case Store.exec(db, sql, params) do
                     {:ok, n} when n > 0 ->
                       _span = Instrumenter.set_status(span, "ok")
                       json(conn, %{data: %{id: id}})
@@ -334,7 +335,7 @@ defmodule RocketWeb.EngineController do
   end
 
   defp get_conn(conn) do
-    conn.assigns[:db_conn] || Rocket.Repo
+    conn.assigns[:db_conn] || Store.mgmt_conn()
   end
 
   defp parse_includes(params) do

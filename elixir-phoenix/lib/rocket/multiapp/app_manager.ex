@@ -3,7 +3,7 @@ defmodule Rocket.MultiApp.AppManager do
   use GenServer
   require Logger
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.MultiApp.{AppContext, PlatformBootstrap}
 
   @valid_app_name_re ~r/^[a-z][a-z0-9_-]{0,62}$/
@@ -15,7 +15,7 @@ defmodule Rocket.MultiApp.AppManager do
   # ── Client API ──
 
   def get(app_name), do: GenServer.call(__MODULE__, {:get, app_name})
-  def create(name, display_name), do: GenServer.call(__MODULE__, {:create, name, display_name}, 30_000)
+  def create(name, display_name, db_driver \\ nil), do: GenServer.call(__MODULE__, {:create, name, display_name, db_driver}, 30_000)
   def delete(name), do: GenServer.call(__MODULE__, {:delete, name}, 30_000)
   def delete_async(name), do: GenServer.call(__MODULE__, {:delete_async, name})
   def list_apps, do: GenServer.call(__MODULE__, :list)
@@ -26,7 +26,7 @@ defmodule Rocket.MultiApp.AppManager do
 
   @impl true
   def init(_opts) do
-    db_config = Application.get_env(:rocket, Rocket.Repo) || []
+    db_config = Application.get_env(:rocket, :db_config) || []
 
     state = %{
       apps: %{},
@@ -39,7 +39,7 @@ defmodule Rocket.MultiApp.AppManager do
   @impl true
   def handle_continue(:bootstrap_and_load, state) do
     try do
-      PlatformBootstrap.bootstrap(Rocket.Repo)
+      PlatformBootstrap.bootstrap(Store.mgmt_conn())
       state = load_all_apps(state)
       {:noreply, state}
     rescue
@@ -67,23 +67,28 @@ defmodule Rocket.MultiApp.AppManager do
     end
   end
 
-  def handle_call({:create, name, display_name}, _from, state) do
+  def handle_call({:create, name, display_name, db_driver}, _from, state) do
     if !Regex.match?(@valid_app_name_re, name) do
       {:reply, {:error, "Invalid app name. Must start with a lowercase letter and contain only lowercase letters, numbers, hyphens, underscores (max 63 chars)."}, state}
     else
       display_name = if display_name == nil || display_name == "", do: name, else: display_name
       db_name = "rocket_#{name}"
       jwt_secret = generate_jwt_secret()
+      # Use requested driver, falling back to system default
+      db_driver = if db_driver in ["postgres", "sqlite"], do: db_driver, else: Store.dialect().name()
+      app_dialect = Rocket.Store.Dialect.new(db_driver)
+      mgmt = Store.mgmt_conn()
+      data_dir = state.db_config[:data_dir] || "./data"
 
-      # Create database
-      case create_database(db_name) do
+      # Create database using the app's dialect
+      case app_dialect.create_database(mgmt, db_name, data_dir) do
         :ok ->
-          # Insert into _apps
-          case Postgres.exec(Rocket.Repo,
-                 "INSERT INTO _apps (name, display_name, db_name, jwt_secret, status) VALUES ($1, $2, $3, $4, $5)",
-                 [name, display_name, db_name, jwt_secret, "active"]) do
+          # Insert into _apps with db_driver
+          case Store.exec(mgmt,
+                 "INSERT INTO _apps (name, display_name, db_name, db_driver, jwt_secret, status) VALUES ($1, $2, $3, $4, $5, $6)",
+                 [name, display_name, db_name, db_driver, jwt_secret, "active"]) do
             {:ok, _} ->
-              case AppContext.init(name, db_name, jwt_secret, state.db_config) do
+              case AppContext.init(name, db_name, jwt_secret, state.db_config, db_driver) do
                 {:ok, ctx} ->
                   state = put_in(state.apps[name], ctx)
 
@@ -91,6 +96,7 @@ defmodule Rocket.MultiApp.AppManager do
                     name: name,
                     display_name: display_name,
                     db_name: db_name,
+                    db_driver: db_driver,
                     status: "active"
                   }
 
@@ -118,14 +124,18 @@ defmodule Rocket.MultiApp.AppManager do
     end
 
     state = %{state | apps: Map.delete(state.apps, name)}
+    mgmt = Store.mgmt_conn()
+    data_dir = state.db_config[:data_dir] || "./data"
 
-    # Get db_name from _apps
-    case Postgres.query_row(Rocket.Repo,
-           "SELECT db_name FROM _apps WHERE name = $1",
+    # Get db_name and db_driver from _apps to use the correct dialect for drop
+    case Store.query_row(mgmt,
+           "SELECT db_name, db_driver FROM _apps WHERE name = $1",
            [name]) do
-      {:ok, %{"db_name" => db_name}} ->
-        Postgres.exec(Rocket.Repo, "DELETE FROM _apps WHERE name = $1", [name])
-        drop_database(db_name)
+      {:ok, %{"db_name" => db_name} = row} ->
+        app_driver = row["db_driver"] || Store.dialect().name()
+        app_dialect = Rocket.Store.Dialect.new(app_driver)
+        Store.exec(mgmt, "DELETE FROM _apps WHERE name = $1", [name])
+        app_dialect.drop_database(mgmt, db_name, data_dir)
         {:reply, :ok, state}
 
       {:error, :not_found} ->
@@ -144,16 +154,20 @@ defmodule Rocket.MultiApp.AppManager do
     end
 
     state = %{state | apps: Map.delete(state.apps, name)}
+    mgmt = Store.mgmt_conn()
+    data_dir = state.db_config[:data_dir] || "./data"
 
-    case Postgres.query_row(Rocket.Repo,
-           "SELECT db_name FROM _apps WHERE name = $1",
+    case Store.query_row(mgmt,
+           "SELECT db_name, db_driver FROM _apps WHERE name = $1",
            [name]) do
-      {:ok, %{"db_name" => db_name}} ->
-        Postgres.exec(Rocket.Repo, "DELETE FROM _apps WHERE name = $1", [name])
+      {:ok, %{"db_name" => db_name} = row} ->
+        app_driver = row["db_driver"] || Store.dialect().name()
+        app_dialect = Rocket.Store.Dialect.new(app_driver)
+        Store.exec(mgmt, "DELETE FROM _apps WHERE name = $1", [name])
 
         # Drop the database in the background so the response is immediate
         Task.start(fn ->
-          drop_database(db_name)
+          app_dialect.drop_database(mgmt, db_name, data_dir)
           Logger.info("Dropped database #{db_name} for app #{name}")
         end)
 
@@ -168,16 +182,16 @@ defmodule Rocket.MultiApp.AppManager do
   end
 
   def handle_call(:list, _from, state) do
-    case Postgres.query_rows(Rocket.Repo,
-           "SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps ORDER BY name") do
+    case Store.query_rows(Store.mgmt_conn(),
+           "SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps ORDER BY name") do
       {:ok, rows} -> {:reply, {:ok, rows}, state}
       {:error, err} -> {:reply, {:error, err}, state}
     end
   end
 
   def handle_call({:get_info, name}, _from, state) do
-    case Postgres.query_row(Rocket.Repo,
-           "SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps WHERE name = $1",
+    case Store.query_row(Store.mgmt_conn(),
+           "SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps WHERE name = $1",
            [name]) do
       {:ok, row} -> {:reply, {:ok, row}, state}
       {:error, :not_found} -> {:reply, {:error, "App not found: #{name}"}, state}
@@ -192,17 +206,18 @@ defmodule Rocket.MultiApp.AppManager do
   # ── Private ──
 
   defp load_all_apps(state) do
-    case Postgres.query_rows(Rocket.Repo,
-           "SELECT name, db_name, jwt_secret FROM _apps WHERE status = 'active'") do
+    case Store.query_rows(Store.mgmt_conn(),
+           "SELECT name, db_name, db_driver, jwt_secret FROM _apps WHERE status = 'active'") do
       {:ok, rows} ->
         Enum.reduce(rows, state, fn row, state ->
           name = row["name"]
           db_name = row["db_name"]
+          db_driver = row["db_driver"] || Store.dialect().name()
           jwt_secret = row["jwt_secret"]
 
-          case AppContext.init(name, db_name, jwt_secret, state.db_config) do
+          case AppContext.init(name, db_name, jwt_secret, state.db_config, db_driver) do
             {:ok, ctx} ->
-              Logger.info("Loaded app: #{name}")
+              Logger.info("Loaded app: #{name} (driver: #{db_driver})")
               put_in(state.apps[name], ctx)
 
             {:error, err} ->
@@ -218,11 +233,12 @@ defmodule Rocket.MultiApp.AppManager do
   end
 
   defp init_app(app_name, db_config) do
-    case Postgres.query_row(Rocket.Repo,
-           "SELECT db_name, jwt_secret, status FROM _apps WHERE name = $1",
+    case Store.query_row(Store.mgmt_conn(),
+           "SELECT db_name, db_driver, jwt_secret, status FROM _apps WHERE name = $1",
            [app_name]) do
-      {:ok, %{"status" => "active", "db_name" => db_name, "jwt_secret" => jwt_secret}} ->
-        AppContext.init(app_name, db_name, jwt_secret, db_config)
+      {:ok, %{"status" => "active", "db_name" => db_name, "jwt_secret" => jwt_secret} = row} ->
+        db_driver = row["db_driver"] || Store.dialect().name()
+        AppContext.init(app_name, db_name, jwt_secret, db_config, db_driver)
 
       {:ok, _} ->
         {:error, "App is not active"}
@@ -233,27 +249,6 @@ defmodule Rocket.MultiApp.AppManager do
       {:error, err} ->
         {:error, err}
     end
-  end
-
-  defp create_database(db_name) do
-    case Postgres.exec(Rocket.Repo, "CREATE DATABASE #{db_name}", []) do
-      {:ok, _} -> :ok
-      {:error, %{postgres: %{code: :duplicate_database}}} -> :ok
-      {:error, err} ->
-        # Check if it's a duplicate database error (string match fallback)
-        err_str = inspect(err)
-        if String.contains?(err_str, "already exists"), do: :ok, else: {:error, err}
-    end
-  end
-
-  defp drop_database(db_name) do
-    # Terminate connections first
-    Postgres.exec(Rocket.Repo,
-      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-      [db_name])
-
-    Postgres.exec(Rocket.Repo, "DROP DATABASE IF EXISTS #{db_name}", [])
-    :ok
   end
 
   defp generate_jwt_secret do

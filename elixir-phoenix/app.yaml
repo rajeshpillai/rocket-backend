@@ -11,6 +11,9 @@ storage:
   max_file_size: 10485760
 
 database:
+  driver: postgres
+  # driver: sqlite
+  # data_dir: ./data
   host: localhost
   port: 5433
   user: rocket

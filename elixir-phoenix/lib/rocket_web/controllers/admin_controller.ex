@@ -2,7 +2,8 @@ defmodule RocketWeb.AdminController do
   @moduledoc "Admin API controller — entity, relation, and metadata CRUD."
   use RocketWeb, :controller
 
-  alias Rocket.Store.{Postgres, Migrator}
+  alias Rocket.Store
+  alias Rocket.Store.Migrator
   alias Rocket.Metadata.{Entity, Relation, Registry, Loader}
   alias Rocket.Engine.AppError
 
@@ -11,7 +12,7 @@ defmodule RocketWeb.AdminController do
   def list_entities(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities ORDER BY name") do
+    case Store.query_rows(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities ORDER BY name") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -20,7 +21,7 @@ defmodule RocketWeb.AdminController do
   def get_entity(conn, %{"name" => name}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [name]) do
+    case Store.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [name]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Entity", name))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -34,14 +35,14 @@ defmodule RocketWeb.AdminController do
       db = get_conn(conn)
       definition = entity_to_definition(entity)
 
-      case Postgres.exec(db,
+      case Store.exec(db,
              "INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3)",
              [entity.name, entity.table, definition]) do
         {:ok, _} ->
           Migrator.migrate(db, entity)
           reload_registry(conn)
 
-          case Postgres.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [entity.name]) do
+          case Store.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [entity.name]) do
             {:ok, row} ->
               conn |> put_status(201) |> json(%{data: row})
 
@@ -68,14 +69,14 @@ defmodule RocketWeb.AdminController do
       db = get_conn(conn)
       definition = entity_to_definition(entity)
 
-      case Postgres.exec(db,
+      case Store.exec(db,
              "UPDATE _entities SET table_name = $1, definition = $2, updated_at = NOW() WHERE name = $3",
              [entity.table, definition, name]) do
         {:ok, _} ->
           Migrator.migrate(db, entity)
           reload_registry(conn)
 
-          case Postgres.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [name]) do
+          case Store.query_row(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities WHERE name = $1", [name]) do
             {:ok, row} -> json(conn, %{data: row})
             {:error, _} -> json(conn, %{data: %{name: name}})
           end
@@ -93,8 +94,8 @@ defmodule RocketWeb.AdminController do
     db = get_conn(conn)
 
     with :ok <- check_entity_exists(conn, name) do
-      Postgres.exec(db, "DELETE FROM _relations WHERE source = $1 OR target = $1", [name])
-      Postgres.exec(db, "DELETE FROM _entities WHERE name = $1", [name])
+      Store.exec(db, "DELETE FROM _relations WHERE source = $1 OR target = $1", [name])
+      Store.exec(db, "DELETE FROM _entities WHERE name = $1", [name])
       reload_registry(conn)
       json(conn, %{data: %{name: name, deleted: true}})
     else
@@ -107,7 +108,7 @@ defmodule RocketWeb.AdminController do
   def list_relations(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations ORDER BY name") do
+    case Store.query_rows(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations ORDER BY name") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -116,7 +117,7 @@ defmodule RocketWeb.AdminController do
   def get_relation(conn, %{"name" => name}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [name]) do
+    case Store.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [name]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Relation", name))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -129,7 +130,7 @@ defmodule RocketWeb.AdminController do
       db = get_conn(conn)
       definition = relation_to_definition(rel)
 
-      case Postgres.exec(db,
+      case Store.exec(db,
              "INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4)",
              [rel.name, rel.source, rel.target, definition]) do
         {:ok, _} ->
@@ -145,7 +146,7 @@ defmodule RocketWeb.AdminController do
 
           reload_registry(conn)
 
-          case Postgres.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [rel.name]) do
+          case Store.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [rel.name]) do
             {:ok, row} -> conn |> put_status(201) |> json(%{data: row})
             {:error, _} -> conn |> put_status(201) |> json(%{data: %{name: rel.name}})
           end
@@ -168,13 +169,13 @@ defmodule RocketWeb.AdminController do
       db = get_conn(conn)
       definition = relation_to_definition(rel)
 
-      case Postgres.exec(db,
+      case Store.exec(db,
              "UPDATE _relations SET source = $1, target = $2, definition = $3, updated_at = NOW() WHERE name = $4",
              [rel.source, rel.target, definition, name]) do
         {:ok, _} ->
           reload_registry(conn)
 
-          case Postgres.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [name]) do
+          case Store.query_row(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations WHERE name = $1", [name]) do
             {:ok, row} -> json(conn, %{data: row})
             {:error, _} -> json(conn, %{data: %{name: name}})
           end
@@ -191,9 +192,9 @@ defmodule RocketWeb.AdminController do
   def delete_relation(conn, %{"name" => name}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT name FROM _relations WHERE name = $1", [name]) do
+    case Store.query_row(db, "SELECT name FROM _relations WHERE name = $1", [name]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _relations WHERE name = $1", [name])
+        Store.exec(db, "DELETE FROM _relations WHERE name = $1", [name])
         reload_registry(conn)
         json(conn, %{data: %{name: name, deleted: true}})
 
@@ -210,7 +211,7 @@ defmodule RocketWeb.AdminController do
   def list_rules(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules ORDER BY entity, priority") do
+    case Store.query_rows(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules ORDER BY entity, priority") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -219,7 +220,7 @@ defmodule RocketWeb.AdminController do
   def get_rule(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Rule", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -236,7 +237,7 @@ defmodule RocketWeb.AdminController do
       priority = params["priority"] || 0
       active = if(params["active"] == nil, do: true, else: params["active"])
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, entity, hook, type, definition, priority, active, created_at, updated_at",
              [entity, hook, type, definition, priority, active]) do
         {:ok, row} ->
@@ -254,7 +255,7 @@ defmodule RocketWeb.AdminController do
   def update_rule(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _rules WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _rules WHERE id = $1", [id]) do
       {:ok, _} ->
         sets = []
         prms = []
@@ -309,7 +310,7 @@ defmodule RocketWeb.AdminController do
           end
 
         if sets == [] do
-          case Postgres.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
+          case Store.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
             {:ok, row} -> json(conn, %{data: row})
             {:error, err} -> respond_error(conn, wrap_error(err))
           end
@@ -318,11 +319,11 @@ defmodule RocketWeb.AdminController do
           n = n + 1
           prms = prms ++ [id]
 
-          case Postgres.exec(db, "UPDATE _rules SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms) do
+          case Store.exec(db, "UPDATE _rules SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms) do
             {:ok, _} ->
               reload_registry(conn)
 
-              case Postgres.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
+              case Store.query_row(db, "SELECT id, entity, hook, type, definition, priority, active, created_at, updated_at FROM _rules WHERE id = $1", [id]) do
                 {:ok, row} -> json(conn, %{data: row})
                 {:error, err} -> respond_error(conn, wrap_error(err))
               end
@@ -343,9 +344,9 @@ defmodule RocketWeb.AdminController do
   def delete_rule(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _rules WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _rules WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _rules WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _rules WHERE id = $1", [id])
         reload_registry(conn)
         json(conn, %{data: %{id: id, deleted: true}})
 
@@ -362,7 +363,7 @@ defmodule RocketWeb.AdminController do
   def list_state_machines(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines ORDER BY entity") do
+    case Store.query_rows(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines ORDER BY entity") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -371,7 +372,7 @@ defmodule RocketWeb.AdminController do
   def get_state_machine(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("StateMachine", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -386,7 +387,7 @@ defmodule RocketWeb.AdminController do
       field = params["field"]
       active = if(params["active"] == nil, do: true, else: params["active"])
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4) RETURNING id, entity, field, definition, active, created_at, updated_at",
              [entity, field, definition, active]) do
         {:ok, row} ->
@@ -404,7 +405,7 @@ defmodule RocketWeb.AdminController do
   def update_state_machine(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _state_machines WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _state_machines WHERE id = $1", [id]) do
       {:ok, _} ->
         {sets, prms, n} = build_update_sets(params, [
           {"entity", "entity"},
@@ -426,7 +427,7 @@ defmodule RocketWeb.AdminController do
           sets = sets ++ ["updated_at = NOW()"]
           n = n + 1
           prms = prms ++ [id]
-          Postgres.exec(db, "UPDATE _state_machines SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
+          Store.exec(db, "UPDATE _state_machines SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
           reload_registry(conn)
           fetch_and_return_state_machine(conn, db, id)
         end
@@ -442,9 +443,9 @@ defmodule RocketWeb.AdminController do
   def delete_state_machine(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _state_machines WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _state_machines WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _state_machines WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _state_machines WHERE id = $1", [id])
         reload_registry(conn)
         json(conn, %{data: %{id: id, deleted: true}})
 
@@ -461,7 +462,7 @@ defmodule RocketWeb.AdminController do
   def list_workflows(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows ORDER BY name") do
+    case Store.query_rows(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows ORDER BY name") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -470,7 +471,7 @@ defmodule RocketWeb.AdminController do
   def get_workflow(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Workflow", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -486,7 +487,7 @@ defmodule RocketWeb.AdminController do
       steps = params["steps"] || []
       active = if(params["active"] == nil, do: true, else: params["active"])
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, trigger, context, steps, active, created_at, updated_at",
              [name, trigger, context, steps, active]) do
         {:ok, row} ->
@@ -507,7 +508,7 @@ defmodule RocketWeb.AdminController do
   def update_workflow(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _workflows WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _workflows WHERE id = $1", [id]) do
       {:ok, _} ->
         {sets, prms, n} = build_update_sets(params, [{"name", "name"}, {"active", "active"}])
 
@@ -521,7 +522,7 @@ defmodule RocketWeb.AdminController do
           sets = sets ++ ["updated_at = NOW()"]
           n = n + 1
           prms = prms ++ [id]
-          Postgres.exec(db, "UPDATE _workflows SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
+          Store.exec(db, "UPDATE _workflows SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
           reload_registry(conn)
           fetch_and_return_workflow(conn, db, id)
         end
@@ -537,9 +538,9 @@ defmodule RocketWeb.AdminController do
   def delete_workflow(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _workflows WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _workflows WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _workflows WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _workflows WHERE id = $1", [id])
         reload_registry(conn)
         json(conn, %{data: %{id: id, deleted: true}})
 
@@ -556,7 +557,7 @@ defmodule RocketWeb.AdminController do
   def list_users(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users ORDER BY email") do
+    case Store.query_rows(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users ORDER BY email") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -565,7 +566,7 @@ defmodule RocketWeb.AdminController do
   def get_user(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("User", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -588,7 +589,7 @@ defmodule RocketWeb.AdminController do
       roles = params["roles"] || []
       active = if(params["active"] == nil, do: true, else: params["active"])
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _users (email, password_hash, roles, active) VALUES ($1, $2, $3, $4) RETURNING id, email, roles, active, created_at, updated_at",
              [email, hash, roles, active]) do
         {:ok, row} ->
@@ -606,7 +607,7 @@ defmodule RocketWeb.AdminController do
   def update_user(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _users WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _users WHERE id = $1", [id]) do
       {:ok, _} ->
         {sets, prms, n} = build_update_sets(params, [{"email", "email"}, {"active", "active"}])
 
@@ -633,7 +634,7 @@ defmodule RocketWeb.AdminController do
           sets = sets ++ ["updated_at = NOW()"]
           n = n + 1
           prms = prms ++ [id]
-          Postgres.exec(db, "UPDATE _users SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
+          Store.exec(db, "UPDATE _users SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
           fetch_and_return_user(conn, db, id)
         end
 
@@ -648,10 +649,10 @@ defmodule RocketWeb.AdminController do
   def delete_user(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _users WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _users WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _refresh_tokens WHERE user_id = $1", [id])
-        Postgres.exec(db, "DELETE FROM _users WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _refresh_tokens WHERE user_id = $1", [id])
+        Store.exec(db, "DELETE FROM _users WHERE id = $1", [id])
         json(conn, %{data: %{id: id, deleted: true}})
 
       {:error, :not_found} ->
@@ -667,7 +668,7 @@ defmodule RocketWeb.AdminController do
   def list_permissions(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions ORDER BY entity, action") do
+    case Store.query_rows(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions ORDER BY entity, action") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -676,7 +677,7 @@ defmodule RocketWeb.AdminController do
   def get_permission(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Permission", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -697,7 +698,7 @@ defmodule RocketWeb.AdminController do
       db = get_conn(conn)
       conditions = params["conditions"] || []
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4) RETURNING id, entity, action, roles, conditions, created_at, updated_at",
              [params["entity"], params["action"], params["roles"] || [], conditions]) do
         {:ok, row} ->
@@ -713,7 +714,7 @@ defmodule RocketWeb.AdminController do
   def update_permission(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _permissions WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _permissions WHERE id = $1", [id]) do
       {:ok, _} ->
         {sets, prms, n} = build_update_sets(params, [{"entity", "entity"}, {"action", "action"}])
 
@@ -739,7 +740,7 @@ defmodule RocketWeb.AdminController do
           sets = sets ++ ["updated_at = NOW()"]
           n = n + 1
           prms = prms ++ [id]
-          Postgres.exec(db, "UPDATE _permissions SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
+          Store.exec(db, "UPDATE _permissions SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
           reload_registry(conn)
           fetch_and_return_permission(conn, db, id)
         end
@@ -755,9 +756,9 @@ defmodule RocketWeb.AdminController do
   def delete_permission(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _permissions WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _permissions WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _permissions WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _permissions WHERE id = $1", [id])
         reload_registry(conn)
         json(conn, %{data: %{id: id, deleted: true}})
 
@@ -774,7 +775,7 @@ defmodule RocketWeb.AdminController do
   def list_webhooks(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks ORDER BY entity, hook") do
+    case Store.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks ORDER BY entity, hook") do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -783,7 +784,7 @@ defmodule RocketWeb.AdminController do
   def get_webhook(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("Webhook", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -807,7 +808,7 @@ defmodule RocketWeb.AdminController do
       retry = params["retry"] || %{"max_attempts" => 3, "backoff" => "exponential"}
       active = if(params["active"] == nil, do: true, else: params["active"])
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at",
              [params["entity"], hook, params["url"], method, headers, condition, async, retry, active]) do
         {:ok, row} ->
@@ -823,7 +824,7 @@ defmodule RocketWeb.AdminController do
   def update_webhook(conn, %{"id" => id} = params) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _webhooks WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _webhooks WHERE id = $1", [id]) do
       {:ok, _} ->
         {sets, prms, n} = build_update_sets(params, [
           {"entity", "entity"}, {"hook", "hook"}, {"url", "url"},
@@ -839,7 +840,7 @@ defmodule RocketWeb.AdminController do
           sets = sets ++ ["updated_at = NOW()"]
           n = n + 1
           prms = prms ++ [id]
-          Postgres.exec(db, "UPDATE _webhooks SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
+          Store.exec(db, "UPDATE _webhooks SET #{Enum.join(sets, ", ")} WHERE id = $#{n}", prms)
           reload_registry(conn)
           fetch_and_return_webhook(conn, db, id)
         end
@@ -855,10 +856,10 @@ defmodule RocketWeb.AdminController do
   def delete_webhook(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _webhooks WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _webhooks WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _webhook_logs WHERE webhook_id = $1", [id])
-        Postgres.exec(db, "DELETE FROM _webhooks WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _webhook_logs WHERE webhook_id = $1", [id])
+        Store.exec(db, "DELETE FROM _webhooks WHERE id = $1", [id])
         reload_registry(conn)
         json(conn, %{data: %{id: id, deleted: true}})
 
@@ -906,7 +907,7 @@ defmodule RocketWeb.AdminController do
 
     sql = "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs #{where} ORDER BY created_at DESC LIMIT 200"
 
-    case Postgres.query_rows(db, sql, prms) do
+    case Store.query_rows(db, sql, prms) do
       {:ok, rows} -> json(conn, %{data: rows})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -915,7 +916,7 @@ defmodule RocketWeb.AdminController do
   def get_webhook_log(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("WebhookLog", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -925,13 +926,13 @@ defmodule RocketWeb.AdminController do
   def retry_webhook_log(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, status FROM _webhook_logs WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, status FROM _webhook_logs WHERE id = $1", [id]) do
       {:ok, %{"status" => status}} when status in ["failed", "retrying"] ->
-        Postgres.exec(db,
+        Store.exec(db,
           "UPDATE _webhook_logs SET status = 'retrying', next_retry_at = NOW(), updated_at = NOW() WHERE id = $1",
           [id])
 
-        case Postgres.query_row(db, "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", [id]) do
+        case Store.query_row(db, "SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body, response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at FROM _webhook_logs WHERE id = $1", [id]) do
           {:ok, row} -> json(conn, %{data: row})
           {:error, err} -> respond_error(conn, wrap_error(err))
         end
@@ -954,7 +955,7 @@ defmodule RocketWeb.AdminController do
   def list_ui_configs(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope") do
+    case Store.query_rows(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs ORDER BY entity, scope") do
       {:ok, rows} -> json(conn, %{data: rows || []})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
@@ -963,7 +964,7 @@ defmodule RocketWeb.AdminController do
   def get_ui_config(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, :not_found} -> respond_error(conn, AppError.not_found("UIConfig", id))
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -978,12 +979,12 @@ defmodule RocketWeb.AdminController do
       respond_error(conn, AppError.validation_failed([%{field: "entity", rule: "required", message: "entity is required"}]))
     else
       # Verify entity exists
-      case Postgres.query_row(db, "SELECT name FROM _entities WHERE name = $1", [entity]) do
+      case Store.query_row(db, "SELECT name FROM _entities WHERE name = $1", [entity]) do
         {:ok, _} ->
           scope = params["scope"] || "default"
           config = params["config"] || %{}
 
-          case Postgres.query_row(db,
+          case Store.query_row(db,
                  "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) RETURNING id, entity, scope, config, created_at, updated_at",
                  [entity, scope, config]) do
             {:ok, row} ->
@@ -1015,7 +1016,7 @@ defmodule RocketWeb.AdminController do
       scope = params["scope"] || "default"
       config = params["config"] || %{}
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "UPDATE _ui_configs SET entity = $1, scope = $2, config = $3, updated_at = NOW() WHERE id = $4 RETURNING id, entity, scope, config, created_at, updated_at",
              [entity, scope, config, id]) do
         {:ok, row} -> json(conn, %{data: row})
@@ -1028,9 +1029,9 @@ defmodule RocketWeb.AdminController do
   def delete_ui_config(conn, %{"id" => id}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT id FROM _ui_configs WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id FROM _ui_configs WHERE id = $1", [id]) do
       {:ok, _} ->
-        Postgres.exec(db, "DELETE FROM _ui_configs WHERE id = $1", [id])
+        Store.exec(db, "DELETE FROM _ui_configs WHERE id = $1", [id])
         json(conn, %{data: %{id: id, deleted: true}})
 
       {:error, :not_found} ->
@@ -1045,7 +1046,7 @@ defmodule RocketWeb.AdminController do
   def get_ui_config_by_entity(conn, %{"entity" => entity}) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db,
+    case Store.query_row(db,
            "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE entity = $1 AND scope = 'default'",
            [entity]) do
       {:ok, row} -> json(conn, %{data: row})
@@ -1058,7 +1059,7 @@ defmodule RocketWeb.AdminController do
   def list_all_ui_configs(conn, _params) do
     db = get_conn(conn)
 
-    case Postgres.query_rows(db,
+    case Store.query_rows(db,
            "SELECT id, entity, scope, config, created_at, updated_at FROM _ui_configs WHERE scope = 'default' ORDER BY entity") do
       {:ok, rows} -> json(conn, %{data: rows || []})
       {:error, err} -> respond_error(conn, wrap_error(err))
@@ -1070,14 +1071,14 @@ defmodule RocketWeb.AdminController do
   def export(conn, _params) do
     db = get_conn(conn)
 
-    with {:ok, entities} <- Postgres.query_rows(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities ORDER BY name"),
-         {:ok, relations} <- Postgres.query_rows(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations ORDER BY name"),
-         {:ok, rules} <- Postgres.query_rows(db, "SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority"),
-         {:ok, state_machines} <- Postgres.query_rows(db, "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity"),
-         {:ok, workflows} <- Postgres.query_rows(db, "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name"),
-         {:ok, permissions} <- Postgres.query_rows(db, "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action"),
-         {:ok, webhooks} <- Postgres.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook"),
-         {:ok, ui_configs} <- Postgres.query_rows(db, "SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope") do
+    with {:ok, entities} <- Store.query_rows(db, "SELECT name, table_name, definition, created_at, updated_at FROM _entities ORDER BY name"),
+         {:ok, relations} <- Store.query_rows(db, "SELECT name, source, target, definition, created_at, updated_at FROM _relations ORDER BY name"),
+         {:ok, rules} <- Store.query_rows(db, "SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority"),
+         {:ok, state_machines} <- Store.query_rows(db, "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity"),
+         {:ok, workflows} <- Store.query_rows(db, "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name"),
+         {:ok, permissions} <- Store.query_rows(db, "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action"),
+         {:ok, webhooks} <- Store.query_rows(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook"),
+         {:ok, ui_configs} <- Store.query_rows(db, "SELECT entity, scope, config FROM _ui_configs ORDER BY entity, scope") do
       json(conn, %{data: %{
         version: 1,
         exported_at: DateTime.utc_now() |> DateTime.to_iso8601(),
@@ -1114,7 +1115,7 @@ defmodule RocketWeb.AdminController do
         if name && table do
           def_val = ensure_decoded(definition, %{})
 
-          case Postgres.exec(db, "INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3) ON CONFLICT (name) DO UPDATE SET table_name = EXCLUDED.table_name, definition = EXCLUDED.definition, updated_at = NOW()", [name, table, def_val]) do
+          case Store.exec(db, "INSERT INTO _entities (name, table_name, definition) VALUES ($1, $2, $3) ON CONFLICT (name) DO UPDATE SET table_name = EXCLUDED.table_name, definition = EXCLUDED.definition, updated_at = NOW()", [name, table, def_val]) do
             {:ok, _} ->
               entity = parse_entity_from_definition(name, table, def_val)
               if entity, do: Migrator.migrate(db, entity)
@@ -1143,7 +1144,7 @@ defmodule RocketWeb.AdminController do
         if name && source && target do
           def_val = ensure_decoded(definition, %{})
 
-          case Postgres.exec(db, "INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET source = EXCLUDED.source, target = EXCLUDED.target, definition = EXCLUDED.definition, updated_at = NOW()", [name, source, target, def_val]) do
+          case Store.exec(db, "INSERT INTO _relations (name, source, target, definition) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE SET source = EXCLUDED.source, target = EXCLUDED.target, definition = EXCLUDED.definition, updated_at = NOW()", [name, source, target, def_val]) do
             {:ok, _} ->
               parsed_rel = parse_relation_from_definition(name, source, target, def_val)
 
@@ -1173,7 +1174,7 @@ defmodule RocketWeb.AdminController do
         type = rule["type"]
         definition = ensure_decoded(rule["definition"], %{})
 
-        case Postgres.exec(db, "INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6)", [entity, hook, type, definition, rule["priority"] || 0, if(rule["active"] == nil, do: true, else: rule["active"])]) do
+        case Store.exec(db, "INSERT INTO _rules (entity, hook, type, definition, priority, active) VALUES ($1, $2, $3, $4, $5, $6)", [entity, hook, type, definition, rule["priority"] || 0, if(rule["active"] == nil, do: true, else: rule["active"])]) do
           {:ok, _} -> {Map.update!(sum, :rules, &(&1 + 1)), errs}
           {:error, err} -> {sum, errs ++ ["Rule for #{entity}: #{inspect(err)}"]}
         end
@@ -1184,7 +1185,7 @@ defmodule RocketWeb.AdminController do
       Enum.reduce(params["state_machines"] || [], {summary, errors}, fn sm, {sum, errs} ->
         definition = ensure_decoded(sm["definition"], %{})
 
-        case Postgres.exec(db, "INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4)", [sm["entity"], sm["field"], definition, if(sm["active"] == nil, do: true, else: sm["active"])]) do
+        case Store.exec(db, "INSERT INTO _state_machines (entity, field, definition, active) VALUES ($1, $2, $3, $4)", [sm["entity"], sm["field"], definition, if(sm["active"] == nil, do: true, else: sm["active"])]) do
           {:ok, _} -> {Map.update!(sum, :state_machines, &(&1 + 1)), errs}
           {:error, err} -> {sum, errs ++ ["StateMachine for #{sm["entity"]}: #{inspect(err)}"]}
         end
@@ -1197,7 +1198,7 @@ defmodule RocketWeb.AdminController do
         context = ensure_decoded(wf["context"], %{})
         steps = ensure_decoded(wf["steps"], [])
 
-        case Postgres.exec(db, "INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING", [wf["name"], trigger, context, steps, if(wf["active"] == nil, do: true, else: wf["active"])]) do
+        case Store.exec(db, "INSERT INTO _workflows (name, trigger, context, steps, active) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING", [wf["name"], trigger, context, steps, if(wf["active"] == nil, do: true, else: wf["active"])]) do
           {:ok, n} when n > 0 -> {Map.update!(sum, :workflows, &(&1 + 1)), errs}
           {:ok, _} -> {sum, errs}
           {:error, err} -> {sum, errs ++ ["Workflow #{wf["name"]}: #{inspect(err)}"]}
@@ -1209,7 +1210,7 @@ defmodule RocketWeb.AdminController do
       Enum.reduce(params["permissions"] || [], {summary, errors}, fn perm, {sum, errs} ->
         conditions = ensure_decoded(perm["conditions"], [])
 
-        case Postgres.exec(db, "INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4)", [perm["entity"], perm["action"], perm["roles"] || [], conditions]) do
+        case Store.exec(db, "INSERT INTO _permissions (entity, action, roles, conditions) VALUES ($1, $2, $3, $4)", [perm["entity"], perm["action"], perm["roles"] || [], conditions]) do
           {:ok, _} -> {Map.update!(sum, :permissions, &(&1 + 1)), errs}
           {:error, err} -> {sum, errs ++ ["Permission for #{perm["entity"]}: #{inspect(err)}"]}
         end
@@ -1221,7 +1222,7 @@ defmodule RocketWeb.AdminController do
         headers = ensure_decoded(wh["headers"], %{})
         retry = ensure_decoded(wh["retry"], %{"max_attempts" => 3, "backoff" => "exponential"})
 
-        case Postgres.exec(db, "INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", [wh["entity"], wh["hook"] || "after_write", wh["url"], wh["method"] || "POST", headers, wh["condition"] || "", if(wh["async"] == nil, do: true, else: wh["async"]), retry, if(wh["active"] == nil, do: true, else: wh["active"])]) do
+        case Store.exec(db, "INSERT INTO _webhooks (entity, hook, url, method, headers, condition, async, retry, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", [wh["entity"], wh["hook"] || "after_write", wh["url"], wh["method"] || "POST", headers, wh["condition"] || "", if(wh["async"] == nil, do: true, else: wh["async"]), retry, if(wh["active"] == nil, do: true, else: wh["active"])]) do
           {:ok, _} -> {Map.update!(sum, :webhooks, &(&1 + 1)), errs}
           {:error, err} -> {sum, errs ++ ["Webhook for #{wh["entity"]}: #{inspect(err)}"]}
         end
@@ -1235,7 +1236,7 @@ defmodule RocketWeb.AdminController do
         config = ensure_decoded(ui["config"], %{})
 
         if entity do
-          case Postgres.exec(db,
+          case Store.exec(db,
                  "INSERT INTO _ui_configs (entity, scope, config) VALUES ($1, $2, $3) ON CONFLICT (entity, scope) DO UPDATE SET config = EXCLUDED.config, updated_at = NOW()",
                  [entity, scope, config]) do
             {:ok, _} -> {Map.update!(sum, :ui_configs, &(&1 + 1)), errs}
@@ -1274,7 +1275,7 @@ defmodule RocketWeb.AdminController do
                   sql = "INSERT INTO #{entity.table} (#{Enum.join(cols, ", ")}) VALUES (#{Enum.join(vals, ", ")}) ON CONFLICT DO NOTHING"
 
                   try do
-                    case Postgres.exec(db, sql, prms) do
+                    case Store.exec(db, sql, prms) do
                       {:ok, n} when n > 0 -> {Map.update!(s, :records, &(&1 + 1)), e}
                       {:ok, _} -> {s, e}
                       {:error, err} -> {s, e ++ ["Record for #{entity_name}: #{inspect(err)}"]}
@@ -1304,7 +1305,7 @@ defmodule RocketWeb.AdminController do
                   sql = "INSERT INTO #{entity_name} (#{Enum.join(cols, ", ")}) VALUES (#{Enum.join(vals, ", ")}) ON CONFLICT DO NOTHING"
 
                   try do
-                    case Postgres.exec(db, sql, prms) do
+                    case Store.exec(db, sql, prms) do
                       {:ok, n} when n > 0 -> {Map.update!(s, :records, &(&1 + 1)), e}
                       {:ok, _} -> {s, e}
                       {:error, err} -> {s, e ++ ["Record for #{entity_name}: #{inspect(err)}"]}
@@ -1336,7 +1337,7 @@ defmodule RocketWeb.AdminController do
   # ── Private helpers ──
 
   defp get_conn(conn) do
-    conn.assigns[:db_conn] || Rocket.Repo
+    conn.assigns[:db_conn] || Store.mgmt_conn()
   end
 
   defp get_registry(conn) do
@@ -1416,7 +1417,7 @@ defmodule RocketWeb.AdminController do
   defp check_entity_exists(conn, name) do
     db = get_conn(conn)
 
-    case Postgres.query_row(db, "SELECT name FROM _entities WHERE name = $1", [name]) do
+    case Store.query_row(db, "SELECT name FROM _entities WHERE name = $1", [name]) do
       {:ok, _} -> :ok
       {:error, :not_found} -> {:error, AppError.not_found("Entity", name)}
       {:error, err} -> {:error, wrap_error(err)}
@@ -1604,35 +1605,35 @@ defmodule RocketWeb.AdminController do
   defp ensure_decoded(_, default), do: default
 
   defp fetch_and_return_state_machine(conn, db, id) do
-    case Postgres.query_row(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, field, definition, active, created_at, updated_at FROM _state_machines WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
   end
 
   defp fetch_and_return_workflow(conn, db, id) do
-    case Postgres.query_row(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, name, trigger, context, steps, active, created_at, updated_at FROM _workflows WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
   end
 
   defp fetch_and_return_user(conn, db, id) do
-    case Postgres.query_row(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, email, roles, active, created_at, updated_at FROM _users WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
   end
 
   defp fetch_and_return_permission(conn, db, id) do
-    case Postgres.query_row(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, action, roles, conditions, created_at, updated_at FROM _permissions WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end
   end
 
   defp fetch_and_return_webhook(conn, db, id) do
-    case Postgres.query_row(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", [id]) do
+    case Store.query_row(db, "SELECT id, entity, hook, url, method, headers, condition, async, retry, active, created_at, updated_at FROM _webhooks WHERE id = $1", [id]) do
       {:ok, row} -> json(conn, %{data: row})
       {:error, err} -> respond_error(conn, wrap_error(err))
     end

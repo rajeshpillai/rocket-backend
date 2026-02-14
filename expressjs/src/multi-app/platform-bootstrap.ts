@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS _apps (
     display_name TEXT NOT NULL,
     db_name      TEXT NOT NULL UNIQUE,
     jwt_secret   TEXT NOT NULL,
+    db_driver    TEXT NOT NULL DEFAULT 'postgres',
     status       TEXT NOT NULL DEFAULT 'active',
     created_at   TIMESTAMPTZ DEFAULT NOW(),
     updated_at   TIMESTAMPTZ DEFAULT NOW()
@@ -35,7 +36,22 @@ CREATE INDEX IF NOT EXISTS idx_platform_refresh_tokens_expires ON _platform_refr
 
 export async function platformBootstrap(pool: Queryable): Promise<void> {
   await pool.query(platformTablesSQL);
+  await migratePlatformTables(pool);
   await seedPlatformAdmin(pool);
+}
+
+async function migratePlatformTables(pool: Queryable): Promise<void> {
+  // Add db_driver column if missing (for existing installations)
+  const result = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name = '_apps' AND column_name = 'db_driver'`,
+  );
+  if (result.rows.length === 0) {
+    await pool.query(
+      `ALTER TABLE _apps ADD COLUMN db_driver TEXT NOT NULL DEFAULT 'postgres'`,
+    );
+    console.log("Migrated _apps: added db_driver column");
+  }
 }
 
 async function seedPlatformAdmin(pool: Queryable): Promise<void> {

@@ -1,7 +1,7 @@
 defmodule Rocket.Metadata.Loader do
   @moduledoc "Loads all metadata from database into Registry."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.{Registry, Entity, Relation}
 
   require Logger
@@ -42,12 +42,12 @@ defmodule Rocket.Metadata.Loader do
   # ── Individual loaders ──
 
   defp load_entities(conn) do
-    case Postgres.query_rows(conn, "SELECT name, table_name, definition FROM _entities ORDER BY name") do
+    case Store.query_rows(conn, "SELECT name, table_name, definition FROM _entities ORDER BY name") do
       {:ok, rows} ->
         entities =
           rows
           |> Enum.map(fn r ->
-            case r["definition"] do
+            case decode_json(r["definition"]) do
               def_map when is_map(def_map) ->
                 merged = Map.merge(def_map, %{"name" => r["name"], "table" => r["table_name"] || r["name"]})
                 Entity.from_map(merged)
@@ -66,12 +66,12 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_relations(conn) do
-    case Postgres.query_rows(conn, "SELECT name, source, target, definition FROM _relations ORDER BY name") do
+    case Store.query_rows(conn, "SELECT name, source, target, definition FROM _relations ORDER BY name") do
       {:ok, rows} ->
         relations =
           rows
           |> Enum.map(fn r ->
-            case r["definition"] do
+            case decode_json(r["definition"]) do
               def_map when is_map(def_map) ->
                 merged = Map.merge(def_map, %{"name" => r["name"], "source" => r["source"], "target" => r["target"]})
                 Relation.from_map(merged)
@@ -90,7 +90,7 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_rules(conn) do
-    case Postgres.query_rows(
+    case Store.query_rows(
            conn,
            "SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority"
          ) do
@@ -102,9 +102,9 @@ defmodule Rocket.Metadata.Loader do
               entity: r["entity"],
               hook: r["hook"],
               type: r["type"],
-              definition: parse_rule_definition(r["definition"]),
+              definition: parse_rule_definition(decode_json(r["definition"])),
               priority: r["priority"] || 0,
-              active: r["active"] != false
+              active: Store.to_bool(r["active"])
             }
           end)
 
@@ -116,7 +116,7 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_state_machines(conn) do
-    case Postgres.query_rows(
+    case Store.query_rows(
            conn,
            "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity"
          ) do
@@ -127,8 +127,8 @@ defmodule Rocket.Metadata.Loader do
               id: r["id"],
               entity: r["entity"],
               field: r["field"],
-              definition: parse_state_machine_definition(r["definition"]),
-              active: r["active"] != false
+              definition: parse_state_machine_definition(decode_json(r["definition"])),
+              active: Store.to_bool(r["active"])
             }
           end)
 
@@ -140,7 +140,7 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_workflows(conn) do
-    case Postgres.query_rows(
+    case Store.query_rows(
            conn,
            "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name"
          ) do
@@ -150,10 +150,10 @@ defmodule Rocket.Metadata.Loader do
             %Rocket.Metadata.Workflow{
               id: r["id"],
               name: r["name"],
-              trigger: parse_workflow_trigger(r["trigger"]),
-              context: r["context"] || %{},
-              steps: parse_workflow_steps(r["steps"]),
-              active: r["active"] != false
+              trigger: parse_workflow_trigger(decode_json(r["trigger"])),
+              context: decode_json(r["context"]) || %{},
+              steps: parse_workflow_steps(decode_json(r["steps"])),
+              active: Store.to_bool(r["active"])
             }
           end)
 
@@ -165,7 +165,7 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_permissions(conn) do
-    case Postgres.query_rows(
+    case Store.query_rows(
            conn,
            "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action"
          ) do
@@ -176,8 +176,8 @@ defmodule Rocket.Metadata.Loader do
               id: r["id"],
               entity: r["entity"],
               action: r["action"],
-              roles: r["roles"] || [],
-              conditions: parse_permission_conditions(r["conditions"])
+              roles: Store.dialect().scan_array(r["roles"]),
+              conditions: parse_permission_conditions(decode_json(r["conditions"]))
             }
           end)
 
@@ -189,7 +189,7 @@ defmodule Rocket.Metadata.Loader do
   end
 
   defp load_webhooks(conn) do
-    case Postgres.query_rows(
+    case Store.query_rows(
            conn,
            "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook"
          ) do
@@ -202,11 +202,11 @@ defmodule Rocket.Metadata.Loader do
               hook: r["hook"],
               url: r["url"],
               method: r["method"] || "POST",
-              headers: r["headers"] || %{},
+              headers: decode_json(r["headers"]) || %{},
               condition: r["condition"] || "",
-              async: r["async"] != false,
-              retry: parse_webhook_retry(r["retry"]),
-              active: r["active"] != false
+              async: Store.to_bool(r["async"]),
+              retry: parse_webhook_retry(decode_json(r["retry"])),
+              active: Store.to_bool(r["active"])
             }
           end)
 
@@ -216,6 +216,20 @@ defmodule Rocket.Metadata.Loader do
         {:error, err}
     end
   end
+
+  # ── JSON decoding helper ──
+  # PostgreSQL JSONB columns are auto-deserialized to maps/lists by Postgrex.
+  # SQLite TEXT columns come back as raw JSON strings — decode them.
+
+  defp decode_json(val) when is_map(val) or is_list(val), do: val
+  defp decode_json(val) when is_binary(val) do
+    case Jason.decode(val) do
+      {:ok, decoded} -> decoded
+      _ -> val
+    end
+  end
+  defp decode_json(nil), do: nil
+  defp decode_json(val), do: val
 
   # ── Parsers ──
 

@@ -1,7 +1,7 @@
 defmodule Rocket.Engine.SoftDelete do
   @moduledoc "Soft/hard delete SQL builders and cascade handling."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.{Relation, Registry}
   alias Rocket.Engine.AppError
 
@@ -35,7 +35,7 @@ defmodule Rocket.Engine.SoftDelete do
         target_entity = Registry.get_entity(registry, rel.target)
 
         if target_entity do
-          Postgres.exec(
+          Store.exec(
             conn,
             "UPDATE #{target_entity.table} SET #{rel.target_key} = NULL WHERE #{rel.target_key} = $1",
             [parent_id]
@@ -50,14 +50,14 @@ defmodule Rocket.Engine.SoftDelete do
         target_entity = Registry.get_entity(registry, rel.target)
 
         if target_entity do
-          count_sql = "SELECT COUNT(*)::bigint as count FROM #{target_entity.table} WHERE #{rel.target_key} = $1"
+          count_sql = "SELECT COUNT(*) as count FROM #{target_entity.table} WHERE #{rel.target_key} = $1"
 
           count_sql =
             if target_entity.soft_delete,
               do: count_sql <> " AND deleted_at IS NULL",
               else: count_sql
 
-          case Postgres.query_row(conn, count_sql, [parent_id]) do
+          case Store.query_row(conn, count_sql, [parent_id]) do
             {:ok, %{"count" => count}} when count > 0 ->
               {:error,
                AppError.conflict(
@@ -73,7 +73,7 @@ defmodule Rocket.Engine.SoftDelete do
 
       "detach" ->
         if Relation.many_to_many?(rel) do
-          Postgres.exec(
+          Store.exec(
             conn,
             "DELETE FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1",
             [parent_id]
@@ -91,7 +91,7 @@ defmodule Rocket.Engine.SoftDelete do
 
   defp cascade_delete(conn, registry, rel, parent_id) do
     if Relation.many_to_many?(rel) do
-      Postgres.exec(
+      Store.exec(
         conn,
         "DELETE FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1",
         [parent_id]
@@ -103,13 +103,13 @@ defmodule Rocket.Engine.SoftDelete do
 
       if target_entity do
         if target_entity.soft_delete do
-          Postgres.exec(
+          Store.exec(
             conn,
             "UPDATE #{target_entity.table} SET deleted_at = NOW() WHERE #{rel.target_key} = $1 AND deleted_at IS NULL",
             [parent_id]
           )
         else
-          Postgres.exec(
+          Store.exec(
             conn,
             "DELETE FROM #{target_entity.table} WHERE #{rel.target_key} = $1",
             [parent_id]

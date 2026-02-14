@@ -1,7 +1,7 @@
 defmodule Rocket.Engine.Diff do
   @moduledoc "Child write operations: diff/replace/append modes for one-to-many and many-to-many."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.{Entity, Relation, Registry}
   alias Rocket.Engine.Writer
 
@@ -144,7 +144,7 @@ defmodule Rocket.Engine.Diff do
       case rw.write_mode do
         "replace" ->
           # Delete all, insert all
-          Postgres.exec(conn, "DELETE FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1", [parent_id])
+          Store.exec(conn, "DELETE FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1", [parent_id])
 
           Enum.each(rw.data, fn row ->
             target_id = row[target_pk_field] || row["id"]
@@ -158,7 +158,7 @@ defmodule Rocket.Engine.Diff do
             target_id = row[target_pk_field] || row["id"]
 
             if target_id do
-              Postgres.exec(
+              Store.exec(
                 conn,
                 "INSERT INTO #{rel.join_table} (#{rel.source_join_key}, #{rel.target_join_key}) VALUES ($1, $2) ON CONFLICT DO NOTHING",
                 [parent_id, target_id]
@@ -171,7 +171,7 @@ defmodule Rocket.Engine.Diff do
         _ ->
           # diff mode
           {:ok, current_rows} =
-            Postgres.query_rows(
+            Store.query_rows(
               conn,
               "SELECT #{rel.target_join_key} FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1",
               [parent_id]
@@ -185,7 +185,7 @@ defmodule Rocket.Engine.Diff do
 
             if target_id do
               if row["_delete"] == true do
-                Postgres.exec(
+                Store.exec(
                   conn,
                   "DELETE FROM #{rel.join_table} WHERE #{rel.source_join_key} = $1 AND #{rel.target_join_key} = $2",
                   [parent_id, target_id]
@@ -209,7 +209,7 @@ defmodule Rocket.Engine.Diff do
     columns = Entity.field_names(entity) |> Enum.join(", ")
     sql = "SELECT #{columns} FROM #{entity.table} WHERE #{rel.target_key} = $1"
     sql = if entity.soft_delete, do: sql <> " AND deleted_at IS NULL", else: sql
-    Postgres.query_rows(conn, sql, [parent_id])
+    Store.query_rows(conn, sql, [parent_id])
   end
 
   defp index_by_pk(rows, pk_field) do
@@ -219,7 +219,7 @@ defmodule Rocket.Engine.Diff do
   defp insert_child(conn, entity, fields) do
     {sql, params} = Writer.build_insert_sql(entity, fields)
 
-    case Postgres.query_rows(conn, sql, params) do
+    case Store.query_rows(conn, sql, params) do
       {:ok, _} -> :ok
       {:error, err} -> {:error, err}
     end
@@ -231,7 +231,7 @@ defmodule Rocket.Engine.Diff do
     if sql == "" do
       :ok
     else
-      case Postgres.exec(conn, sql, params) do
+      case Store.exec(conn, sql, params) do
         {:ok, _} -> :ok
         {:error, err} -> {:error, err}
       end
@@ -246,14 +246,14 @@ defmodule Rocket.Engine.Diff do
         Rocket.Engine.SoftDelete.build_hard_delete_sql(entity, id)
       end
 
-    case Postgres.exec(conn, sql, params) do
+    case Store.exec(conn, sql, params) do
       {:ok, _} -> :ok
       {:error, err} -> {:error, err}
     end
   end
 
   defp insert_join_row(conn, rel, source_id, target_id) do
-    Postgres.exec(
+    Store.exec(
       conn,
       "INSERT INTO #{rel.join_table} (#{rel.source_join_key}, #{rel.target_join_key}) VALUES ($1, $2)",
       [source_id, target_id]

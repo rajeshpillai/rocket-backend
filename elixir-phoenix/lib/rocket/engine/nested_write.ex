@@ -1,7 +1,7 @@
 defmodule Rocket.Engine.NestedWrite do
   @moduledoc "Plan-then-execute transactional write pipeline."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.{Entity, Registry}
   alias Rocket.Engine.{Writer, AppError, Diff}
   alias Rocket.Instrument.Instrumenter
@@ -91,7 +91,7 @@ defmodule Rocket.Engine.NestedWrite do
           if plan.is_create do
             {sql, params} = Writer.build_insert_sql(plan.entity, plan.fields)
 
-            case Postgres.query_row(tx_conn, sql, params) do
+            case Store.query_row(tx_conn, sql, params) do
               {:ok, row} -> row[plan.entity.primary_key.field]
               {:error, err} -> throw({:write_error, err})
             end
@@ -99,7 +99,7 @@ defmodule Rocket.Engine.NestedWrite do
             {sql, params} = Writer.build_update_sql(plan.entity, plan.id, plan.fields)
 
             if sql != "" do
-              case Postgres.exec(tx_conn, sql, params) do
+              case Store.exec(tx_conn, sql, params) do
                 {:ok, _} -> :ok
                 {:error, err} -> throw({:write_error, err})
               end
@@ -148,7 +148,7 @@ defmodule Rocket.Engine.NestedWrite do
   end
 
   defp execute_in_transaction(conn, fun) when is_pid(conn) do
-    Postgrex.transaction(conn, fn tx_conn ->
+    Store.transaction(conn, fn tx_conn ->
       fun.(tx_conn)
     end)
     |> handle_tx_result(conn)
@@ -211,7 +211,10 @@ defmodule Rocket.Engine.NestedWrite do
     sql = "SELECT #{Enum.join(columns, ", ")} FROM #{entity.table} WHERE #{entity.primary_key.field} = $1"
     sql = if entity.soft_delete, do: sql <> " AND deleted_at IS NULL", else: sql
 
-    Postgres.query_row(conn, sql, [id])
+    case Store.query_row(conn, sql, [id]) do
+      {:ok, row} -> {:ok, Store.fix_booleans(row, entity)}
+      err -> err
+    end
   end
 
   # Stubs for phases not yet implemented — they succeed silently
@@ -324,7 +327,7 @@ defmodule Rocket.Engine.NestedWrite do
           {:cont, :ok}
 
         is_binary(val) && Regex.match?(@uuid_regex, val) ->
-          case Postgres.query_row(
+          case Store.query_row(
                  conn,
                  "SELECT id, filename, size, mime_type FROM _files WHERE id = $1",
                  [val]

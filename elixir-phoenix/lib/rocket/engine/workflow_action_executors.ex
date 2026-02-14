@@ -9,7 +9,7 @@ defmodule Rocket.Engine.ActionExecutors.SetField do
   @moduledoc "Performs a field update on a target entity record."
   @behaviour Rocket.Engine.ActionExecutor
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.Registry
 
   @impl true
@@ -25,7 +25,7 @@ defmodule Rocket.Engine.ActionExecutors.SetField do
       entity = Registry.get_entity(registry, entity_name)
 
       if entity do
-        Postgres.exec(conn,
+        Store.exec(conn,
           "UPDATE #{entity.table} SET #{field} = $1 WHERE #{entity.primary_key.field} = $2",
           [value, record_id])
 

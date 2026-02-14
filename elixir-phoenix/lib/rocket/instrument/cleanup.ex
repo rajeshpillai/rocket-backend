@@ -1,14 +1,16 @@
 defmodule Rocket.Instrument.Cleanup do
   @moduledoc "Retention cleanup for old events."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   require Logger
 
   @doc "Delete events older than retention_days. Logs internally."
   def cleanup_old_events(pool, retention_days) do
-    sql = "DELETE FROM _events WHERE created_at < now() - ($1 || ' days')::interval"
+    dialect = Store.dialect()
+    {interval_clause, _n} = dialect.interval_delete_expr("created_at", 0)
+    sql = "DELETE FROM _events WHERE #{interval_clause}"
 
-    case Postgres.exec(pool, sql, [to_string(retention_days)]) do
+    case Store.exec(pool, sql, [to_string(retention_days)]) do
       {:ok, n} when n > 0 ->
         Logger.info("Event cleanup: deleted #{n} events older than #{retention_days} days")
 

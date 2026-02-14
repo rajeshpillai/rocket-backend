@@ -52,7 +52,7 @@ export class AppManager {
     }
   }
 
-  async create(name: string, displayName: string): Promise<AppContext> {
+  async create(name: string, displayName: string, dbDriver: string = "postgres"): Promise<AppContext> {
     const dbName = "rocket_" + name;
     const jwtSecret = generateJWTSecret();
 
@@ -62,8 +62,8 @@ export class AppManager {
     // Register in _apps
     try {
       await this.mgmtStore.pool.query(
-        "INSERT INTO _apps (name, display_name, db_name, jwt_secret) VALUES ($1, $2, $3, $4)",
-        [name, displayName, dbName, jwtSecret],
+        "INSERT INTO _apps (name, display_name, db_name, jwt_secret, db_driver) VALUES ($1, $2, $3, $4, $5)",
+        [name, displayName, dbName, jwtSecret, dbDriver],
       );
     } catch (err) {
       await dropDatabase(this.mgmtStore.pool, dbName);
@@ -134,12 +134,13 @@ export class AppManager {
   async list(): Promise<AppInfo[]> {
     const rows = await queryRows(
       this.mgmtStore.pool,
-      "SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps ORDER BY name",
+      "SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps ORDER BY name",
     );
     return rows.map((row) => ({
       name: row.name as string,
       display_name: row.display_name as string,
       db_name: row.db_name as string,
+      db_driver: (row.db_driver as string) || "postgres",
       status: row.status as string,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -149,13 +150,14 @@ export class AppManager {
   async getApp(name: string): Promise<AppInfo> {
     const row = await queryRow(
       this.mgmtStore.pool,
-      "SELECT name, display_name, db_name, status, created_at, updated_at FROM _apps WHERE name = $1",
+      "SELECT name, display_name, db_name, db_driver, status, created_at, updated_at FROM _apps WHERE name = $1",
       [name],
     );
     return {
       name: row.name as string,
       display_name: row.display_name as string,
       db_name: row.db_name as string,
+      db_driver: (row.db_driver as string) || "postgres",
       status: row.status as string,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -167,7 +169,7 @@ export class AppManager {
     try {
       rows = await queryRows(
         this.mgmtStore.pool,
-        "SELECT name, db_name, jwt_secret FROM _apps WHERE status = 'active'",
+        "SELECT name, db_name, jwt_secret, db_driver FROM _apps WHERE status = 'active'",
       );
     } catch {
       return; // No apps yet

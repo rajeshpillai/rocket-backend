@@ -25,6 +25,7 @@ client/.vite/
 
 # SQLite data files
 golang/data/
+elixir-phoenix/data/
 
 # File uploads
 uploads/

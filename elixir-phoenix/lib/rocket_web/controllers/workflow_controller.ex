@@ -95,7 +95,7 @@ defmodule RocketWeb.WorkflowController do
   end
 
   defp get_conn(conn) do
-    conn.assigns[:db_conn] || Rocket.Repo
+    conn.assigns[:db_conn] || Rocket.Store.mgmt_conn()
   end
 
   defp get_user_id(conn) do

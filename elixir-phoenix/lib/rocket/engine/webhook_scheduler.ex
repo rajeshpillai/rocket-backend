@@ -3,7 +3,7 @@ defmodule Rocket.Engine.WebhookScheduler do
   use GenServer
   require Logger
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Engine.WebhookEngine
 
   @tick_interval 30_000
@@ -32,13 +32,13 @@ defmodule Rocket.Engine.WebhookScheduler do
   end
 
   def process_retries do
-    process_retries_for(Rocket.Repo)
+    process_retries_for(Rocket.Store.mgmt_conn())
   end
 
   def process_retries_for(conn) do
     try do
 
-      case Postgres.query_rows(conn,
+      case Store.query_rows(conn,
              """
              SELECT id, webhook_id, entity, hook, url, method, request_headers, request_body,
                     status, attempt, max_attempts, idempotency_key
@@ -99,7 +99,7 @@ defmodule Rocket.Engine.WebhookScheduler do
         true -> nil
       end
 
-    Postgres.exec(conn,
+    Store.exec(conn,
       """
       UPDATE _webhook_logs
       SET status = $1, attempt = $2, response_status = $3, response_body = $4,

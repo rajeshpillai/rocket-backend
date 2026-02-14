@@ -131,7 +131,7 @@ export class PlatformHandler {
   });
 
   createApp = asyncHandler(async (req: Request, res: Response) => {
-    const { name, display_name } = req.body ?? {};
+    const { name, display_name, db_driver } = req.body ?? {};
 
     if (!name) {
       throw new AppError("VALIDATION_FAILED", 422, "App name is required");
@@ -140,12 +140,19 @@ export class PlatformHandler {
       throw new AppError("VALIDATION_FAILED", 422, "App name must be lowercase letters, numbers, hyphens, underscores (start with letter)");
     }
 
-    const ac = await this.manager.create(name, display_name || name);
+    const validDrivers = ["postgres", "sqlite"];
+    const driver = db_driver || "postgres";
+    if (!validDrivers.includes(driver)) {
+      throw new AppError("VALIDATION_FAILED", 422, `Invalid db_driver: must be one of ${validDrivers.join(", ")}`);
+    }
+
+    const ac = await this.manager.create(name, display_name || name, driver);
     res.status(201).json({
       data: {
         name: ac.name,
         display_name: display_name || name,
         db_name: ac.dbName,
+        db_driver: driver,
         status: "active",
       },
     });

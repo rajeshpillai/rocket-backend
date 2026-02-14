@@ -30,7 +30,7 @@ defmodule Rocket.Engine.WorkflowScheduler do
 
   defp process_timeouts do
     try do
-      conn = Rocket.Repo
+      conn = Rocket.Store.mgmt_conn()
       registry = Rocket.Metadata.Registry
       Rocket.Engine.WorkflowEngine.process_timeouts(conn, registry)
     rescue

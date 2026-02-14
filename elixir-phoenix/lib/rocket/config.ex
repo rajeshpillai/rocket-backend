@@ -12,7 +12,7 @@ defmodule Rocket.Config do
   ]
 
   defmodule Database do
-    defstruct [:host, :port, :user, :password, :name, :pool_size]
+    defstruct [:host, :port, :user, :password, :name, :pool_size, driver: "postgres", data_dir: "./data"]
 
     def conn_string(%__MODULE__{} = db) do
       "postgres://#{db.user}:#{db.password}@#{db.host}:#{db.port}/#{db.name}"
@@ -54,6 +54,8 @@ defmodule Rocket.Config do
       platform_jwt_secret: yaml["platform_jwt_secret"] || "changeme-platform-secret",
       app_pool_size: yaml["app_pool_size"] || 5,
       database: %Database{
+        driver: db["driver"] || "postgres",
+        data_dir: db["data_dir"] || "./data",
         host: db["host"] || "localhost",
         port: db["port"] || 5433,
         user: db["user"] || "rocket",

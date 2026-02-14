@@ -14,7 +14,13 @@ defmodule Rocket.Engine.Writer do
       |> Enum.reduce({[], [], [], 0}, fn f, {cols, vals, params, n} ->
         cond do
           f.name == entity.primary_key.field && entity.primary_key.generated ->
-            {cols, vals, params, n}
+            if Rocket.Store.dialect().uuid_default() == "" do
+              # SQLite: no gen_random_uuid(), generate UUID manually
+              n = n + 1
+              {cols ++ [f.name], vals ++ ["$#{n}"], params ++ [Ecto.UUID.generate()], n}
+            else
+              {cols, vals, params, n}
+            end
 
           f.auto in ["create", "update"] ->
             {cols, vals, params, n}

@@ -110,8 +110,14 @@ defmodule Rocket.Instrument.EventBuffer do
     sql = "INSERT INTO _events (#{Enum.join(@cols, ", ")}) VALUES #{Enum.join(placeholders, ", ")}"
 
     try do
-      Postgrex.query(pool, "SET LOCAL synchronous_commit = off", [])
-      Postgrex.query(pool, sql, params)
+      dialect = Rocket.Store.dialect()
+
+      case dialect.sync_commit_off() do
+        nil -> :ok
+        sync_sql -> Rocket.Store.exec(pool, sync_sql)
+      end
+
+      Rocket.Store.exec(pool, sql, params)
     rescue
       e -> Logger.error("Event buffer flush failed (#{n} events): #{inspect(e)}")
     catch

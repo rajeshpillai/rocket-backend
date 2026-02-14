@@ -18,6 +18,9 @@ defmodule RocketWeb.Plugs.AppResolverPlug do
     else
       case AppManager.get(app_name) do
         {:ok, ctx} ->
+          # Set per-app dialect in process dictionary for this request
+          if ctx.dialect, do: Process.put(:rocket_dialect, ctx.dialect)
+
           conn
           |> assign(:app_context, ctx)
           |> assign(:db_conn, ctx.db_pool)

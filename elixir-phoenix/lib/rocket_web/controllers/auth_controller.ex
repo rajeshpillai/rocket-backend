@@ -2,7 +2,7 @@ defmodule RocketWeb.AuthController do
   @moduledoc "Authentication endpoints: login, refresh, logout."
   use RocketWeb, :controller
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Auth.{JWT, Passwords}
   alias Rocket.Engine.AppError
 
@@ -17,11 +17,11 @@ defmodule RocketWeb.AuthController do
       db = get_conn(conn)
       jwt_secret = get_jwt_secret(conn)
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "SELECT id, email, password_hash, roles, active FROM _users WHERE email = $1",
              [email]) do
         {:ok, user} ->
-          if user["active"] != true do
+          if !Store.to_bool(user["active"]) do
             respond_error(conn, AppError.new("UNAUTHORIZED", 401, "Account is disabled"))
           else
             if Passwords.check_password(password, user["password_hash"]) do
@@ -60,7 +60,7 @@ defmodule RocketWeb.AuthController do
       db = get_conn(conn)
       jwt_secret = get_jwt_secret(conn)
 
-      case Postgres.query_row(db,
+      case Store.query_row(db,
              "SELECT rt.id, rt.user_id, rt.expires_at, u.roles, u.active FROM _refresh_tokens rt JOIN _users u ON u.id = rt.user_id WHERE rt.token = $1",
              [refresh_token]) do
         {:ok, row} ->
@@ -68,15 +68,15 @@ defmodule RocketWeb.AuthController do
 
           cond do
             expired?(expires_at) ->
-              Postgres.exec(db, "DELETE FROM _refresh_tokens WHERE id = $1", [row["id"]])
+              Store.exec(db, "DELETE FROM _refresh_tokens WHERE id = $1", [row["id"]])
               respond_error(conn, AppError.new("UNAUTHORIZED", 401, "Refresh token expired"))
 
-            row["active"] != true ->
+            !Store.to_bool(row["active"]) ->
               respond_error(conn, AppError.new("UNAUTHORIZED", 401, "Account is disabled"))
 
             true ->
               # Token rotation: delete old token
-              Postgres.exec(db, "DELETE FROM _refresh_tokens WHERE id = $1", [row["id"]])
+              Store.exec(db, "DELETE FROM _refresh_tokens WHERE id = $1", [row["id"]])
               roles = extract_roles(row["roles"])
 
               case generate_token_pair(db, row["user_id"], roles, jwt_secret) do
@@ -103,7 +103,7 @@ defmodule RocketWeb.AuthController do
 
     if refresh_token && refresh_token != "" do
       db = get_conn(conn)
-      Postgres.exec(db, "DELETE FROM _refresh_tokens WHERE token = $1", [refresh_token])
+      Store.exec(db, "DELETE FROM _refresh_tokens WHERE token = $1", [refresh_token])
     end
 
     json(conn, %{message: "Logged out"})
@@ -116,7 +116,7 @@ defmodule RocketWeb.AuthController do
       refresh_token = JWT.generate_refresh_token()
       expires_at = DateTime.utc_now() |> DateTime.add(JWT.refresh_ttl(), :second)
 
-      case Postgres.exec(db,
+      case Store.exec(db,
              "INSERT INTO _refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)",
              [user_id, refresh_token, expires_at]) do
         {:ok, _} ->
@@ -148,9 +148,10 @@ defmodule RocketWeb.AuthController do
   defp expired?(_), do: true
 
   defp extract_roles(roles) when is_list(roles), do: Enum.map(roles, &to_string/1)
+  defp extract_roles(roles) when is_binary(roles), do: Store.dialect().scan_array(roles)
   defp extract_roles(_), do: []
 
-  defp get_conn(conn), do: conn.assigns[:db_conn] || Rocket.Repo
+  defp get_conn(conn), do: conn.assigns[:db_conn] || Store.mgmt_conn()
   defp get_jwt_secret(conn), do: conn.assigns[:jwt_secret] || Application.get_env(:rocket, :jwt_secret, "rocket-dev-secret")
 
   defp respond_error(conn, %AppError{} = err) do

@@ -29,6 +29,7 @@ export interface AppInfo {
   name: string;
   display_name: string;
   db_name: string;
+  db_driver: string;
   status: string;
   created_at: any;
   updated_at: any;

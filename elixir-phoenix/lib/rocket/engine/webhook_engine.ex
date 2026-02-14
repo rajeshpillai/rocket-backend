@@ -1,7 +1,7 @@
 defmodule Rocket.Engine.WebhookEngine do
   @moduledoc "Webhook dispatch engine: async/sync webhooks, condition evaluation, delivery logging."
 
-  alias Rocket.Store.Postgres
+  alias Rocket.Store
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.Expression
   alias Rocket.Instrument.Instrumenter
@@ -146,7 +146,7 @@ defmodule Rocket.Engine.WebhookEngine do
         true -> nil
       end
 
-    Postgres.exec(conn,
+    Store.exec(conn,
       """
       INSERT INTO _webhook_logs
         (webhook_id, entity, hook, url, method, request_headers, request_body,

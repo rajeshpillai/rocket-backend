@@ -30,6 +30,7 @@ defmodule Rocket.MixProject do
       {:jason, "~> 1.4"},
       {:ecto_sql, "~> 3.11"},
       {:postgrex, ">= 0.0.0"},
+      {:exqlite, "~> 0.23"},
       {:joken, "~> 2.6"},
       {:bcrypt_elixir, "~> 3.1"},
       {:yaml_elixir, "~> 2.9"},
