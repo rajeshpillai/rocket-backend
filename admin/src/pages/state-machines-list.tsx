@@ -1,4 +1,4 @@
-import { createSignal, onMount, type JSX } from "solid-js";
+import { createSignal, onMount, Show, type JSX } from "solid-js";
 import {
   listStateMachines,
   createStateMachine,
@@ -19,6 +19,7 @@ import { Modal } from "../components/modal";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Badge } from "../components/badge";
 import { StateMachineEditor } from "./state-machine-editor";
+import { StateMachineVisual } from "./state-machine-visual";
 import { addToast } from "../stores/notifications";
 
 export function StateMachinesList() {
@@ -33,6 +34,9 @@ export function StateMachinesList() {
   const [saving, setSaving] = createSignal(false);
   const [editorError, setEditorError] = createSignal<string | null>(null);
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
+  const [visualOpen, setVisualOpen] = createSignal(false);
+  const [visualSM, setVisualSM] = createSignal<StateMachinePayload>(emptyStateMachine());
+  const [visualEditingId, setVisualEditingId] = createSignal<string | null>(null);
 
   async function loadMachines() {
     setLoading(true);
@@ -107,6 +111,18 @@ export function StateMachinesList() {
     setEditingId(payload.id ?? null);
     setEditorError(null);
     setEditorOpen(true);
+  };
+
+  const openVisual = (payload: StateMachinePayload) => {
+    setVisualSM(JSON.parse(JSON.stringify(payload)));
+    setVisualEditingId(payload.id ?? null);
+    setVisualOpen(true);
+  };
+
+  const openVisualCreate = () => {
+    setVisualSM(emptyStateMachine());
+    setVisualEditingId(null);
+    setVisualOpen(true);
   };
 
   const handleSave = async () => {
@@ -187,6 +203,15 @@ export function StateMachinesList() {
             class="btn-secondary btn-sm"
             onClick={(e: Event) => {
               e.stopPropagation();
+              openVisual(row._payload);
+            }}
+          >
+            Visual
+          </button>
+          <button
+            class="btn-secondary btn-sm"
+            onClick={(e: Event) => {
+              e.stopPropagation();
               openEdit(row._payload);
             }}
           >
@@ -215,9 +240,14 @@ export function StateMachinesList() {
             Manage state transitions, guards, and actions
           </p>
         </div>
-        <button class="btn-primary" onClick={openCreate}>
-          Create State Machine
-        </button>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary" onClick={openCreate}>
+            Form Editor
+          </button>
+          <button class="btn-primary" onClick={openVisualCreate}>
+            Create Visual
+          </button>
+        </div>
       </div>
 
       {loading() ? (
@@ -230,6 +260,7 @@ export function StateMachinesList() {
         />
       )}
 
+      {/* Form editor modal */}
       <Modal
         open={editorOpen()}
         onClose={() => setEditorOpen(false)}
@@ -246,6 +277,20 @@ export function StateMachinesList() {
           error={editorError()}
         />
       </Modal>
+
+      {/* Visual diagram — full-page paper overlay */}
+      <Show when={visualOpen()}>
+        <StateMachineVisual
+          sm={visualSM()}
+          onClose={() => setVisualOpen(false)}
+          editingId={visualEditingId()}
+          entityNames={entityNames()}
+          onSaved={() => {
+            setVisualOpen(false);
+            loadMachines();
+          }}
+        />
+      </Show>
 
       <ConfirmDialog
         open={deleteTarget() !== null}

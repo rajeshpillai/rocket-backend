@@ -1,4 +1,4 @@
-import { createSignal, onMount, type JSX } from "solid-js";
+import { createSignal, onMount, Show, type JSX } from "solid-js";
 import {
   listWorkflows,
   createWorkflow,
@@ -18,6 +18,7 @@ import { Modal } from "../components/modal";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { Badge } from "../components/badge";
 import { WorkflowEditor } from "./workflow-editor";
+import { WorkflowVisual } from "./workflow-visual";
 import { addToast } from "../stores/notifications";
 
 export function WorkflowsList() {
@@ -30,6 +31,9 @@ export function WorkflowsList() {
   const [saving, setSaving] = createSignal(false);
   const [editorError, setEditorError] = createSignal<string | null>(null);
   const [deleteTarget, setDeleteTarget] = createSignal<string | null>(null);
+  const [visualOpen, setVisualOpen] = createSignal(false);
+  const [visualWF, setVisualWF] = createSignal<WorkflowPayload>(emptyWorkflow());
+  const [visualEditingId, setVisualEditingId] = createSignal<string | null>(null);
 
   async function loadWorkflowList() {
     setLoading(true);
@@ -84,6 +88,18 @@ export function WorkflowsList() {
     setEditingId(payload.id ?? null);
     setEditorError(null);
     setEditorOpen(true);
+  };
+
+  const openVisual = (payload: WorkflowPayload) => {
+    setVisualWF(JSON.parse(JSON.stringify(payload)));
+    setVisualEditingId(payload.id ?? null);
+    setVisualOpen(true);
+  };
+
+  const openVisualCreate = () => {
+    setVisualWF(emptyWorkflow());
+    setVisualEditingId(null);
+    setVisualOpen(true);
   };
 
   const handleSave = async () => {
@@ -162,6 +178,15 @@ export function WorkflowsList() {
             class="btn-secondary btn-sm"
             onClick={(e: Event) => {
               e.stopPropagation();
+              openVisual(row._payload);
+            }}
+          >
+            Visual
+          </button>
+          <button
+            class="btn-secondary btn-sm"
+            onClick={(e: Event) => {
+              e.stopPropagation();
               openEdit(row._payload);
             }}
           >
@@ -190,9 +215,14 @@ export function WorkflowsList() {
             Manage multi-step workflow definitions
           </p>
         </div>
-        <button class="btn-primary" onClick={openCreate}>
-          Create Workflow
-        </button>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary" onClick={openCreate}>
+            Form Editor
+          </button>
+          <button class="btn-primary" onClick={openVisualCreate}>
+            Create Visual
+          </button>
+        </div>
       </div>
 
       {loading() ? (
@@ -205,6 +235,7 @@ export function WorkflowsList() {
         />
       )}
 
+      {/* Form editor modal */}
       <Modal
         open={editorOpen()}
         onClose={() => setEditorOpen(false)}
@@ -221,6 +252,20 @@ export function WorkflowsList() {
           error={editorError()}
         />
       </Modal>
+
+      {/* Visual diagram — full-page paper overlay */}
+      <Show when={visualOpen()}>
+        <WorkflowVisual
+          wf={visualWF()}
+          onClose={() => setVisualOpen(false)}
+          editingId={visualEditingId()}
+          entityNames={entityNames()}
+          onSaved={() => {
+            setVisualOpen(false);
+            loadWorkflowList();
+          }}
+        />
+      </Show>
 
       <ConfirmDialog
         open={deleteTarget() !== null}

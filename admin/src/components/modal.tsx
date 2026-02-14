@@ -6,6 +6,7 @@ interface ModalProps extends ParentProps {
   onClose: () => void;
   title: string;
   wide?: boolean;
+  fullscreen?: boolean;
 }
 
 export function Modal(props: ModalProps) {
@@ -16,12 +17,18 @@ export function Modal(props: ModalProps) {
   onMount(() => document.addEventListener("keydown", handleKeyDown));
   onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
 
+  const panelClass = () => {
+    if (props.fullscreen) return "modal-panel-fullscreen";
+    if (props.wide) return "modal-panel-wide";
+    return "modal-panel";
+  };
+
   return (
     <Show when={props.open}>
       <Portal>
         <div class="modal-overlay" onClick={() => props.onClose()}>
           <div
-            class={props.wide ? "modal-panel-wide" : "modal-panel"}
+            class={panelClass()}
             onClick={(e) => e.stopPropagation()}
           >
             <div class="modal-header">
