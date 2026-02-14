@@ -17,6 +17,7 @@ import { evaluateRules } from "./rules.js";
 import { evaluateStateMachines } from "./state-machine.js";
 import { triggerWorkflows } from "./workflow.js";
 import { fireAsyncWebhooks, fireSyncWebhooks } from "./webhook.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 export interface WritePlan {
   isCreate: boolean;
@@ -73,6 +74,9 @@ export async function executeWritePlan(
   registry: Registry,
   plan: WritePlan,
 ): Promise<Record<string, any>> {
+  const span = getInstrumenter().startSpan("engine", "writer", "nested_write.execute");
+  span.setEntity(plan.entity.name, plan.id ?? undefined);
+  span.setMetadata("operation", plan.isCreate ? "create" : "update");
   const client = await store.beginTx();
   try {
     // Evaluate rules (field → expression → computed)
@@ -154,12 +158,16 @@ export async function executeWritePlan(
     // Post-commit: fire async (after_write) webhooks
     fireAsyncWebhooks(store, registry, "after_write", plan.entity.name, action, result, old, plan.user);
 
+    span.setStatus("ok");
     return result;
   } catch (err) {
     await client.query("ROLLBACK");
+    span.setStatus("error");
+    span.setMetadata("error", (err as Error).message);
     throw err;
   } finally {
     client.release();
+    span.end();
   }
 }
 

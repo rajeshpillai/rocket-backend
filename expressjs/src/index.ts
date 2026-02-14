@@ -30,7 +30,7 @@ async function main() {
   const fileStorage = new LocalStorage(cfg.storage.local_path);
 
   // 5. Create AppManager and load all existing apps
-  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size, fileStorage, cfg.storage.max_file_size);
+  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size, fileStorage, cfg.storage.max_file_size, cfg.instrumentation);
   try {
     await manager.loadAll();
   } catch (err) {
@@ -57,13 +57,13 @@ async function main() {
   registerPlatformRoutes(app, platformHandler, platformAuthMW);
 
   // 8. App-scoped routes (all existing CRUD/admin/auth/workflow routes under /api/:app)
-  registerAppRoutes(app, manager, cfg.platform_jwt_secret);
+  registerAppRoutes(app, manager, cfg.platform_jwt_secret, cfg.instrumentation);
 
   // 9. Error handler (must be last middleware)
   app.use(errorHandler);
 
   // 10. Start multi-app schedulers
-  const scheduler = new MultiAppScheduler(manager);
+  const scheduler = new MultiAppScheduler(manager, cfg.instrumentation);
   scheduler.start();
 
   // 11. Start server

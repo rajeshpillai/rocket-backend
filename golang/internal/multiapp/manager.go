@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"rocket-backend/internal/config"
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/storage"
 	"rocket-backend/internal/store"
@@ -23,10 +24,11 @@ type AppManager struct {
 	poolSize    int
 	fileStorage storage.FileStorage
 	maxFileSize int64
+	instrConfig config.InstrumentationConfig
 }
 
 // NewAppManager creates an AppManager backed by the management database.
-func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int, fs storage.FileStorage, maxFileSize int64) *AppManager {
+func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int, fs storage.FileStorage, maxFileSize int64, instrCfg config.InstrumentationConfig) *AppManager {
 	return &AppManager{
 		apps:        make(map[string]*AppContext),
 		mgmtStore:   mgmtStore,
@@ -34,6 +36,7 @@ func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolS
 		poolSize:    appPoolSize,
 		fileStorage: fs,
 		maxFileSize: maxFileSize,
+		instrConfig: instrCfg,
 	}
 }
 
@@ -99,6 +102,9 @@ func (m *AppManager) Create(ctx context.Context, name, displayName string) (*App
 		fileStorage: m.fileStorage,
 		maxFileSize: m.maxFileSize,
 	}
+	if m.instrConfig.Enabled {
+		ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
+	}
 	ac.BuildHandlers()
 
 	m.mu.Lock()
@@ -113,6 +119,9 @@ func (m *AppManager) Delete(ctx context.Context, name string) error {
 	m.mu.Lock()
 	ac, ok := m.apps[name]
 	if ok {
+		if ac.EventBuffer != nil {
+			ac.EventBuffer.Stop()
+		}
 		ac.Store.Close()
 		delete(m.apps, name)
 	}
@@ -223,6 +232,9 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 			fileStorage: m.fileStorage,
 			maxFileSize: m.maxFileSize,
 		}
+		if m.instrConfig.Enabled {
+			ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
+		}
 		ac.BuildHandlers()
 
 		m.mu.Lock()
@@ -246,11 +258,14 @@ func (m *AppManager) AllContexts() []*AppContext {
 	return result
 }
 
-// Close closes all per-app connection pools.
+// Close closes all per-app connection pools and event buffers.
 func (m *AppManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ac := range m.apps {
+		if ac.EventBuffer != nil {
+			ac.EventBuffer.Stop()
+		}
 		ac.Store.Close()
 	}
 	m.apps = make(map[string]*AppContext)
@@ -296,6 +311,9 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 		Registry:    reg,
 		fileStorage: m.fileStorage,
 		maxFileSize: m.maxFileSize,
+	}
+	if m.instrConfig.Enabled {
+		ac.EventBuffer = instrument.NewEventBuffer(appStore.Pool, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
 	}
 	ac.BuildHandlers()
 	m.apps[appName] = ac

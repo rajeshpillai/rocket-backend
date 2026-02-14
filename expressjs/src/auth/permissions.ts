@@ -3,6 +3,7 @@ import type { Registry } from "../metadata/registry.js";
 import type { Permission, PermissionCondition } from "../metadata/permission.js";
 import type { WhereClause } from "../engine/query.js";
 import { AppError } from "../engine/errors.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 export function checkPermission(
   user: UserContext | undefined,
@@ -11,47 +12,68 @@ export function checkPermission(
   registry: Registry,
   currentRecord: Record<string, any> | null,
 ): void {
-  if (!user) {
-    throw new AppError("UNAUTHORIZED", 401, "Authentication required");
-  }
+  const span = getInstrumenter().startSpan("auth", "permissions", "permission.check");
+  span.setEntity(entity);
+  span.setMetadata("action", action);
+  try {
+    if (!user) {
+      span.setStatus("error");
+      span.setMetadata("error", "Authentication required");
+      throw new AppError("UNAUTHORIZED", 401, "Authentication required");
+    }
 
-  // Admin bypasses all permission checks
-  if (user.roles.includes("admin")) {
-    return;
-  }
+    // Admin bypasses all permission checks
+    if (user.roles.includes("admin")) {
+      span.setStatus("ok");
+      span.setMetadata("result", "admin_bypass");
+      return;
+    }
 
-  const policies = registry.getPermissions(entity, action);
-  if (policies.length === 0) {
+    const policies = registry.getPermissions(entity, action);
+    if (policies.length === 0) {
+      span.setStatus("error");
+      span.setMetadata("result", "denied");
+      throw new AppError(
+        "FORBIDDEN",
+        403,
+        `No permission for ${action} on ${entity}`,
+      );
+    }
+
+    // Check each policy — if ANY passes, the action is allowed
+    for (const p of policies) {
+      if (!hasRoleIntersection(user.roles, p.roles)) {
+        continue;
+      }
+      // Role matches — now check conditions
+      if (!p.conditions || p.conditions.length === 0) {
+        span.setStatus("ok");
+        span.setMetadata("result", "allowed");
+        return; // No conditions, role match is sufficient
+      }
+      if (currentRecord && evaluateConditions(p.conditions, currentRecord)) {
+        span.setStatus("ok");
+        span.setMetadata("result", "allowed");
+        return;
+      }
+      // For create, there's no current record — conditions don't apply
+      if (!currentRecord && (action === "create" || action === "read")) {
+        span.setStatus("ok");
+        span.setMetadata("result", "allowed");
+        return;
+      }
+    }
+
+    span.setStatus("error");
+    span.setMetadata("result", "denied");
     throw new AppError(
       "FORBIDDEN",
       403,
-      `No permission for ${action} on ${entity}`,
+      `Permission denied for ${action} on ${entity}`,
     );
+  } finally {
+    span.end();
   }
-
-  // Check each policy — if ANY passes, the action is allowed
-  for (const p of policies) {
-    if (!hasRoleIntersection(user.roles, p.roles)) {
-      continue;
-    }
-    // Role matches — now check conditions
-    if (!p.conditions || p.conditions.length === 0) {
-      return; // No conditions, role match is sufficient
-    }
-    if (currentRecord && evaluateConditions(p.conditions, currentRecord)) {
-      return;
-    }
-    // For create, there's no current record — conditions don't apply
-    if (!currentRecord && (action === "create" || action === "read")) {
-      return;
-    }
-  }
-
-  throw new AppError(
-    "FORBIDDEN",
-    403,
-    `Permission denied for ${action} on ${entity}`,
-  );
 }
 
 export function getReadFilters(

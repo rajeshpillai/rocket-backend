@@ -15,6 +15,7 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/google/uuid"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
@@ -139,8 +140,15 @@ type DispatchResult struct {
 
 // DispatchWebhook performs the HTTP call. url/method/headers are resolved values.
 func DispatchWebhook(ctx context.Context, url, method string, headers map[string]string, bodyJSON []byte) *DispatchResult {
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "webhook", "dispatcher", "webhook.dispatch")
+	defer span.End()
+	span.SetMetadata("url", url)
+	span.SetMetadata("method", method)
+
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(bodyJSON))
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", fmt.Sprintf("build request: %v", err))
 		return &DispatchResult{Error: fmt.Sprintf("build request: %v", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -150,11 +158,22 @@ func DispatchWebhook(ctx context.Context, url, method string, headers map[string
 
 	resp, err := webhookHTTPClient.Do(req)
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", fmt.Sprintf("http call: %v", err))
 		return &DispatchResult{Error: fmt.Sprintf("http call: %v", err)}
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024)) // max 64KB
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		span.SetStatus("ok")
+	} else {
+		span.SetStatus("error")
+		span.SetMetadata("error", fmt.Sprintf("HTTP %d", resp.StatusCode))
+	}
+	span.SetMetadata("status_code", resp.StatusCode)
+
 	return &DispatchResult{
 		StatusCode:   resp.StatusCode,
 		ResponseBody: string(respBody),

@@ -2,6 +2,7 @@ import type { Registry } from "../metadata/registry.js";
 import type { StateMachine, Transition } from "../metadata/state-machine.js";
 import type { ErrorDetail } from "./errors.js";
 import { dispatchWebhookDirect } from "./webhook.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 /**
  * Evaluates all active state machines for the entity.
@@ -15,14 +16,32 @@ export function evaluateStateMachines(
   old: Record<string, any>,
   isCreate: boolean,
 ): ErrorDetail[] {
-  const machines = registry.getStateMachinesForEntity(entityName);
-  if (machines.length === 0) return [];
+  const span = getInstrumenter().startSpan("engine", "state_machine", "state.transition");
+  span.setEntity(entityName);
+  try {
+    const machines = registry.getStateMachinesForEntity(entityName);
+    if (machines.length === 0) {
+      span.setStatus("ok");
+      span.setMetadata("machine_count", 0);
+      return [];
+    }
 
-  const errs: ErrorDetail[] = [];
-  for (const sm of machines) {
-    errs.push(...evaluateStateMachine(sm, fields, old, isCreate));
+    const errs: ErrorDetail[] = [];
+    for (const sm of machines) {
+      errs.push(...evaluateStateMachine(sm, fields, old, isCreate));
+    }
+
+    span.setStatus("ok");
+    span.setMetadata("machine_count", machines.length);
+    span.setMetadata("error_count", errs.length);
+    return errs;
+  } catch (err) {
+    span.setStatus("error");
+    span.setMetadata("error", (err as Error).message);
+    throw err;
+  } finally {
+    span.end();
   }
-  return errs;
 }
 
 function evaluateStateMachine(

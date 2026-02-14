@@ -3,6 +3,7 @@ import type { Store, Queryable } from "../store/postgres.js";
 import { exec } from "../store/postgres.js";
 import type { Registry } from "../metadata/registry.js";
 import type { Webhook } from "../metadata/webhook.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 export interface WebhookPayload {
   event: string;
@@ -237,13 +238,30 @@ export function fireAsyncWebhooks(
 
     // Fire in background
     (async () => {
+      const span = getInstrumenter().startSpan("webhook", "dispatcher", "webhook.dispatch");
+      span.setEntity(entity);
+      span.setMetadata("hook", hook);
+      span.setMetadata("webhook_id", wh.id);
+      span.setMetadata("url", wh.url);
+      span.setMetadata("async", true);
       try {
         const headers = resolveHeaders(wh.headers);
         const bodyJSON = JSON.stringify(payload);
         const result = await dispatchWebhook(wh.url, wh.method, headers, bodyJSON);
         await logWebhookDelivery(store.pool, wh, payload, headers, bodyJSON, result);
+        if (result.error || result.statusCode < 200 || result.statusCode >= 300) {
+          span.setStatus("error");
+          span.setMetadata("error", result.error || `HTTP ${result.statusCode}`);
+        } else {
+          span.setStatus("ok");
+          span.setMetadata("status_code", result.statusCode);
+        }
       } catch (err) {
+        span.setStatus("error");
+        span.setMetadata("error", (err as Error).message);
         console.error(`ERROR: async webhook ${wh.id} dispatch:`, err);
+      } finally {
+        span.end();
       }
     })();
   }
@@ -274,17 +292,38 @@ export async function fireSyncWebhooks(
     const fire = evaluateWebhookCondition(wh, payload);
     if (!fire) continue;
 
-    const headers = resolveHeaders(wh.headers);
-    const bodyJSON = JSON.stringify(payload);
-    const result = await dispatchWebhook(wh.url, wh.method, headers, bodyJSON);
+    const span = getInstrumenter().startSpan("webhook", "dispatcher", "webhook.dispatch");
+    span.setEntity(entity);
+    span.setMetadata("hook", hook);
+    span.setMetadata("webhook_id", wh.id);
+    span.setMetadata("url", wh.url);
+    span.setMetadata("async", false);
+    try {
+      const headers = resolveHeaders(wh.headers);
+      const bodyJSON = JSON.stringify(payload);
+      const result = await dispatchWebhook(wh.url, wh.method, headers, bodyJSON);
 
-    await logWebhookDelivery(client, wh, payload, headers, bodyJSON, result);
+      await logWebhookDelivery(client, wh, payload, headers, bodyJSON, result);
 
-    if (result.error) {
-      throw new Error(`webhook ${wh.id} failed: ${result.error}`);
-    }
-    if (result.statusCode < 200 || result.statusCode >= 300) {
-      throw new Error(`webhook ${wh.id} returned HTTP ${result.statusCode}: ${result.responseBody}`);
+      if (result.error) {
+        span.setStatus("error");
+        span.setMetadata("error", result.error);
+        throw new Error(`webhook ${wh.id} failed: ${result.error}`);
+      }
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        span.setStatus("error");
+        span.setMetadata("error", `HTTP ${result.statusCode}`);
+        throw new Error(`webhook ${wh.id} returned HTTP ${result.statusCode}: ${result.responseBody}`);
+      }
+
+      span.setStatus("ok");
+      span.setMetadata("status_code", result.statusCode);
+    } catch (err) {
+      span.setStatus("error");
+      span.setMetadata("error", (err as Error).message);
+      throw err;
+    } finally {
+      span.end();
     }
   }
 }

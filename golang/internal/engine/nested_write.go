@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
@@ -63,8 +64,14 @@ func PlanWrite(entity *metadata.Entity, reg *metadata.Registry, body map[string]
 // ExecuteWritePlan runs the planned operations inside a single transaction.
 // Returns the created/updated record.
 func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registry, plan *WritePlan) (map[string]any, error) {
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "engine", "writer", "nested_write.execute")
+	defer span.End()
+	span.SetEntity(plan.Entity.Name, fmt.Sprintf("%v", plan.ID))
+
 	tx, err := s.BeginTx(ctx)
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -78,19 +85,23 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		old = map[string]any{}
 	}
 
-	ruleErrs := EvaluateRules(reg, plan.Entity.Name, "before_write", plan.Fields, old, plan.IsCreate)
+	ruleErrs := EvaluateRules(ctx, reg, plan.Entity.Name, "before_write", plan.Fields, old, plan.IsCreate)
 	if len(ruleErrs) > 0 {
+		span.SetStatus("error")
 		return nil, ValidationError(ruleErrs)
 	}
 
 	// Evaluate state machines (after rules, before SQL write)
-	smErrs := EvaluateStateMachines(reg, plan.Entity.Name, plan.Fields, old, plan.IsCreate)
+	smErrs := EvaluateStateMachines(ctx, reg, plan.Entity.Name, plan.Fields, old, plan.IsCreate)
 	if len(smErrs) > 0 {
+		span.SetStatus("error")
 		return nil, ValidationError(smErrs)
 	}
 
 	// Resolve file fields: UUID string → JSONB metadata object
 	if err := resolveFileFields(ctx, tx, plan.Entity, plan.Fields); err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("resolve file fields: %w", err)
 	}
 
@@ -101,6 +112,8 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		sql, params := BuildInsertSQL(plan.Entity, plan.Fields)
 		row, err := store.QueryRow(ctx, tx, sql, params...)
 		if err != nil {
+			span.SetStatus("error")
+			span.SetMetadata("error", err.Error())
 			return nil, fmt.Errorf("insert %s: %w", plan.Entity.Table, err)
 		}
 		parentID = row[plan.Entity.PrimaryKey.Field]
@@ -110,6 +123,8 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		sql, params := BuildUpdateSQL(plan.Entity, plan.ID, plan.Fields)
 		if sql != "" {
 			if _, err := store.Exec(ctx, tx, sql, params...); err != nil {
+				span.SetStatus("error")
+				span.SetMetadata("error", err.Error())
 				return nil, fmt.Errorf("update %s: %w", plan.Entity.Table, err)
 			}
 		}
@@ -118,6 +133,8 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	// Execute child writes
 	for _, childOp := range plan.ChildOps {
 		if err := ExecuteChildWrite(ctx, tx, reg, parentID, childOp); err != nil {
+			span.SetStatus("error")
+			span.SetMetadata("error", err.Error())
 			return nil, fmt.Errorf("child write for %s: %w", childOp.Relation.Name, err)
 		}
 	}
@@ -128,17 +145,23 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 		action = "create"
 	}
 	if err := FireSyncWebhooks(ctx, tx, reg, "before_write", plan.Entity.Name, action, plan.Fields, old, plan.User); err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("sync webhook: %w", err)
 	}
 
 	// Commit
 	if err := tx.Commit(ctx); err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 
 	// Fetch the full record
 	record, err := fetchRecord(ctx, s.Pool, plan.Entity, parentID)
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return nil, err
 	}
 
@@ -160,6 +183,7 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	// Post-commit: fire async (after_write) webhooks
 	FireAsyncWebhooks(ctx, s, reg, "after_write", plan.Entity.Name, action, record, old, plan.User)
 
+	span.SetStatus("ok")
 	return record, nil
 }
 

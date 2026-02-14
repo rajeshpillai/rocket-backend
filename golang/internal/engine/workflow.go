@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
@@ -58,15 +59,30 @@ func NewDefaultWFEngine(s *store.Store, reg *metadata.Registry) *WFEngine {
 func (e *WFEngine) TriggerWorkflowsViaEngine(ctx context.Context,
 	entity, field, toState string, record map[string]any, recordID any) {
 
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "workflow", "engine", "workflow.trigger")
+	defer span.End()
+	span.SetEntity(entity, fmt.Sprintf("%v", recordID))
+	span.SetMetadata("field", field)
+	span.SetMetadata("to_state", toState)
+
 	workflows := e.registry.GetWorkflowsForTrigger(entity, field, toState)
 	if len(workflows) == 0 {
+		span.SetStatus("ok")
 		return
 	}
 
+	hasError := false
 	for _, wf := range workflows {
 		if err := e.createInstance(ctx, wf, record, recordID); err != nil {
 			log.Printf("ERROR: failed to create workflow instance for %s: %v", wf.Name, err)
+			hasError = true
 		}
+	}
+
+	if hasError {
+		span.SetStatus("error")
+	} else {
+		span.SetStatus("ok")
 	}
 }
 
@@ -191,6 +207,11 @@ func (e *WFEngine) createInstance(ctx context.Context,
 func (e *WFEngine) advanceWorkflow(ctx context.Context,
 	instance *metadata.WorkflowInstance, wf *metadata.Workflow) error {
 
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "workflow", "engine", "workflow.advance")
+	defer span.End()
+	span.SetMetadata("workflow", wf.Name)
+	span.SetMetadata("instance_id", instance.ID)
+
 	stepCtx := &StepExecutorContext{
 		ActionExecutors: e.actionExecutors,
 		Evaluator:       e.evaluator,
@@ -199,17 +220,22 @@ func (e *WFEngine) advanceWorkflow(ctx context.Context,
 
 	for {
 		if instance.Status != "running" {
+			span.SetStatus("ok")
 			return nil
 		}
 
 		step := wf.FindStep(instance.CurrentStep)
 		if step == nil {
 			instance.Status = "failed"
+			span.SetStatus("error")
+			span.SetMetadata("error", "step not found")
 			return e.wfStore.PersistInstance(ctx, e.pool, instance)
 		}
 
 		executor, ok := e.stepExecutors[step.Type]
 		if !ok {
+			span.SetStatus("error")
+			span.SetMetadata("error", fmt.Sprintf("unknown step type: %s", step.Type))
 			return fmt.Errorf("unknown step type: %s", step.Type)
 		}
 
@@ -217,16 +243,21 @@ func (e *WFEngine) advanceWorkflow(ctx context.Context,
 		if err != nil {
 			log.Printf("ERROR: workflow %s step %s failed: %v", wf.Name, step.ID, err)
 			instance.Status = "failed"
+			span.SetStatus("error")
+			span.SetMetadata("error", err.Error())
 			return e.wfStore.PersistInstance(ctx, e.pool, instance)
 		}
 
 		if result.Paused {
+			span.SetStatus("ok")
+			span.SetMetadata("paused_at", instance.CurrentStep)
 			return e.wfStore.PersistInstance(ctx, e.pool, instance)
 		}
 
 		if result.NextGoto == "" || result.NextGoto == "end" {
 			instance.Status = "completed"
 			instance.CurrentStep = ""
+			span.SetStatus("ok")
 			return e.wfStore.PersistInstance(ctx, e.pool, instance)
 		}
 

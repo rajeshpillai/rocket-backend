@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { DatabaseConfig } from "../config/index.js";
+import type { DatabaseConfig, InstrumentationConfig } from "../config/index.js";
 import { Store, queryRows, queryRow, createDatabase, dropDatabase } from "../store/postgres.js";
 import { bootstrap } from "../store/bootstrap.js";
 import { Migrator } from "../store/migrator.js";
@@ -11,6 +11,8 @@ import { AuthHandler } from "../auth/handler.js";
 import { WorkflowHandler } from "../engine/workflow-handler.js";
 import { FileHandler } from "../engine/file-handler.js";
 import type { FileStorage } from "../storage/storage.js";
+import { EventBuffer } from "../instrument/buffer.js";
+import { EventHandler } from "../instrument/handler.js";
 import type { AppContext, AppInfo } from "./context.js";
 
 export class AppManager {
@@ -21,13 +23,15 @@ export class AppManager {
   private poolSize: number;
   private fileStorage: FileStorage;
   private maxFileSize: number;
+  private instrConfig: InstrumentationConfig;
 
-  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number, fileStorage: FileStorage, maxFileSize: number) {
+  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number, fileStorage: FileStorage, maxFileSize: number, instrConfig: InstrumentationConfig) {
     this.mgmtStore = mgmtStore;
     this.dbConfig = dbConfig;
     this.poolSize = appPoolSize;
     this.fileStorage = fileStorage;
     this.maxFileSize = maxFileSize;
+    this.instrConfig = instrConfig;
   }
 
   async get(appName: string): Promise<AppContext | null> {
@@ -78,6 +82,9 @@ export class AppManager {
 
     // Build handlers
     const migrator = new Migrator(appStore);
+    const eventBuffer = this.instrConfig.enabled
+      ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
+      : null;
     const ac: AppContext = {
       name,
       dbName,
@@ -90,6 +97,8 @@ export class AppManager {
       authHandler: new AuthHandler(appStore, jwtSecret),
       workflowHandler: new WorkflowHandler(appStore, registry),
       fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
+      eventHandler: new EventHandler(appStore.pool),
+      eventBuffer,
     };
 
     this.apps.set(name, ac);
@@ -99,6 +108,7 @@ export class AppManager {
   async delete(name: string): Promise<void> {
     const ac = this.apps.get(name);
     if (ac) {
+      ac.eventBuffer?.stop();
       await ac.store.close();
       this.apps.delete(name);
     }
@@ -176,6 +186,9 @@ export class AppManager {
         await loadAll(appStore.pool, registry);
 
         const migrator = new Migrator(appStore);
+        const eventBuffer = this.instrConfig.enabled
+          ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
+          : null;
         const ac: AppContext = {
           name,
           dbName,
@@ -188,6 +201,8 @@ export class AppManager {
           authHandler: new AuthHandler(appStore, jwtSecret),
           workflowHandler: new WorkflowHandler(appStore, registry),
           fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
+          eventHandler: new EventHandler(appStore.pool),
+          eventBuffer,
         };
 
         this.apps.set(name, ac);
@@ -204,6 +219,7 @@ export class AppManager {
 
   async close(): Promise<void> {
     for (const ac of this.apps.values()) {
+      ac.eventBuffer?.stop();
       await ac.store.close();
     }
     this.apps.clear();
@@ -234,6 +250,9 @@ export class AppManager {
     await loadAll(appStore.pool, registry);
 
     const migrator = new Migrator(appStore);
+    const eventBuffer = this.instrConfig.enabled
+      ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
+      : null;
     const ac: AppContext = {
       name: appName,
       dbName: dbName as string,
@@ -246,6 +265,8 @@ export class AppManager {
       authHandler: new AuthHandler(appStore, jwtSecret as string),
       workflowHandler: new WorkflowHandler(appStore, registry),
       fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, appName),
+      eventHandler: new EventHandler(appStore.pool),
+      eventBuffer,
     };
 
     this.apps.set(appName, ac);

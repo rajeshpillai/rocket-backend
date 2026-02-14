@@ -6,13 +6,22 @@ import (
 	"github.com/spf13/viper"
 )
 
+type InstrumentationConfig struct {
+	Enabled        bool    `mapstructure:"enabled"`
+	RetentionDays  int     `mapstructure:"retention_days"`
+	SamplingRate   float64 `mapstructure:"sampling_rate"`
+	BufferSize     int     `mapstructure:"buffer_size"`
+	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
+}
+
 type Config struct {
-	Server            ServerConfig   `mapstructure:"server"`
-	Database          DatabaseConfig `mapstructure:"database"`
-	Storage           StorageConfig  `mapstructure:"storage"`
-	JWTSecret         string         `mapstructure:"jwt_secret"`
-	PlatformJWTSecret string         `mapstructure:"platform_jwt_secret"`
-	AppPoolSize       int            `mapstructure:"app_pool_size"`
+	Server            ServerConfig          `mapstructure:"server"`
+	Database          DatabaseConfig        `mapstructure:"database"`
+	Storage           StorageConfig         `mapstructure:"storage"`
+	Instrumentation   InstrumentationConfig `mapstructure:"instrumentation"`
+	JWTSecret         string                `mapstructure:"jwt_secret"`
+	PlatformJWTSecret string                `mapstructure:"platform_jwt_secret"`
+	AppPoolSize       int                   `mapstructure:"app_pool_size"`
 }
 
 type StorageConfig struct {
@@ -55,6 +64,11 @@ func Load() (*Config, error) {
 	viper.SetDefault("storage.driver", "local")
 	viper.SetDefault("storage.local_path", "./uploads")
 	viper.SetDefault("storage.max_file_size", 10485760)
+	viper.SetDefault("instrumentation.enabled", true)
+	viper.SetDefault("instrumentation.retention_days", 7)
+	viper.SetDefault("instrumentation.sampling_rate", 1.0)
+	viper.SetDefault("instrumentation.buffer_size", 500)
+	viper.SetDefault("instrumentation.flush_interval_ms", 100)
 
 	viper.AutomaticEnv()
 

@@ -1,15 +1,20 @@
 import type { AppManager } from "./manager.js";
+import type { InstrumentationConfig } from "../config/index.js";
 import { processWorkflowTimeouts } from "../engine/workflow-scheduler.js";
 import { processWebhookRetries } from "../engine/webhook-scheduler.js";
+import { cleanupOldEvents } from "../instrument/cleanup.js";
 
-// MultiAppScheduler runs workflow timeouts and webhook retries across all apps.
+// MultiAppScheduler runs workflow timeouts, webhook retries, and event cleanup across all apps.
 export class MultiAppScheduler {
   private manager: AppManager;
+  private instrConfig: InstrumentationConfig;
   private workflowTimer: ReturnType<typeof setInterval> | null = null;
   private webhookTimer: ReturnType<typeof setInterval> | null = null;
+  private eventCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(manager: AppManager) {
+  constructor(manager: AppManager, instrConfig: InstrumentationConfig) {
     this.manager = manager;
+    this.instrConfig = instrConfig;
   }
 
   start(): void {
@@ -25,7 +30,16 @@ export class MultiAppScheduler {
       });
     }, 30_000);
 
-    console.log("Multi-app scheduler started (workflows: 60s, webhooks: 30s)");
+    // Event cleanup runs hourly
+    if (this.instrConfig.enabled) {
+      this.eventCleanupTimer = setInterval(() => {
+        this.processAllEventCleanup().catch((err) => {
+          console.error("ERROR: multi-app event cleanup:", err);
+        });
+      }, 3_600_000);
+    }
+
+    console.log("Multi-app scheduler started (workflows: 60s, webhooks: 30s, event cleanup: 1h)");
   }
 
   stop(): void {
@@ -36,6 +50,10 @@ export class MultiAppScheduler {
     if (this.webhookTimer) {
       clearInterval(this.webhookTimer);
       this.webhookTimer = null;
+    }
+    if (this.eventCleanupTimer) {
+      clearInterval(this.eventCleanupTimer);
+      this.eventCleanupTimer = null;
     }
   }
 
@@ -55,6 +73,19 @@ export class MultiAppScheduler {
         await processWebhookRetries(ac.store);
       } catch (err) {
         console.error(`ERROR: webhook retries for app ${ac.name}:`, err);
+      }
+    }
+  }
+
+  private async processAllEventCleanup(): Promise<void> {
+    for (const ac of this.manager.allContexts()) {
+      try {
+        const deleted = await cleanupOldEvents(ac.store.pool, this.instrConfig.retention_days);
+        if (deleted > 0) {
+          console.log(`Event cleanup for app ${ac.name}: deleted ${deleted} old events`);
+        }
+      } catch (err) {
+        console.error(`ERROR: event cleanup for app ${ac.name}:`, err);
       }
     }
   }

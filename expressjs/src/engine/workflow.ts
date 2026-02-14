@@ -16,6 +16,7 @@ import type { ActionExecutor } from "./workflow-action-executors.js";
 import { createDefaultActionExecutors } from "./workflow-action-executors.js";
 import type { ExpressionEvaluator } from "./workflow-expression.js";
 import { FunctionExpressionEvaluator } from "./workflow-expression.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 /**
  * WorkflowEngine orchestrates workflow lifecycle: triggering, step advancement,
@@ -66,15 +67,33 @@ export class WorkflowEngine {
     record: Record<string, any>,
     recordID: any,
   ): Promise<void> {
-    const workflows = this.registry.getWorkflowsForTrigger(entity, field, toState);
-    if (workflows.length === 0) return;
-
-    for (const wf of workflows) {
-      try {
-        await this.createInstance(wf, record, recordID);
-      } catch (err) {
-        console.error(`ERROR: failed to create workflow instance for ${wf.name}:`, err);
+    const span = getInstrumenter().startSpan("workflow", "engine", "workflow.trigger");
+    span.setEntity(entity, String(recordID));
+    span.setMetadata("field", field);
+    span.setMetadata("to_state", toState);
+    try {
+      const workflows = this.registry.getWorkflowsForTrigger(entity, field, toState);
+      if (workflows.length === 0) {
+        span.setStatus("ok");
+        span.setMetadata("workflow_count", 0);
+        return;
       }
+
+      span.setMetadata("workflow_count", workflows.length);
+      for (const wf of workflows) {
+        try {
+          await this.createInstance(wf, record, recordID);
+        } catch (err) {
+          console.error(`ERROR: failed to create workflow instance for ${wf.name}:`, err);
+        }
+      }
+      span.setStatus("ok");
+    } catch (err) {
+      span.setStatus("error");
+      span.setMetadata("error", (err as Error).message);
+      throw err;
+    } finally {
+      span.end();
     }
   }
 
@@ -205,39 +224,59 @@ export class WorkflowEngine {
   }
 
   private async advanceWorkflow(instance: WorkflowInstance, wf: Workflow): Promise<void> {
-    const stepCtx: StepExecutorContext = {
-      actionExecutors: this.actionExecutors,
-      evaluator: this.evaluator,
-    };
+    const span = getInstrumenter().startSpan("workflow", "engine", "workflow.advance");
+    span.setMetadata("instance_id", instance.id);
+    span.setMetadata("workflow_name", wf.name);
+    try {
+      const stepCtx: StepExecutorContext = {
+        actionExecutors: this.actionExecutors,
+        evaluator: this.evaluator,
+      };
 
-    while (instance.status === "running") {
-      const step = findStep(wf, instance.current_step);
-      if (!step) {
-        instance.status = "failed";
-        await this.wfStore.persistInstance(this.pool, instance);
-        return;
+      while (instance.status === "running") {
+        const step = findStep(wf, instance.current_step);
+        if (!step) {
+          instance.status = "failed";
+          await this.wfStore.persistInstance(this.pool, instance);
+          span.setStatus("error");
+          span.setMetadata("error", "step not found");
+          return;
+        }
+
+        const executor = this.stepExecutors.get(step.type);
+        if (!executor) {
+          span.setStatus("error");
+          span.setMetadata("error", `unknown step type: ${step.type}`);
+          throw new Error(`unknown step type: ${step.type}`);
+        }
+
+        const { paused, nextGoto } = await executor.execute(this.pool, stepCtx, instance, step);
+
+        if (paused) {
+          await this.wfStore.persistInstance(this.pool, instance);
+          span.setStatus("ok");
+          span.setMetadata("result", "paused");
+          return;
+        }
+
+        if (!nextGoto || nextGoto === "end") {
+          instance.status = "completed";
+          instance.current_step = "";
+          await this.wfStore.persistInstance(this.pool, instance);
+          span.setStatus("ok");
+          span.setMetadata("result", "completed");
+          return;
+        }
+
+        instance.current_step = nextGoto;
       }
-
-      const executor = this.stepExecutors.get(step.type);
-      if (!executor) {
-        throw new Error(`unknown step type: ${step.type}`);
-      }
-
-      const { paused, nextGoto } = await executor.execute(this.pool, stepCtx, instance, step);
-
-      if (paused) {
-        await this.wfStore.persistInstance(this.pool, instance);
-        return;
-      }
-
-      if (!nextGoto || nextGoto === "end") {
-        instance.status = "completed";
-        instance.current_step = "";
-        await this.wfStore.persistInstance(this.pool, instance);
-        return;
-      }
-
-      instance.current_step = nextGoto;
+      span.setStatus("ok");
+    } catch (err) {
+      span.setStatus("error");
+      span.setMetadata("error", (err as Error).message);
+      throw err;
+    } finally {
+      span.end();
     }
   }
 

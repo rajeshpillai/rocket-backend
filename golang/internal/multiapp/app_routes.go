@@ -4,6 +4,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"rocket-backend/internal/auth"
+	"rocket-backend/internal/config"
+	"rocket-backend/internal/instrument"
 )
 
 // dispatch returns a Fiber handler that extracts the AppContext from the request
@@ -19,19 +21,26 @@ func dispatch(fn func(*AppContext) fiber.Handler) fiber.Handler {
 }
 
 // RegisterAppRoutes registers all app-scoped routes under /api/:app.
-func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret string) {
+func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret string, instrCfg config.InstrumentationConfig) {
 	resolverMW := AppResolverMiddleware(manager)
 	appAuthMW := AppAuthMiddleware(platformJWTSecret)
 	adminMW := auth.RequireAdmin()
+	instrMW := instrument.Middleware(instrCfg, func(c *fiber.Ctx) *instrument.EventBuffer {
+		ac := GetAppCtx(c)
+		if ac == nil {
+			return nil
+		}
+		return ac.EventBuffer
+	})
 
 	// Auth routes (no auth required, only app resolver)
-	appAuth := app.Group("/api/:app/auth", resolverMW)
+	appAuth := app.Group("/api/:app/auth", resolverMW, instrMW)
 	appAuth.Post("/login", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Login }))
 	appAuth.Post("/refresh", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Refresh }))
 	appAuth.Post("/logout", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Logout }))
 
-	// All other routes require app resolver + auth
-	protected := app.Group("/api/:app", resolverMW, appAuthMW)
+	// All other routes require app resolver + auth + instrumentation
+	protected := app.Group("/api/:app", resolverMW, appAuthMW, instrMW)
 
 	// Admin routes (admin required)
 	adm := protected.Group("/_admin", adminMW)
@@ -126,6 +135,13 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	files.Get("/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.Serve }))
 	files.Delete("/:id", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.Delete }))
 	files.Get("/", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.FileHandler.List }))
+
+	// Event routes (auth required, list/trace/stats are admin-only)
+	events := protected.Group("/_events")
+	events.Post("/", dispatch(func(ac *AppContext) fiber.Handler { return ac.EventHandler.Emit }))
+	events.Get("/trace/:traceId", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.EventHandler.GetTrace }))
+	events.Get("/stats", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.EventHandler.GetStats }))
+	events.Get("/", adminMW, dispatch(func(ac *AppContext) fiber.Handler { return ac.EventHandler.List }))
 
 	// Dynamic entity routes (must be last — catch-all pattern)
 	protected.Get("/:entity", dispatch(func(ac *AppContext) fiber.Handler { return ac.EngineHandler.List }))

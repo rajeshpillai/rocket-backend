@@ -3,6 +3,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { requireAdmin } from "../auth/middleware.js";
 import { AppError } from "../engine/errors.js";
+import { instrumentationMiddleware } from "../instrument/middleware.js";
+import type { InstrumentationConfig } from "../config/index.js";
 import type { AppManager } from "./manager.js";
 import type { AppContext } from "./context.js";
 import { appResolverMiddleware, appAuthMiddleware } from "./middleware.js";
@@ -28,17 +30,19 @@ export function registerAppRoutes(
   app: Express,
   manager: AppManager,
   platformJWTSecret: string,
+  instrConfig: InstrumentationConfig,
 ): void {
   const resolverMW = appResolverMiddleware(manager);
   const appAuthMW = appAuthMiddleware(platformJWTSecret);
   const adminMW = requireAdmin();
+  const instrMW = instrumentationMiddleware(instrConfig);
 
   // Auth routes (no auth required, only app resolver)
   const authRouter = Router({ mergeParams: true });
   authRouter.post("/login", dispatch((ac) => ac.authHandler.login));
   authRouter.post("/refresh", dispatch((ac) => ac.authHandler.refresh));
   authRouter.post("/logout", dispatch((ac) => ac.authHandler.logout));
-  app.use("/api/:app/auth", resolverMW, authRouter);
+  app.use("/api/:app/auth", resolverMW, instrMW, authRouter);
 
   // Admin routes (auth + admin required)
   const adminRouter = Router({ mergeParams: true });
@@ -115,13 +119,13 @@ export function registerAppRoutes(
   adminRouter.get("/export", dispatch((ac) => ac.adminHandler.export));
   adminRouter.post("/import", dispatch((ac) => ac.adminHandler.import));
 
-  app.use("/api/:app/_admin", resolverMW, appAuthMW, adminMW, adminRouter);
+  app.use("/api/:app/_admin", resolverMW, appAuthMW, instrMW, adminMW, adminRouter);
 
   // UI config read routes (auth required, no admin)
   const uiRouter = Router({ mergeParams: true });
   uiRouter.get("/configs", dispatch((ac) => ac.adminHandler.listAllUIConfigs));
   uiRouter.get("/config/:entity", dispatch((ac) => ac.adminHandler.getUIConfigByEntity));
-  app.use("/api/:app/_ui", resolverMW, appAuthMW, uiRouter);
+  app.use("/api/:app/_ui", resolverMW, appAuthMW, instrMW, uiRouter);
 
   // Workflow runtime routes (auth required)
   const wfRouter = Router({ mergeParams: true });
@@ -129,7 +133,7 @@ export function registerAppRoutes(
   wfRouter.get("/:id", dispatch((ac) => ac.workflowHandler.getInstance));
   wfRouter.post("/:id/approve", dispatch((ac) => ac.workflowHandler.approveInstance));
   wfRouter.post("/:id/reject", dispatch((ac) => ac.workflowHandler.rejectInstance));
-  app.use("/api/:app/_workflows", resolverMW, appAuthMW, wfRouter);
+  app.use("/api/:app/_workflows", resolverMW, appAuthMW, instrMW, wfRouter);
 
   // File routes (auth required, upload uses multer)
   const fileRouter = Router({ mergeParams: true });
@@ -137,7 +141,15 @@ export function registerAppRoutes(
   fileRouter.get("/:id", dispatch((ac) => ac.fileHandler.serve));
   fileRouter.delete("/:id", adminMW, dispatch((ac) => ac.fileHandler.delete));
   fileRouter.get("/", adminMW, dispatch((ac) => ac.fileHandler.list));
-  app.use("/api/:app/_files", resolverMW, appAuthMW, fileRouter);
+  app.use("/api/:app/_files", resolverMW, appAuthMW, instrMW, fileRouter);
+
+  // Event routes (auth required, list/trace/stats are admin-only)
+  const eventRouter = Router({ mergeParams: true });
+  eventRouter.post("/", dispatch((ac) => ac.eventHandler.emit));
+  eventRouter.get("/trace/:traceId", adminMW, dispatch((ac) => ac.eventHandler.getTrace));
+  eventRouter.get("/stats", adminMW, dispatch((ac) => ac.eventHandler.getStats));
+  eventRouter.get("/", adminMW, dispatch((ac) => ac.eventHandler.list));
+  app.use("/api/:app/_events", resolverMW, appAuthMW, instrMW, eventRouter);
 
   // Dynamic entity routes (must be last — catch-all pattern)
   const entityRouter = Router({ mergeParams: true });
@@ -146,5 +158,5 @@ export function registerAppRoutes(
   entityRouter.post("/:entity", dispatch((ac) => ac.engineHandler.create));
   entityRouter.put("/:entity/:id", dispatch((ac) => ac.engineHandler.update));
   entityRouter.delete("/:entity/:id", dispatch((ac) => ac.engineHandler.delete));
-  app.use("/api/:app", resolverMW, appAuthMW, entityRouter);
+  app.use("/api/:app", resolverMW, appAuthMW, instrMW, entityRouter);
 }

@@ -3,6 +3,7 @@ package engine
 import (
 	"github.com/gofiber/fiber/v2"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
@@ -48,25 +49,43 @@ func (h *WorkflowHandler) ListPending(c *fiber.Ctx) error {
 }
 
 func (h *WorkflowHandler) Approve(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "workflow", "handler", "workflow.approve")
+	defer span.End()
+	c.SetUserContext(ctx)
+
 	id := c.Params("id")
+	span.SetMetadata("instance_id", id)
 	userID := c.Get("X-User-ID", "anonymous") // Until Auth is implemented
 
 	instance, err := ResolveWorkflowAction(c.Context(), h.store, h.registry, id, "approved", userID)
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return NewAppError("VALIDATION_FAILED", 422, err.Error())
 	}
 
+	span.SetStatus("ok")
 	return c.JSON(fiber.Map{"data": instance})
 }
 
 func (h *WorkflowHandler) Reject(c *fiber.Ctx) error {
+	ctx := c.UserContext()
+	ctx, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "workflow", "handler", "workflow.reject")
+	defer span.End()
+	c.SetUserContext(ctx)
+
 	id := c.Params("id")
+	span.SetMetadata("instance_id", id)
 	userID := c.Get("X-User-ID", "anonymous")
 
 	instance, err := ResolveWorkflowAction(c.Context(), h.store, h.registry, id, "rejected", userID)
 	if err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
 		return NewAppError("VALIDATION_FAILED", 422, err.Error())
 	}
 
+	span.SetStatus("ok")
 	return c.JSON(fiber.Map{"data": instance})
 }

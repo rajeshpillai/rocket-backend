@@ -1,21 +1,28 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 )
 
 // EvaluateRules runs all active rules for an entity/hook against the record.
 // It returns validation errors for field and expression rules, and mutates
 // the fields map for computed rules.
-func EvaluateRules(reg *metadata.Registry, entityName string, hook string, fields map[string]any, old map[string]any, isCreate bool) []ErrorDetail {
+func EvaluateRules(ctx context.Context, reg *metadata.Registry, entityName string, hook string, fields map[string]any, old map[string]any, isCreate bool) []ErrorDetail {
+	_, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "engine", "rules", "rules.evaluate")
+	defer span.End()
+	span.SetEntity(entityName, "")
+
 	rules := reg.GetRulesForEntity(entityName, hook)
 	if len(rules) == 0 {
+		span.SetStatus("ok")
 		return nil
 	}
 
@@ -40,6 +47,7 @@ func EvaluateRules(reg *metadata.Registry, entityName string, hook string, field
 		if detail := EvaluateFieldRule(r, fields); detail != nil {
 			errs = append(errs, *detail)
 			if r.Definition.StopOnFail {
+				span.SetStatus("error")
 				return errs
 			}
 		}
@@ -53,6 +61,7 @@ func EvaluateRules(reg *metadata.Registry, entityName string, hook string, field
 		if detail := EvaluateExpressionRule(r, env); detail != nil {
 			errs = append(errs, *detail)
 			if r.Definition.StopOnFail {
+				span.SetStatus("error")
 				return errs
 			}
 		}
@@ -60,6 +69,7 @@ func EvaluateRules(reg *metadata.Registry, entityName string, hook string, field
 
 	// If there are validation errors, don't run computed fields
 	if len(errs) > 0 {
+		span.SetStatus("error")
 		return errs
 	}
 
@@ -80,6 +90,11 @@ func EvaluateRules(reg *metadata.Registry, entityName string, hook string, field
 		fields[r.Definition.Field] = val
 	}
 
+	if len(errs) > 0 {
+		span.SetStatus("error")
+	} else {
+		span.SetStatus("ok")
+	}
 	return errs
 }
 

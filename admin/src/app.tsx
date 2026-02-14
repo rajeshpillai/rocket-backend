@@ -16,6 +16,9 @@ import { PermissionsList } from "./pages/permissions-list";
 import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
 import { UIConfigList } from "./pages/ui-config-list";
+import { EventStream } from "./pages/event-stream";
+import { TraceWaterfall } from "./pages/trace-waterfall";
+import { EventStatsPage } from "./pages/event-stats";
 import { Dashboard } from "./pages/dashboard";
 import { ApiPlayground } from "./pages/api-playground";
 import { ERD } from "./pages/erd";
@@ -83,6 +86,9 @@ export function App() {
       <Route path="/webhooks" component={WebhooksList} />
       <Route path="/webhook-logs" component={WebhookLogs} />
       <Route path="/ui-configs" component={UIConfigList} />
+      <Route path="/events" component={EventStream} />
+      <Route path="/events/trace/:traceId" component={TraceWaterfall} />
+      <Route path="/events/stats" component={EventStatsPage} />
       <Route path="/playground" component={ApiPlayground} />
       <Route path="/help" component={HelpIndex} />
       <Route path="/help/:topic" component={HelpTopicPage} />

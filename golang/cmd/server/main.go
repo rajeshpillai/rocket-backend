@@ -45,7 +45,7 @@ func main() {
 	fileStorage := storage.NewLocalStorage(cfg.Storage.LocalPath)
 
 	// 5. Create AppManager and load all existing apps
-	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize, fileStorage, cfg.Storage.MaxFileSize)
+	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize, fileStorage, cfg.Storage.MaxFileSize, cfg.Instrumentation)
 	defer manager.Close()
 
 	if err := manager.LoadAll(ctx); err != nil {
@@ -74,10 +74,10 @@ func main() {
 	multiapp.RegisterPlatformRoutes(app, platformHandler, platformAuthMW)
 
 	// 8. App-scoped routes (all existing CRUD/admin/auth/workflow routes under /api/:app)
-	multiapp.RegisterAppRoutes(app, manager, cfg.PlatformJWTSecret)
+	multiapp.RegisterAppRoutes(app, manager, cfg.PlatformJWTSecret, cfg.Instrumentation)
 
 	// 9. Start multi-app schedulers
-	scheduler := multiapp.NewMultiAppScheduler(manager)
+	scheduler := multiapp.NewMultiAppScheduler(manager, cfg.Instrumentation)
 	scheduler.Start()
 	defer scheduler.Stop()
 

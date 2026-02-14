@@ -10,15 +10,21 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 )
 
 // EvaluateStateMachines checks all active state machines for the entity.
 // Returns validation errors if a transition is invalid or a guard fails.
 // Mutates fields with set_field actions on successful transitions.
-func EvaluateStateMachines(reg *metadata.Registry, entityName string, fields map[string]any, old map[string]any, isCreate bool) []ErrorDetail {
+func EvaluateStateMachines(ctx context.Context, reg *metadata.Registry, entityName string, fields map[string]any, old map[string]any, isCreate bool) []ErrorDetail {
+	_, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "engine", "state_machine", "state.transition")
+	defer span.End()
+	span.SetEntity(entityName, "")
+
 	machines := reg.GetStateMachinesForEntity(entityName)
 	if len(machines) == 0 {
+		span.SetStatus("ok")
 		return nil
 	}
 
@@ -29,6 +35,11 @@ func EvaluateStateMachines(reg *metadata.Registry, entityName string, fields map
 		errs = append(errs, smErrs...)
 	}
 
+	if len(errs) > 0 {
+		span.SetStatus("error")
+	} else {
+		span.SetStatus("ok")
+	}
 	return errs
 }
 

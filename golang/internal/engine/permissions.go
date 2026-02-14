@@ -1,27 +1,38 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 )
 
 // CheckPermission verifies that the user is allowed to perform the given action
 // on the given entity. For update/delete, currentRecord is the existing record
 // to check conditions against. Returns nil if allowed, or a FORBIDDEN AppError.
-func CheckPermission(user *metadata.UserContext, entity, action string, reg *metadata.Registry, currentRecord map[string]any) error {
+func CheckPermission(ctx context.Context, user *metadata.UserContext, entity, action string, reg *metadata.Registry, currentRecord map[string]any) error {
+	_, span := instrument.GetInstrumenter(ctx).StartSpan(ctx, "auth", "permissions", "permission.check")
+	defer span.End()
+	span.SetEntity(entity, "")
+	span.SetMetadata("action", action)
+
 	if user == nil {
+		span.SetStatus("error")
 		return UnauthorizedError("Authentication required")
 	}
 
 	// Admin bypasses all permission checks
 	if user.IsAdmin() {
+		span.SetStatus("ok")
+		span.SetMetadata("bypass", "admin")
 		return nil
 	}
 
 	policies := reg.GetPermissions(entity, action)
 	if len(policies) == 0 {
+		span.SetStatus("error")
 		return ForbiddenError(fmt.Sprintf("No permission for %s on %s", action, entity))
 	}
 
@@ -32,17 +43,21 @@ func CheckPermission(user *metadata.UserContext, entity, action string, reg *met
 		}
 		// Role matches — now check conditions
 		if len(p.Conditions) == 0 {
+			span.SetStatus("ok")
 			return nil // No conditions, role match is sufficient
 		}
 		if currentRecord != nil && evaluateConditions(p.Conditions, currentRecord) {
+			span.SetStatus("ok")
 			return nil
 		}
 		// For create, there's no current record — conditions don't apply
 		if currentRecord == nil && (action == "create" || action == "read") {
+			span.SetStatus("ok")
 			return nil
 		}
 	}
 
+	span.SetStatus("error")
 	return ForbiddenError(fmt.Sprintf("Permission denied for %s on %s", action, entity))
 }
 

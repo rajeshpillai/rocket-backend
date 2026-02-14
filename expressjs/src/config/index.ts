@@ -21,10 +21,19 @@ export interface StorageConfig {
   max_file_size: number;
 }
 
+export interface InstrumentationConfig {
+  enabled: boolean;
+  retention_days: number;
+  sampling_rate: number;
+  buffer_size: number;
+  flush_interval_ms: number;
+}
+
 export interface Config {
   server: ServerConfig;
   database: DatabaseConfig;
   storage: StorageConfig;
+  instrumentation: InstrumentationConfig;
   jwt_secret: string;
   platform_jwt_secret: string;
   app_pool_size: number;
@@ -51,6 +60,7 @@ export function loadConfig(): Config {
   const server = raw.server ?? {};
   const database = raw.database ?? {};
   const storage = raw.storage ?? {};
+  const instrumentation = raw.instrumentation ?? {};
 
   return {
     server: {
@@ -63,6 +73,13 @@ export function loadConfig(): Config {
       driver: storage.driver ?? "local",
       local_path: storage.local_path ?? "./uploads",
       max_file_size: storage.max_file_size ?? 10485760,
+    },
+    instrumentation: {
+      enabled: instrumentation.enabled ?? true,
+      retention_days: instrumentation.retention_days ?? 7,
+      sampling_rate: instrumentation.sampling_rate ?? 1.0,
+      buffer_size: instrumentation.buffer_size ?? 500,
+      flush_interval_ms: instrumentation.flush_interval_ms ?? 100,
     },
     database: {
       host: database.host ?? "localhost",

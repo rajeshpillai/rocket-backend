@@ -21,6 +21,8 @@ const navItems = [
   { href: "/webhooks", label: "Webhooks", icon: "\uD83D\uDD17" },
   { href: "/webhook-logs", label: "Webhook Logs", icon: "\uD83D\uDCCB" },
   { href: "/ui-configs", label: "UI Configs", icon: "\uD83C\uDFA8" },
+  { href: "/events", label: "Events", icon: "\u26A1" },
+  { href: "/events/stats", label: "Event Stats", icon: "\uD83D\uDCCA" },
 ];
 
 export const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);

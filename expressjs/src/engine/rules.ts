@@ -1,6 +1,7 @@
 import type { Rule } from "../metadata/rule.js";
 import type { Registry } from "../metadata/registry.js";
 import type { ErrorDetail } from "./errors.js";
+import { getInstrumenter } from "../instrument/instrument.js";
 
 /**
  * Evaluates all active rules for an entity/hook against the record.
@@ -15,52 +16,85 @@ export function evaluateRules(
   old: Record<string, any>,
   isCreate: boolean,
 ): ErrorDetail[] {
-  const rules = registry.getRulesForEntity(entityName, hook);
-  if (rules.length === 0) return [];
-
-  const action = isCreate ? "create" : "update";
-  const env = { record: fields, old, action };
-  const errs: ErrorDetail[] = [];
-
-  // 1. Field rules
-  for (const r of rules) {
-    if (r.type !== "field") continue;
-    const detail = evaluateFieldRule(r, fields);
-    if (detail) {
-      errs.push(detail);
-      if (r.definition.stop_on_fail) return errs;
+  const span = getInstrumenter().startSpan("engine", "rules", "rules.evaluate");
+  span.setEntity(entityName);
+  span.setMetadata("hook", hook);
+  try {
+    const rules = registry.getRulesForEntity(entityName, hook);
+    if (rules.length === 0) {
+      span.setStatus("ok");
+      span.setMetadata("rule_count", 0);
+      return [];
     }
-  }
 
-  // 2. Expression rules
-  for (const r of rules) {
-    if (r.type !== "expression") continue;
-    const detail = evaluateExpressionRule(r, env);
-    if (detail) {
-      errs.push(detail);
-      if (r.definition.stop_on_fail) return errs;
+    const action = isCreate ? "create" : "update";
+    const env = { record: fields, old, action };
+    const errs: ErrorDetail[] = [];
+
+    // 1. Field rules
+    for (const r of rules) {
+      if (r.type !== "field") continue;
+      const detail = evaluateFieldRule(r, fields);
+      if (detail) {
+        errs.push(detail);
+        if (r.definition.stop_on_fail) {
+          span.setStatus("ok");
+          span.setMetadata("rule_count", rules.length);
+          span.setMetadata("error_count", errs.length);
+          return errs;
+        }
+      }
     }
-  }
 
-  // If there are validation errors, don't run computed fields
-  if (errs.length > 0) return errs;
-
-  // 3. Computed fields
-  for (const r of rules) {
-    if (r.type !== "computed") continue;
-    try {
-      const val = evaluateComputedField(r, env);
-      fields[r.definition.field!] = val;
-    } catch (err: any) {
-      errs.push({
-        field: r.definition.field,
-        rule: "computed",
-        message: err.message ?? String(err),
-      });
+    // 2. Expression rules
+    for (const r of rules) {
+      if (r.type !== "expression") continue;
+      const detail = evaluateExpressionRule(r, env);
+      if (detail) {
+        errs.push(detail);
+        if (r.definition.stop_on_fail) {
+          span.setStatus("ok");
+          span.setMetadata("rule_count", rules.length);
+          span.setMetadata("error_count", errs.length);
+          return errs;
+        }
+      }
     }
-  }
 
-  return errs;
+    // If there are validation errors, don't run computed fields
+    if (errs.length > 0) {
+      span.setStatus("ok");
+      span.setMetadata("rule_count", rules.length);
+      span.setMetadata("error_count", errs.length);
+      return errs;
+    }
+
+    // 3. Computed fields
+    for (const r of rules) {
+      if (r.type !== "computed") continue;
+      try {
+        const val = evaluateComputedField(r, env);
+        fields[r.definition.field!] = val;
+      } catch (err: any) {
+        errs.push({
+          field: r.definition.field,
+          rule: "computed",
+          message: err.message ?? String(err),
+        });
+      }
+    }
+
+    span.setStatus("ok");
+    span.setMetadata("rule_count", rules.length);
+    span.setMetadata("error_count", errs.length);
+    return errs;
+  } catch (err) {
+    span.setStatus("error");
+    span.setMetadata("error", (err as Error).message);
+    throw err;
+  } finally {
+    span.end();
+  }
 }
 
 /**
