@@ -6,7 +6,8 @@ defmodule Rocket.MultiApp.AppContext do
     :db_name,
     :jwt_secret,
     :db_pool,
-    :registry
+    :registry,
+    :event_buffer
   ]
 
   @doc "Initialize an AppContext: connect to DB, bootstrap, load metadata."
@@ -27,12 +28,32 @@ defmodule Rocket.MultiApp.AppContext do
         # Load metadata
         Rocket.Metadata.Loader.load_all(pool, registry_name)
 
+        # Start event buffer for this app
+        instr_config = Application.get_env(:rocket, :instrumentation_config) || %{enabled: true, buffer_size: 500, flush_interval_ms: 100}
+        event_buffer =
+          if instr_config.enabled do
+            buf_name = :"rocket_event_buffer_#{name}"
+            case Rocket.Instrument.EventBuffer.start_link(
+              pool: pool,
+              max_size: instr_config.buffer_size,
+              flush_interval: instr_config.flush_interval_ms,
+              name: buf_name
+            ) do
+              {:ok, pid} -> pid
+              {:error, {:already_started, pid}} -> pid
+              _ -> nil
+            end
+          else
+            nil
+          end
+
         ctx = %__MODULE__{
           name: name,
           db_name: db_name,
           jwt_secret: jwt_secret,
           db_pool: pool,
-          registry: registry_name
+          registry: registry_name,
+          event_buffer: event_buffer
         }
 
         {:ok, ctx}
@@ -44,6 +65,10 @@ defmodule Rocket.MultiApp.AppContext do
 
   @doc "Stop the app context (close pool, stop registry)."
   def stop(%__MODULE__{} = ctx) do
+    if ctx.event_buffer && Process.alive?(ctx.event_buffer) do
+      Rocket.Instrument.EventBuffer.stop(ctx.event_buffer)
+    end
+
     if ctx.db_pool && Process.alive?(ctx.db_pool) do
       GenServer.stop(ctx.db_pool)
     end

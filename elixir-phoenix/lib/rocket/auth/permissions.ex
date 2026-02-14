@@ -2,9 +2,25 @@ defmodule Rocket.Auth.Permissions do
   @moduledoc "Permission engine: whitelist model, admin bypass, row-level read filters."
 
   alias Rocket.Metadata.Registry
+  alias Rocket.Instrument.Instrumenter
 
   @doc "Check if user can perform action on entity. Returns :ok or {:error, AppError}."
   def check_permission(user, entity, action, registry, current_record \\ nil) do
+    span = Instrumenter.start_span("auth", "permissions", "permission.check")
+    span = Instrumenter.set_entity(span, entity)
+
+    result = do_check_permission(user, entity, action, registry, current_record)
+
+    _span = case result do
+      :ok -> Instrumenter.set_status(span, "ok")
+      {:error, _} -> Instrumenter.set_status(span, "error")
+    end
+
+    Instrumenter.end_span(span)
+    result
+  end
+
+  defp do_check_permission(user, entity, action, registry, current_record) do
     if user != nil && is_admin?(user) do
       :ok
     else

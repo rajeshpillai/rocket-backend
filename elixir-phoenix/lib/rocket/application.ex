@@ -8,6 +8,10 @@ defmodule Rocket.Application do
     # Initialize expression AST cache (ETS table) before supervisors start
     Rocket.Engine.Expression.init_cache()
 
+    # Load config and store instrumentation settings in Application env
+    cfg = Rocket.Config.load()
+    Application.put_env(:rocket, :instrumentation_config, cfg.instrumentation)
+
     children = [
       RocketWeb.Telemetry,
       Rocket.Repo,

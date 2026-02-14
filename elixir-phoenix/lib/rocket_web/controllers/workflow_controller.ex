@@ -3,6 +3,7 @@ defmodule RocketWeb.WorkflowController do
   use RocketWeb, :controller
 
   alias Rocket.Engine.{WorkflowEngine, AppError}
+  alias Rocket.Instrument.Instrumenter
 
   # GET /api/_workflows/pending
   def pending(conn, _params) do
@@ -35,37 +36,55 @@ defmodule RocketWeb.WorkflowController do
 
   # POST /api/_workflows/:id/approve
   def approve(conn, %{"id" => id}) do
-    db = get_conn(conn)
-    registry = get_registry(conn)
-    user_id = get_user_id(conn)
+    span = Instrumenter.start_span("engine", "workflow", "workflow.approve")
 
-    case WorkflowEngine.resolve_workflow_action(db, registry, id, "approved", user_id) do
-      {:ok, instance} ->
-        json(conn, %{data: instance})
+    try do
+      db = get_conn(conn)
+      registry = get_registry(conn)
+      user_id = get_user_id(conn)
 
-      {:error, err} when is_binary(err) ->
-        respond_error(conn, AppError.new("VALIDATION_FAILED", 422, err))
+      case WorkflowEngine.resolve_workflow_action(db, registry, id, "approved", user_id) do
+        {:ok, instance} ->
+          _span = Instrumenter.set_status(span, "ok")
+          json(conn, %{data: instance})
 
-      {:error, err} ->
-        respond_error(conn, wrap_error(err))
+        {:error, err} when is_binary(err) ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, AppError.new("VALIDATION_FAILED", 422, err))
+
+        {:error, err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, wrap_error(err))
+      end
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # POST /api/_workflows/:id/reject
   def reject(conn, %{"id" => id}) do
-    db = get_conn(conn)
-    registry = get_registry(conn)
-    user_id = get_user_id(conn)
+    span = Instrumenter.start_span("engine", "workflow", "workflow.reject")
 
-    case WorkflowEngine.resolve_workflow_action(db, registry, id, "rejected", user_id) do
-      {:ok, instance} ->
-        json(conn, %{data: instance})
+    try do
+      db = get_conn(conn)
+      registry = get_registry(conn)
+      user_id = get_user_id(conn)
 
-      {:error, err} when is_binary(err) ->
-        respond_error(conn, AppError.new("VALIDATION_FAILED", 422, err))
+      case WorkflowEngine.resolve_workflow_action(db, registry, id, "rejected", user_id) do
+        {:ok, instance} ->
+          _span = Instrumenter.set_status(span, "ok")
+          json(conn, %{data: instance})
 
-      {:error, err} ->
-        respond_error(conn, wrap_error(err))
+        {:error, err} when is_binary(err) ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, AppError.new("VALIDATION_FAILED", 422, err))
+
+        {:error, err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, wrap_error(err))
+      end
+    after
+      Instrumenter.end_span(span)
     end
   end
 

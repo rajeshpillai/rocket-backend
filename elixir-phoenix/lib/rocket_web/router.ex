@@ -21,6 +21,10 @@ defmodule RocketWeb.Router do
     plug RocketWeb.Plugs.AdminOnlyPlug
   end
 
+  pipeline :instrumentation do
+    plug RocketWeb.Plugs.InstrumentationPlug
+  end
+
   # Health check — no auth
   scope "/", RocketWeb do
     pipe_through :api
@@ -138,7 +142,7 @@ defmodule RocketWeb.Router do
 
   # UI config read routes — require app resolver + dual auth (no admin)
   scope "/api/:app/_ui", RocketWeb do
-    pipe_through [:api, :app_resolver, :dual_auth]
+    pipe_through [:api, :app_resolver, :dual_auth, :instrumentation]
 
     get "/configs", AdminController, :list_all_ui_configs
     get "/config/:entity", AdminController, :get_ui_config_by_entity
@@ -146,7 +150,7 @@ defmodule RocketWeb.Router do
 
   # Workflow runtime — require app resolver + dual auth
   scope "/api/:app/_workflows", RocketWeb do
-    pipe_through [:api, :app_resolver, :dual_auth]
+    pipe_through [:api, :app_resolver, :dual_auth, :instrumentation]
 
     get "/pending", WorkflowController, :pending
     get "/:id", WorkflowController, :get_instance
@@ -156,7 +160,7 @@ defmodule RocketWeb.Router do
 
   # File endpoints — require app resolver + dual auth
   scope "/api/:app/_files", RocketWeb do
-    pipe_through [:api, :app_resolver, :dual_auth]
+    pipe_through [:api, :app_resolver, :dual_auth, :instrumentation]
 
     post "/upload", FileController, :upload
     get "/:id", FileController, :serve
@@ -164,9 +168,19 @@ defmodule RocketWeb.Router do
     get "/", FileController, :list_files
   end
 
+  # Event endpoints — emit requires auth, query/trace/stats require admin
+  scope "/api/:app/_events", RocketWeb do
+    pipe_through [:api, :app_resolver, :dual_auth, :instrumentation]
+
+    post "/", EventController, :emit
+    get "/trace/:trace_id", EventController, :get_trace
+    get "/stats", EventController, :get_stats
+    get "/", EventController, :list_events
+  end
+
   # Dynamic entity routes — require app resolver + dual auth
   scope "/api/:app", RocketWeb do
-    pipe_through [:api, :app_resolver, :dual_auth]
+    pipe_through [:api, :app_resolver, :dual_auth, :instrumentation]
 
     get "/:entity", EngineController, :list
     get "/:entity/:id", EngineController, :get

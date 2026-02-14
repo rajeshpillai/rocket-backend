@@ -7,7 +7,8 @@ defmodule Rocket.Config do
     :platform_jwt_secret,
     :app_pool_size,
     :storage,
-    :database
+    :database,
+    :instrumentation
   ]
 
   defmodule Database do
@@ -35,12 +36,17 @@ defmodule Rocket.Config do
     defstruct driver: "local", local_path: "./uploads", max_file_size: 10_485_760
   end
 
+  defmodule Instrumentation do
+    defstruct enabled: true, retention_days: 7, sampling_rate: 1.0, buffer_size: 500, flush_interval_ms: 100
+  end
+
   def load(path \\ "app.yaml") do
     yaml = YamlElixir.read_from_file!(path)
 
     db = yaml["database"] || %{}
     storage = yaml["storage"] || %{}
     server = yaml["server"] || %{}
+    instr = yaml["instrumentation"] || %{}
 
     %__MODULE__{
       server_port: server["port"] || 8080,
@@ -59,6 +65,13 @@ defmodule Rocket.Config do
         driver: storage["driver"] || "local",
         local_path: storage["local_path"] || "./uploads",
         max_file_size: storage["max_file_size"] || 10_485_760
+      },
+      instrumentation: %Instrumentation{
+        enabled: Map.get(instr, "enabled", true),
+        retention_days: instr["retention_days"] || 7,
+        sampling_rate: instr["sampling_rate"] || 1.0,
+        buffer_size: instr["buffer_size"] || 500,
+        flush_interval_ms: instr["flush_interval_ms"] || 100
       }
     }
   end

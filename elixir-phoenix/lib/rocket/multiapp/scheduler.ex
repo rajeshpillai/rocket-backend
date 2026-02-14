@@ -7,6 +7,7 @@ defmodule Rocket.MultiApp.Scheduler do
 
   @workflow_interval 60_000
   @webhook_interval 30_000
+  @cleanup_interval 3_600_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -16,6 +17,7 @@ defmodule Rocket.MultiApp.Scheduler do
   def init(_opts) do
     schedule_workflows()
     schedule_webhooks()
+    schedule_cleanup()
     {:ok, %{}}
   end
 
@@ -32,6 +34,12 @@ defmodule Rocket.MultiApp.Scheduler do
     {:noreply, state}
   end
 
+  def handle_info(:cleanup_tick, state) do
+    process_all_event_cleanup()
+    schedule_cleanup()
+    {:noreply, state}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   defp schedule_workflows do
@@ -40,6 +48,10 @@ defmodule Rocket.MultiApp.Scheduler do
 
   defp schedule_webhooks do
     Process.send_after(self(), :webhook_tick, @webhook_interval)
+  end
+
+  defp schedule_cleanup do
+    Process.send_after(self(), :cleanup_tick, @cleanup_interval)
   end
 
   defp process_all_workflow_timeouts do
@@ -68,5 +80,21 @@ defmodule Rocket.MultiApp.Scheduler do
     end)
   rescue
     e -> Logger.error("Multi-app webhook scheduler error: #{inspect(e)}")
+  end
+
+  defp process_all_event_cleanup do
+    instr_config = Application.get_env(:rocket, :instrumentation_config) || %{enabled: true, retention_days: 7}
+    if instr_config.enabled do
+      contexts = AppManager.all_contexts()
+      Enum.each(contexts, fn ctx ->
+        try do
+          Rocket.Instrument.Cleanup.cleanup_old_events(ctx.db_pool, instr_config.retention_days)
+        rescue
+          e -> Logger.error("Event cleanup error for app #{ctx.name}: #{inspect(e)}")
+        end
+      end)
+    end
+  rescue
+    e -> Logger.error("Multi-app event cleanup error: #{inspect(e)}")
   end
 end

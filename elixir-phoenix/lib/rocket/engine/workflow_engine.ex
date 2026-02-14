@@ -6,32 +6,64 @@ defmodule Rocket.Engine.WorkflowEngine do
 
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.{PostgresWorkflowStore, StepExecutors, ActionExecutors, DefaultWorkflowExpression}
+  alias Rocket.Instrument.Instrumenter
 
   require Logger
 
   # ── Public API (backward-compatible signatures) ──
 
   def trigger_workflows(conn, registry, entity, field, to_state, record, record_id) do
-    ctx = default_context(conn, registry)
-    workflows = Registry.get_workflows_for_trigger(registry, entity, field, to_state)
+    span = Instrumenter.start_span("engine", "workflow", "workflow.trigger")
+    span = Instrumenter.set_entity(span, entity, record_id)
 
-    Enum.each(workflows, fn wf ->
-      case create_instance(ctx, wf, record, record_id) do
-        {:ok, _} -> :ok
-        {:error, err} -> Logger.error("Failed to start workflow #{wf.name}: #{inspect(err)}")
-      end
-    end)
+    try do
+      ctx = default_context(conn, registry)
+      workflows = Registry.get_workflows_for_trigger(registry, entity, field, to_state)
+
+      Enum.each(workflows, fn wf ->
+        case create_instance(ctx, wf, record, record_id) do
+          {:ok, _} -> :ok
+          {:error, err} -> Logger.error("Failed to start workflow #{wf.name}: #{inspect(err)}")
+        end
+      end)
+
+      _span = Instrumenter.set_status(span, "ok")
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
+    end
   end
 
   def resolve_workflow_action(conn, registry, instance_id, action, user_id) do
-    ctx = default_context(conn, registry)
+    span = Instrumenter.start_span("engine", "workflow", "workflow.resolve")
 
-    case ctx.store.load_instance(conn, instance_id) do
-      {:ok, instance} ->
-        do_resolve_action(ctx, instance, action, user_id)
+    try do
+      ctx = default_context(conn, registry)
 
-      {:error, _} = err ->
-        err
+      result = case ctx.store.load_instance(conn, instance_id) do
+        {:ok, instance} ->
+          do_resolve_action(ctx, instance, action, user_id)
+
+        {:error, _} = err ->
+          err
+      end
+
+      _span = case result do
+        {:ok, _} -> Instrumenter.set_status(span, "ok")
+        {:error, _} -> Instrumenter.set_status(span, "error")
+        _ -> span
+      end
+
+      result
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
     end
   end
 

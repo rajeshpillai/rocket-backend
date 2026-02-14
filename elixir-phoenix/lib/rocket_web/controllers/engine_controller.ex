@@ -6,210 +6,313 @@ defmodule RocketWeb.EngineController do
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.{Query, NestedWrite, Includes, SoftDelete, AppError}
   alias Rocket.Auth.Permissions
+  alias Rocket.Instrument.Instrumenter
 
   # GET /api/:entity
   def list(conn, %{"entity" => entity_name} = params) do
+    span = Instrumenter.start_span("engine", "handler", "list")
+    span = Instrumenter.set_entity(span, entity_name)
     registry = get_registry(conn)
     user = conn.assigns[:current_user]
 
-    with {:ok, entity} <- resolve_entity(registry, entity_name),
-         :ok <- check_perm(user, entity_name, "read", registry),
-         {:ok, plan} <- Query.parse_query_params(params, entity, registry) do
-      db = get_conn(conn)
+    Instrumenter.set_user_id(case user do
+      %{"id" => id} -> id
+      %{id: id} -> id
+      _ -> nil
+    end)
 
-      # Inject row-level security filters
-      read_filters = Permissions.get_read_filters(user, entity_name, registry)
+    try do
+      with {:ok, entity} <- resolve_entity(registry, entity_name),
+           :ok <- check_perm(user, entity_name, "read", registry),
+           {:ok, plan} <- Query.parse_query_params(params, entity, registry) do
+        db = get_conn(conn)
 
-      extra_filters =
-        Enum.map(read_filters, fn f ->
-          %{field: f.field, operator: f.operator || "eq", value: f.value}
-        end)
+        # Inject row-level security filters
+        read_filters = Permissions.get_read_filters(user, entity_name, registry)
 
-      plan = %{plan | filters: plan.filters ++ extra_filters}
+        extra_filters =
+          Enum.map(read_filters, fn f ->
+            %{field: f.field, operator: f.operator || "eq", value: f.value}
+          end)
 
-      qr = Query.build_select_sql(plan)
-      cr = Query.build_count_sql(plan)
+        plan = %{plan | filters: plan.filters ++ extra_filters}
 
-      with {:ok, rows} <- Postgres.query_rows(db, qr.sql, qr.params),
-           {:ok, count_row} <- Postgres.query_row(db, cr.sql, cr.params) do
-        total = count_row["count"] || 0
+        qr = Query.build_select_sql(plan)
+        cr = Query.build_count_sql(plan)
 
-        {:ok, rows} =
-          if plan.includes != [] do
-            Includes.load_includes(db, registry, entity, rows, plan.includes)
-          else
-            {:ok, rows}
-          end
+        with {:ok, rows} <- Postgres.query_rows(db, qr.sql, qr.params),
+             {:ok, count_row} <- Postgres.query_row(db, cr.sql, cr.params) do
+          total = count_row["count"] || 0
 
-        rows = rows || []
+          {:ok, rows} =
+            if plan.includes != [] do
+              Includes.load_includes(db, registry, entity, rows, plan.includes)
+            else
+              {:ok, rows}
+            end
 
-        json(conn, %{
-          data: rows,
-          meta: %{page: plan.page, per_page: plan.per_page, total: total}
-        })
+          rows = rows || []
+
+          span = Instrumenter.set_status(span, "ok")
+          Instrumenter.set_metadata(span, "count", length(rows))
+
+          json(conn, %{
+            data: rows,
+            meta: %{page: plan.page, per_page: plan.per_page, total: total}
+          })
+        else
+          {:error, err} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, wrap_error(err))
+        end
       else
-        {:error, err} -> respond_error(conn, wrap_error(err))
+        {:error, %AppError{} = err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, err)
+        {:error, err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, wrap_error(err))
       end
-    else
-      {:error, %AppError{} = err} -> respond_error(conn, err)
-      {:error, err} -> respond_error(conn, wrap_error(err))
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # GET /api/:entity/:id
   def get(conn, %{"entity" => entity_name, "id" => id} = params) do
+    span = Instrumenter.start_span("engine", "handler", "get_by_id")
+    span = Instrumenter.set_entity(span, entity_name, id)
     registry = get_registry(conn)
     user = conn.assigns[:current_user]
 
-    with {:ok, entity} <- resolve_entity(registry, entity_name),
-         :ok <- check_perm(user, entity_name, "read", registry) do
-      db = get_conn(conn)
+    Instrumenter.set_user_id(case user do
+      %{"id" => uid} -> uid
+      %{id: uid} -> uid
+      _ -> nil
+    end)
 
-      case NestedWrite.fetch_record(db, entity, id) do
-        {:ok, row} ->
-          includes = parse_includes(params)
+    try do
+      with {:ok, entity} <- resolve_entity(registry, entity_name),
+           :ok <- check_perm(user, entity_name, "read", registry) do
+        db = get_conn(conn)
 
-          {:ok, rows} =
-            if includes != [] do
-              Includes.load_includes(db, registry, entity, [row], includes)
-            else
-              {:ok, [row]}
-            end
+        case NestedWrite.fetch_record(db, entity, id) do
+          {:ok, row} ->
+            includes = parse_includes(params)
 
-          json(conn, %{data: hd(rows)})
+            {:ok, rows} =
+              if includes != [] do
+                Includes.load_includes(db, registry, entity, [row], includes)
+              else
+                {:ok, [row]}
+              end
 
-        {:error, :not_found} ->
-          respond_error(conn, AppError.not_found(entity_name, id))
+            _span = Instrumenter.set_status(span, "ok")
+            json(conn, %{data: hd(rows)})
 
-        {:error, err} ->
-          respond_error(conn, wrap_error(err))
+          {:error, :not_found} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, AppError.not_found(entity_name, id))
+
+          {:error, err} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, wrap_error(err))
+        end
+      else
+        {:error, %AppError{} = err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, err)
       end
-    else
-      {:error, %AppError{} = err} -> respond_error(conn, err)
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # POST /api/:entity
   def create(conn, %{"entity" => entity_name} = params) do
+    span = Instrumenter.start_span("engine", "handler", "create")
+    span = Instrumenter.set_entity(span, entity_name)
     registry = get_registry(conn)
     user = conn.assigns[:current_user]
 
-    with {:ok, entity} <- resolve_entity(registry, entity_name),
-         :ok <- check_perm(user, entity_name, "create", registry) do
-      body = Map.drop(params, ["entity"])
-      db = get_conn(conn)
+    Instrumenter.set_user_id(case user do
+      %{"id" => uid} -> uid
+      %{id: uid} -> uid
+      _ -> nil
+    end)
 
-      case NestedWrite.plan_write(entity, registry, body, nil) do
-        {:ok, plan} ->
-          case NestedWrite.execute_and_fetch(db, registry, plan) do
-            {:ok, record} ->
-              conn
-              |> put_status(201)
-              |> json(%{data: record})
+    try do
+      with {:ok, entity} <- resolve_entity(registry, entity_name),
+           :ok <- check_perm(user, entity_name, "create", registry) do
+        body = Map.drop(params, ["entity"])
+        db = get_conn(conn)
 
-            {:error, err} ->
-              respond_error(conn, handle_write_error(err))
-          end
+        case NestedWrite.plan_write(entity, registry, body, nil) do
+          {:ok, plan} ->
+            case NestedWrite.execute_and_fetch(db, registry, plan) do
+              {:ok, record} ->
+                record_id = record["id"] || record[:id]
+                span = Instrumenter.set_entity(span, entity_name, record_id)
+                _span = Instrumenter.set_status(span, "ok")
 
+                conn
+                |> put_status(201)
+                |> json(%{data: record})
+
+              {:error, err} ->
+                _span = Instrumenter.set_status(span, "error")
+                respond_error(conn, handle_write_error(err))
+            end
+
+          {:error, %AppError{} = err} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, err)
+        end
+      else
         {:error, %AppError{} = err} ->
+          _span = Instrumenter.set_status(span, "error")
           respond_error(conn, err)
       end
-    else
-      {:error, %AppError{} = err} -> respond_error(conn, err)
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # PUT /api/:entity/:id
   def update(conn, %{"entity" => entity_name, "id" => id} = params) do
+    span = Instrumenter.start_span("engine", "handler", "update")
+    span = Instrumenter.set_entity(span, entity_name, id)
     registry = get_registry(conn)
     user = conn.assigns[:current_user]
 
-    with {:ok, entity} <- resolve_entity(registry, entity_name) do
-      db = get_conn(conn)
+    Instrumenter.set_user_id(case user do
+      %{"id" => uid} -> uid
+      %{id: uid} -> uid
+      _ -> nil
+    end)
 
-      case NestedWrite.fetch_record(db, entity, id) do
-        {:ok, existing} ->
-          with :ok <- check_perm(user, entity_name, "update", registry, existing) do
-            body = Map.drop(params, ["entity", "id"])
+    try do
+      with {:ok, entity} <- resolve_entity(registry, entity_name) do
+        db = get_conn(conn)
 
-            case NestedWrite.plan_write(entity, registry, body, id) do
-              {:ok, plan} ->
-                case NestedWrite.execute_and_fetch(db, registry, plan) do
-                  {:ok, record} ->
-                    json(conn, %{data: record})
+        case NestedWrite.fetch_record(db, entity, id) do
+          {:ok, existing} ->
+            with :ok <- check_perm(user, entity_name, "update", registry, existing) do
+              body = Map.drop(params, ["entity", "id"])
 
-                  {:error, err} ->
-                    respond_error(conn, handle_write_error(err))
-                end
+              case NestedWrite.plan_write(entity, registry, body, id) do
+                {:ok, plan} ->
+                  case NestedWrite.execute_and_fetch(db, registry, plan) do
+                    {:ok, record} ->
+                      _span = Instrumenter.set_status(span, "ok")
+                      json(conn, %{data: record})
 
+                    {:error, err} ->
+                      _span = Instrumenter.set_status(span, "error")
+                      respond_error(conn, handle_write_error(err))
+                  end
+
+                {:error, %AppError{} = err} ->
+                  _span = Instrumenter.set_status(span, "error")
+                  respond_error(conn, err)
+              end
+            else
               {:error, %AppError{} = err} ->
+                _span = Instrumenter.set_status(span, "error")
                 respond_error(conn, err)
             end
-          else
-            {:error, %AppError{} = err} -> respond_error(conn, err)
-          end
 
-        {:error, :not_found} ->
-          respond_error(conn, AppError.not_found(entity_name, id))
+          {:error, :not_found} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, AppError.not_found(entity_name, id))
 
-        {:error, err} ->
-          respond_error(conn, wrap_error(err))
+          {:error, err} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, wrap_error(err))
+        end
+      else
+        {:error, %AppError{} = err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, err)
       end
-    else
-      {:error, %AppError{} = err} -> respond_error(conn, err)
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # DELETE /api/:entity/:id
   def delete(conn, %{"entity" => entity_name, "id" => id}) do
+    span = Instrumenter.start_span("engine", "handler", "delete")
+    span = Instrumenter.set_entity(span, entity_name, id)
     registry = get_registry(conn)
     user = conn.assigns[:current_user]
 
-    with {:ok, entity} <- resolve_entity(registry, entity_name) do
-      db = get_conn(conn)
+    Instrumenter.set_user_id(case user do
+      %{"id" => uid} -> uid
+      %{id: uid} -> uid
+      _ -> nil
+    end)
 
-      case NestedWrite.fetch_record(db, entity, id) do
-        {:ok, existing} ->
-          with :ok <- check_perm(user, entity_name, "delete", registry, existing) do
-            # Handle cascade deletes
-            case SoftDelete.handle_cascade_delete(db, registry, entity, id) do
-              :ok ->
-                {sql, params} =
-                  if entity.soft_delete do
-                    SoftDelete.build_soft_delete_sql(entity, id)
-                  else
-                    SoftDelete.build_hard_delete_sql(entity, id)
+    try do
+      with {:ok, entity} <- resolve_entity(registry, entity_name) do
+        db = get_conn(conn)
+
+        case NestedWrite.fetch_record(db, entity, id) do
+          {:ok, existing} ->
+            with :ok <- check_perm(user, entity_name, "delete", registry, existing) do
+              # Handle cascade deletes
+              case SoftDelete.handle_cascade_delete(db, registry, entity, id) do
+                :ok ->
+                  {sql, params} =
+                    if entity.soft_delete do
+                      SoftDelete.build_soft_delete_sql(entity, id)
+                    else
+                      SoftDelete.build_hard_delete_sql(entity, id)
+                    end
+
+                  case Postgres.exec(db, sql, params) do
+                    {:ok, n} when n > 0 ->
+                      _span = Instrumenter.set_status(span, "ok")
+                      json(conn, %{data: %{id: id}})
+
+                    {:ok, _} ->
+                      _span = Instrumenter.set_status(span, "error")
+                      respond_error(conn, AppError.not_found(entity_name, id))
+
+                    {:error, err} ->
+                      _span = Instrumenter.set_status(span, "error")
+                      respond_error(conn, wrap_error(err))
                   end
 
-                case Postgres.exec(db, sql, params) do
-                  {:ok, n} when n > 0 ->
-                    json(conn, %{data: %{id: id}})
+                {:error, %AppError{} = err} ->
+                  _span = Instrumenter.set_status(span, "error")
+                  respond_error(conn, err)
 
-                  {:ok, _} ->
-                    respond_error(conn, AppError.not_found(entity_name, id))
-
-                  {:error, err} ->
-                    respond_error(conn, wrap_error(err))
-                end
-
+                {:error, err} ->
+                  _span = Instrumenter.set_status(span, "error")
+                  respond_error(conn, wrap_error(err))
+              end
+            else
               {:error, %AppError{} = err} ->
+                _span = Instrumenter.set_status(span, "error")
                 respond_error(conn, err)
-
-              {:error, err} ->
-                respond_error(conn, wrap_error(err))
             end
-          else
-            {:error, %AppError{} = err} -> respond_error(conn, err)
-          end
 
-        {:error, :not_found} ->
-          respond_error(conn, AppError.not_found(entity_name, id))
+          {:error, :not_found} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, AppError.not_found(entity_name, id))
 
-        {:error, err} ->
-          respond_error(conn, wrap_error(err))
+          {:error, err} ->
+            _span = Instrumenter.set_status(span, "error")
+            respond_error(conn, wrap_error(err))
+        end
+      else
+        {:error, %AppError{} = err} ->
+          _span = Instrumenter.set_status(span, "error")
+          respond_error(conn, err)
       end
-    else
-      {:error, %AppError{} = err} -> respond_error(conn, err)
+    after
+      Instrumenter.end_span(span)
     end
   end
 

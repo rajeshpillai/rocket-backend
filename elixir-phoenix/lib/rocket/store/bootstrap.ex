@@ -167,7 +167,30 @@ defmodule Rocket.Store.Bootstrap do
         updated_at TIMESTAMPTZ DEFAULT NOW(),
         UNIQUE(entity, scope)
     )
+    """,
     """
+    CREATE TABLE IF NOT EXISTS _events (
+        id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        trace_id        UUID NOT NULL,
+        span_id         UUID NOT NULL,
+        parent_span_id  UUID,
+        event_type      TEXT NOT NULL,
+        source          TEXT NOT NULL,
+        component       TEXT NOT NULL,
+        action          TEXT NOT NULL,
+        entity          TEXT,
+        record_id       TEXT,
+        user_id         UUID,
+        duration_ms     DOUBLE PRECISION,
+        status          TEXT,
+        metadata        JSONB,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_events_trace ON _events (trace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_events_entity_created ON _events (entity, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_events_created ON _events (created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_events_type_source ON _events (event_type, source)"
   ]
 
   def bootstrap(conn) do

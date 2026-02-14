@@ -3,9 +3,32 @@ defmodule Rocket.Engine.Rules do
 
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.Expression
+  alias Rocket.Instrument.Instrumenter
 
   @doc "Evaluate all rules for an entity/hook. Returns [] on success or [%{field, rule, message}] on failure."
   def evaluate_rules(registry, entity_name, hook, fields, old, action) do
+    span = Instrumenter.start_span("engine", "rules", "rule.evaluate")
+    span = Instrumenter.set_entity(span, entity_name)
+
+    try do
+      result = do_evaluate_rules(registry, entity_name, hook, fields, old, action)
+
+      _span = case result do
+        [] -> Instrumenter.set_status(span, "ok")
+        _ -> Instrumenter.set_status(span, "error")
+      end
+
+      result
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
+    end
+  end
+
+  defp do_evaluate_rules(registry, entity_name, hook, fields, old, action) do
     rules = Registry.get_rules_for_entity(registry, entity_name, hook)
 
     env = %{

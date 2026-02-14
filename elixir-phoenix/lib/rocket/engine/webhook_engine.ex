@@ -4,6 +4,7 @@ defmodule Rocket.Engine.WebhookEngine do
   alias Rocket.Store.Postgres
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.Expression
+  alias Rocket.Instrument.Instrumenter
 
   require Logger
 
@@ -160,61 +161,93 @@ defmodule Rocket.Engine.WebhookEngine do
   # ── Async Fire ──
 
   def fire_async_webhooks(conn, registry, hook, entity, action, record, old, user) do
-    webhooks = Registry.get_webhooks_for_entity_hook(registry, entity, hook)
+    span = Instrumenter.start_span("engine", "webhook", "webhook.dispatch_async")
+    span = Instrumenter.set_entity(span, entity)
 
-    async_hooks = Enum.filter(webhooks, & &1.async)
+    try do
+      webhooks = Registry.get_webhooks_for_entity_hook(registry, entity, hook)
 
-    if async_hooks != [] do
-      payload = build_webhook_payload(hook, entity, action, record, old, user)
-      body_json = Jason.encode!(payload)
+      async_hooks = Enum.filter(webhooks, & &1.async)
 
-      Enum.each(async_hooks, fn wh ->
-        case evaluate_webhook_condition(wh.condition, payload) do
-          {:ok, true} ->
-            Task.start(fn ->
-              headers = wh.headers || %{}
-              result = dispatch_webhook(wh.url, wh.method || "POST", headers, body_json)
-              log_webhook_delivery(conn, wh, payload, headers, body_json, result)
-            end)
+      if async_hooks != [] do
+        payload = build_webhook_payload(hook, entity, action, record, old, user)
+        body_json = Jason.encode!(payload)
 
-          _ ->
-            :ok
-        end
-      end)
+        Enum.each(async_hooks, fn wh ->
+          case evaluate_webhook_condition(wh.condition, payload) do
+            {:ok, true} ->
+              Task.start(fn ->
+                headers = wh.headers || %{}
+                result = dispatch_webhook(wh.url, wh.method || "POST", headers, body_json)
+                log_webhook_delivery(conn, wh, payload, headers, body_json, result)
+              end)
+
+            _ ->
+              :ok
+          end
+        end)
+      end
+
+      _span = Instrumenter.set_status(span, "ok")
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
     end
   end
 
   # ── Sync Fire ──
 
   def fire_sync_webhooks(conn, registry, hook, entity, action, record, old, user) do
-    webhooks = Registry.get_webhooks_for_entity_hook(registry, entity, hook)
+    span = Instrumenter.start_span("engine", "webhook", "webhook.dispatch_sync")
+    span = Instrumenter.set_entity(span, entity)
 
-    sync_hooks = Enum.filter(webhooks, &(!&1.async))
+    try do
+      webhooks = Registry.get_webhooks_for_entity_hook(registry, entity, hook)
 
-    if sync_hooks == [] do
-      :ok
-    else
-      payload = build_webhook_payload(hook, entity, action, record, old, user)
-      body_json = Jason.encode!(payload)
+      sync_hooks = Enum.filter(webhooks, &(!&1.async))
 
-      Enum.reduce_while(sync_hooks, :ok, fn wh, :ok ->
-        case evaluate_webhook_condition(wh.condition, payload) do
-          {:ok, true} ->
-            headers = wh.headers || %{}
-            result = dispatch_webhook(wh.url, wh.method || "POST", headers, body_json)
-            log_webhook_delivery(conn, wh, payload, headers, body_json, result)
+      result =
+        if sync_hooks == [] do
+          :ok
+        else
+          payload = build_webhook_payload(hook, entity, action, record, old, user)
+          body_json = Jason.encode!(payload)
 
-            if result.error == nil && result.status_code >= 200 && result.status_code < 300 do
-              {:cont, :ok}
-            else
-              msg = result.error || "HTTP #{result.status_code}"
-              {:halt, {:error, "sync webhook failed (#{wh.id}): #{msg}"}}
+          Enum.reduce_while(sync_hooks, :ok, fn wh, :ok ->
+            case evaluate_webhook_condition(wh.condition, payload) do
+              {:ok, true} ->
+                headers = wh.headers || %{}
+                result = dispatch_webhook(wh.url, wh.method || "POST", headers, body_json)
+                log_webhook_delivery(conn, wh, payload, headers, body_json, result)
+
+                if result.error == nil && result.status_code >= 200 && result.status_code < 300 do
+                  {:cont, :ok}
+                else
+                  msg = result.error || "HTTP #{result.status_code}"
+                  {:halt, {:error, "sync webhook failed (#{wh.id}): #{msg}"}}
+                end
+
+              _ ->
+                {:cont, :ok}
             end
-
-          _ ->
-            {:cont, :ok}
+          end)
         end
-      end)
+
+      _span = case result do
+        :ok -> Instrumenter.set_status(span, "ok")
+        {:error, _} -> Instrumenter.set_status(span, "error")
+      end
+
+      result
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
     end
   end
 

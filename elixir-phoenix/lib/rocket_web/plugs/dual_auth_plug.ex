@@ -4,39 +4,53 @@ defmodule RocketWeb.Plugs.DualAuthPlug do
   import Phoenix.Controller, only: [json: 2]
 
   alias Rocket.Auth.JWT
+  alias Rocket.Instrument.Instrumenter
 
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    app_secret = conn.assigns[:jwt_secret]
-    platform_secret = Application.get_env(:rocket, :platform_jwt_secret, "rocket-platform-secret")
+    span = Instrumenter.start_span("auth", "jwt", "auth.validate")
 
-    case get_req_header(conn, "authorization") do
-      [auth_header | _] ->
-        case parse_bearer(auth_header) do
-          {:ok, token} ->
-            # Try app JWT first
-            case try_app_auth(token, app_secret) do
-              {:ok, user} ->
-                assign(conn, :current_user, user)
+    try do
+      app_secret = conn.assigns[:jwt_secret]
+      platform_secret = Application.get_env(:rocket, :platform_jwt_secret, "rocket-platform-secret")
 
-              :error ->
-                # Fall back to platform JWT (elevated to admin)
-                case try_platform_auth(token, platform_secret) do
-                  {:ok, user} ->
-                    assign(conn, :current_user, user)
+      case get_req_header(conn, "authorization") do
+        [auth_header | _] ->
+          case parse_bearer(auth_header) do
+            {:ok, token} ->
+              # Try app JWT first
+              case try_app_auth(token, app_secret) do
+                {:ok, user} ->
+                  _span = Instrumenter.set_status(span, "ok")
+                  Instrumenter.set_user_id(user["id"])
+                  assign(conn, :current_user, user)
 
-                  :error ->
-                    unauthorized(conn, "Invalid or expired token")
-                end
-            end
+                :error ->
+                  # Fall back to platform JWT (elevated to admin)
+                  case try_platform_auth(token, platform_secret) do
+                    {:ok, user} ->
+                      _span = Instrumenter.set_status(span, "ok")
+                      Instrumenter.set_user_id(user["id"])
+                      assign(conn, :current_user, user)
 
-          :error ->
-            unauthorized(conn, "Invalid auth header format")
-        end
+                    :error ->
+                      _span = Instrumenter.set_status(span, "error")
+                      unauthorized(conn, "Invalid or expired token")
+                  end
+              end
 
-      [] ->
-        unauthorized(conn, "Missing auth token")
+            :error ->
+              _span = Instrumenter.set_status(span, "error")
+              unauthorized(conn, "Invalid auth header format")
+          end
+
+        [] ->
+          _span = Instrumenter.set_status(span, "error")
+          unauthorized(conn, "Missing auth token")
+      end
+    after
+      Instrumenter.end_span(span)
     end
   end
 

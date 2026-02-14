@@ -3,11 +3,34 @@ defmodule Rocket.Engine.StateMachineEngine do
 
   alias Rocket.Metadata.Registry
   alias Rocket.Engine.Expression
+  alias Rocket.Instrument.Instrumenter
 
   require Logger
 
   @doc "Evaluate all state machines for an entity. Returns [] on success or [%{field, rule, message}]."
   def evaluate_state_machines(registry, entity_name, fields, old, is_create) do
+    span = Instrumenter.start_span("engine", "state_machine", "transition.evaluate")
+    span = Instrumenter.set_entity(span, entity_name)
+
+    try do
+      result = do_evaluate_state_machines(registry, entity_name, fields, old, is_create)
+
+      _span = case result do
+        [] -> Instrumenter.set_status(span, "ok")
+        _ -> Instrumenter.set_status(span, "error")
+      end
+
+      result
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
+    end
+  end
+
+  defp do_evaluate_state_machines(registry, entity_name, fields, old, is_create) do
     machines = Registry.get_state_machines_for_entity(registry, entity_name)
 
     if machines == [] do

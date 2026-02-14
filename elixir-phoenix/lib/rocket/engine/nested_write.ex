@@ -4,6 +4,7 @@ defmodule Rocket.Engine.NestedWrite do
   alias Rocket.Store.Postgres
   alias Rocket.Metadata.{Entity, Registry}
   alias Rocket.Engine.{Writer, AppError, Diff}
+  alias Rocket.Instrument.Instrumenter
 
   @uuid_regex ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -45,6 +46,29 @@ defmodule Rocket.Engine.NestedWrite do
 
   @doc "Execute the write plan inside a single transaction. Returns {:ok, record} or {:error, reason}."
   def execute_write_plan(conn, registry, plan) do
+    span = Instrumenter.start_span("engine", "writer", "write.execute_plan")
+    span = Instrumenter.set_entity(span, plan.entity.name)
+
+    try do
+      result = do_execute_write_plan(conn, registry, plan)
+
+      _span = case result do
+        {:ok, _, _} -> Instrumenter.set_status(span, "ok")
+        {:error, _} -> Instrumenter.set_status(span, "error")
+        _ -> span
+      end
+
+      result
+    catch
+      kind, err ->
+        _span = Instrumenter.set_status(span, "error")
+        :erlang.raise(kind, err, __STACKTRACE__)
+    after
+      Instrumenter.end_span(span)
+    end
+  end
+
+  defp do_execute_write_plan(conn, registry, plan) do
     # We need a raw Postgrex transaction
     execute_in_transaction(conn, fn tx_conn ->
       # Fetch old record for update
