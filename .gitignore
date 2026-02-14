@@ -23,6 +23,9 @@ client/.vite/
 *.swp
 *.swo
 
+# SQLite data files
+golang/data/
+
 # File uploads
 uploads/
 
