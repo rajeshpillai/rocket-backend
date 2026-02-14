@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show, createEffect, type JSX } from "solid-js";
+import { createSignal, onMount, onCleanup, Show, createEffect, type JSX } from "solid-js";
 import { useParams, useNavigate } from "@solidjs/router";
 import { useEntities } from "../stores/entities";
 import { useRelations } from "../stores/relations";
@@ -21,6 +21,8 @@ import { DataRecordEditor } from "./data-record-editor";
 import { CsvImport } from "../components/csv-import";
 import { BulkActionBar } from "../components/bulk-action-bar";
 import { BulkUpdateModal } from "../components/bulk-update-modal";
+import { InlineFieldInput } from "../components/form/inline-field-input";
+import { writableFields, coerceFieldValue } from "../utils/field-helpers";
 import { batchExecute, generateCsv, downloadFile } from "../utils/bulk-operations";
 import { addToast } from "../stores/notifications";
 
@@ -58,10 +60,25 @@ export function DataBrowser() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = createSignal(false);
   const [bulkUpdateOpen, setBulkUpdateOpen] = createSignal(false);
 
+  // Inline editing state
+  const [inlineEditId, setInlineEditId] = createSignal<string | null>(null);
+  const [inlineValues, setInlineValues] = createSignal<Record<string, string>>({});
+  const [inlineSaving, setInlineSaving] = createSignal(false);
+  const [inlineErrors, setInlineErrors] = createSignal<Record<string, string>>({});
+
   onMount(() => {
     loadEntities();
     loadRelations();
   });
+
+  // Escape key cancels inline editing
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && inlineEditId() !== null) {
+      cancelInlineEdit();
+    }
+  };
+  onMount(() => document.addEventListener("keydown", handleKeyDown));
+  onCleanup(() => document.removeEventListener("keydown", handleKeyDown));
 
   // When entity param changes, load the entity definition and data
   createEffect(() => {
@@ -80,6 +97,7 @@ export function DataBrowser() {
       setFilters([]);
       setSortField("");
       setSelectedIds(new Set<string>());
+      cancelInlineEdit();
       fetchData(name);
     }
   });
@@ -115,6 +133,7 @@ export function DataBrowser() {
   }
 
   const handleSort = (field: string) => {
+    cancelInlineEdit();
     if (sortField() === field) {
       setSortDir((d) => (d === "ASC" ? "DESC" : "ASC"));
     } else {
@@ -125,6 +144,7 @@ export function DataBrowser() {
   };
 
   const handlePageChange = (p: number) => {
+    cancelInlineEdit();
     setPage(p);
     setSelectedIds(new Set<string>());
     fetchData();
@@ -136,39 +156,146 @@ export function DataBrowser() {
     return String(row[pkField]);
   };
 
+  // ── Inline Editing ──────────────────────────────
+
+  const isInlineEditable = (fieldType: string): boolean =>
+    !["json", "text", "file"].includes(fieldType);
+
+  const startInlineEdit = (row: Record<string, unknown>) => {
+    const def = entityDef();
+    if (!def) return;
+    const id = getRowId(row);
+
+    const vals: Record<string, string> = {};
+    for (const f of writableFields(def, false)) {
+      const raw = row[f.name];
+      if (raw === null || raw === undefined) vals[f.name] = "";
+      else if (typeof raw === "object") vals[f.name] = JSON.stringify(raw);
+      else vals[f.name] = String(raw);
+    }
+
+    setInlineEditId(id);
+    setInlineValues(vals);
+    setInlineErrors({});
+  };
+
+  const cancelInlineEdit = () => {
+    setInlineEditId(null);
+    setInlineValues({});
+    setInlineErrors({});
+  };
+
+  const updateInlineValue = (fieldName: string, value: unknown) => {
+    const strVal = value === null || value === undefined ? ""
+      : typeof value === "object" ? JSON.stringify(value)
+      : String(value);
+    setInlineValues((prev) => ({ ...prev, [fieldName]: strVal }));
+    setInlineErrors((prev) => {
+      const next = { ...prev };
+      delete next[fieldName];
+      return next;
+    });
+  };
+
+  const handleInlineSave = async () => {
+    const def = entityDef();
+    const entityName = params.entity;
+    const id = inlineEditId();
+    if (!def || !entityName || !id) return;
+
+    setInlineSaving(true);
+    setInlineErrors({});
+
+    try {
+      const data: Record<string, unknown> = {};
+      for (const f of writableFields(def, false)) {
+        if (!isInlineEditable(f.type)) continue;
+        const raw = inlineValues()[f.name];
+        const val = coerceFieldValue(raw, f);
+        if (val !== undefined) {
+          data[f.name] = val;
+        }
+      }
+
+      await updateRecord(entityName, id, data);
+      addToast("success", "Record updated");
+      cancelInlineEdit();
+      await fetchData();
+    } catch (err) {
+      if (isApiError(err)) {
+        const fieldErrors: Record<string, string> = {};
+        if (err.error.details) {
+          for (const d of err.error.details) {
+            if (d.field) fieldErrors[d.field] = d.message;
+          }
+        }
+        if (Object.keys(fieldErrors).length > 0) {
+          setInlineErrors(fieldErrors);
+        } else {
+          addToast("error", err.error.message);
+        }
+      } else {
+        addToast("error", "Failed to save record");
+      }
+    } finally {
+      setInlineSaving(false);
+    }
+  };
+
+  const renderDisplayValue = (val: unknown, f: { type: string }): JSX.Element => {
+    if (val === null || val === undefined) {
+      return <span class="text-gray-300 dark:text-gray-600">null</span>;
+    }
+    if (f.type === "boolean") {
+      return <span>{val ? "true" : "false"}</span>;
+    }
+    if (f.type === "json") {
+      const str = typeof val === "string" ? val : JSON.stringify(val);
+      return (
+        <span class="font-mono text-xs" title={str}>
+          {str.length > 50 ? str.slice(0, 50) + "..." : str}
+        </span>
+      );
+    }
+    if (f.type === "timestamp" || f.type === "date") {
+      const d = new Date(String(val));
+      return <span>{isNaN(d.getTime()) ? String(val) : d.toLocaleString()}</span>;
+    }
+    if (f.type === "uuid") {
+      const s = String(val);
+      return <span title={s}>{s.slice(0, 8)}...</span>;
+    }
+    return <span>{String(val)}</span>;
+  };
+
   const columns = (): Column[] => {
     const def = entityDef();
     if (!def) return [];
+    const editId = inlineEditId();
+    const wFields = writableFields(def, false);
+    const writableNames = new Set(wFields.map((f) => f.name));
 
     const cols: Column[] = def.fields.map((f) => ({
       key: f.name,
       header: f.name,
       sortable: true,
       class: f.type === "uuid" ? "table-cell-mono" : "table-cell",
-      render: (val: unknown): JSX.Element => {
-        if (val === null || val === undefined) {
-          return <span class="text-gray-300 dark:text-gray-600">null</span>;
-        }
-        if (f.type === "boolean") {
-          return <span>{val ? "true" : "false"}</span>;
-        }
-        if (f.type === "json") {
-          const str = typeof val === "string" ? val : JSON.stringify(val);
+      render: (val: unknown, row: Record<string, unknown>): JSX.Element => {
+        const rowId = getRowId(row);
+
+        // Inline editing mode for this row
+        if (editId === rowId && writableNames.has(f.name) && isInlineEditable(f.type)) {
           return (
-            <span class="font-mono text-xs" title={str}>
-              {str.length > 50 ? str.slice(0, 50) + "..." : str}
-            </span>
+            <InlineFieldInput
+              field={f}
+              value={inlineValues()[f.name] ?? val}
+              onChange={(newVal) => updateInlineValue(f.name, newVal)}
+              error={inlineErrors()[f.name]}
+            />
           );
         }
-        if (f.type === "timestamp" || f.type === "date") {
-          const d = new Date(String(val));
-          return <span>{isNaN(d.getTime()) ? String(val) : d.toLocaleString()}</span>;
-        }
-        if (f.type === "uuid") {
-          const s = String(val);
-          return <span title={s}>{s.slice(0, 8)}...</span>;
-        }
-        return <span>{String(val)}</span>;
+
+        return renderDisplayValue(val, f);
       },
     }));
 
@@ -180,23 +307,55 @@ export function DataBrowser() {
       render: (_: unknown, row: Record<string, unknown>): JSX.Element => {
         const pkField = def.primary_key.field;
         const id = String(row[pkField]);
+        const isEditing = editId === id;
+
+        if (isEditing) {
+          return (
+            <div class="flex items-center justify-end gap-2">
+              <button
+                class="btn-primary btn-sm"
+                onClick={(e: Event) => { e.stopPropagation(); handleInlineSave(); }}
+                disabled={inlineSaving()}
+              >
+                {inlineSaving() ? "Saving..." : "Save"}
+              </button>
+              <button
+                class="btn-secondary btn-sm"
+                onClick={(e: Event) => { e.stopPropagation(); cancelInlineEdit(); }}
+                disabled={inlineSaving()}
+              >
+                Cancel
+              </button>
+              <button
+                class="btn-ghost btn-sm"
+                title="Full editor with relations"
+                onClick={(e: Event) => { e.stopPropagation(); cancelInlineEdit(); openEdit(row); }}
+              >
+                Expand
+              </button>
+            </div>
+          );
+        }
+
         return (
           <div class="flex items-center justify-end gap-2">
             <button
               class="btn-secondary btn-sm"
-              onClick={(e: Event) => {
-                e.stopPropagation();
-                openEdit(row);
-              }}
+              onClick={(e: Event) => { e.stopPropagation(); startInlineEdit(row); }}
+              title="Quick inline edit"
             >
               Edit
             </button>
             <button
+              class="btn-ghost btn-sm"
+              onClick={(e: Event) => { e.stopPropagation(); openEdit(row); }}
+              title="Full editor with relations"
+            >
+              Expand
+            </button>
+            <button
               class="btn-danger btn-sm"
-              onClick={(e: Event) => {
-                e.stopPropagation();
-                setDeleteTarget(id);
-              }}
+              onClick={(e: Event) => { e.stopPropagation(); setDeleteTarget(id); }}
             >
               Delete
             </button>
@@ -453,6 +612,7 @@ export function DataBrowser() {
               filters={filters()}
               onChange={setFilters}
               onApply={() => {
+                cancelInlineEdit();
                 setPage(1);
                 fetchData();
               }}
@@ -486,6 +646,9 @@ export function DataBrowser() {
                   selectedIds={selectedIds()}
                   onSelectionChange={setSelectedIds}
                   rowId={getRowId}
+                  rowClass={(row: Record<string, unknown>) =>
+                    getRowId(row) === inlineEditId() ? "table-row-editing" : "table-row"
+                  }
                 />
                 <Pagination
                   page={page()}

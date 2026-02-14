@@ -2,8 +2,9 @@ import { createSignal, createEffect, For, Show } from "solid-js";
 import type { EntityDefinition } from "../../types/entity";
 import type { RelationDefinition, WriteMode } from "../../types/relation";
 import { WRITE_MODE_OPTIONS } from "../../types/relation";
-import { writableFields, inputType, coerceFieldValue } from "../../utils/field-helpers";
+import { writableFields } from "../../utils/field-helpers";
 import { Badge } from "../badge";
+import { InlineFieldInput } from "./inline-field-input";
 
 export interface ChildRecordState {
   _key: string;
@@ -270,70 +271,5 @@ export function RelatedRecordsEditor(props: RelatedRecordsEditorProps) {
         </button>
       </div>
     </div>
-  );
-}
-
-/** Compact inline field input for child record editing. */
-function InlineFieldInput(props: {
-  field: { name: string; type: string; enum?: string[] };
-  value: unknown;
-  onChange: (val: unknown) => void;
-}) {
-  const strVal = () => {
-    const v = props.value;
-    if (v === null || v === undefined) return "";
-    if (typeof v === "object") return JSON.stringify(v);
-    return String(v);
-  };
-
-  const handleInput = (raw: string) => {
-    const val = coerceFieldValue(raw, props.field as any);
-    props.onChange(val === undefined ? null : val);
-  };
-
-  if (props.field.type === "boolean") {
-    return (
-      <input
-        type="checkbox"
-        class="form-checkbox"
-        checked={props.value === true || props.value === "true"}
-        onChange={(e) => props.onChange(e.currentTarget.checked)}
-      />
-    );
-  }
-
-  if (props.field.enum && props.field.enum.length > 0) {
-    return (
-      <select
-        class="form-select rel-editor-inline-input"
-        value={strVal()}
-        onChange={(e) => props.onChange(e.currentTarget.value || null)}
-      >
-        <option value="">--</option>
-        <For each={props.field.enum}>
-          {(opt) => <option value={opt}>{opt}</option>}
-        </For>
-      </select>
-    );
-  }
-
-  if (props.field.type === "text" || props.field.type === "json") {
-    return (
-      <textarea
-        class="form-input rel-editor-inline-input"
-        rows={1}
-        value={strVal()}
-        onInput={(e) => handleInput(e.currentTarget.value)}
-      />
-    );
-  }
-
-  return (
-    <input
-      type={inputType(props.field.type)}
-      class="form-input rel-editor-inline-input"
-      value={strVal()}
-      onInput={(e) => handleInput(e.currentTarget.value)}
-    />
   );
 }

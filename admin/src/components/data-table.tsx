@@ -22,6 +22,7 @@ interface DataTableProps<T = any> {
   selectedIds?: Set<string>;
   onSelectionChange?: (ids: Set<string>) => void;
   rowId?: (row: T) => string;
+  rowClass?: (row: T) => string;
 }
 
 export function DataTable<T>(props: DataTableProps<T>) {
@@ -107,7 +108,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
           <For each={props.rows}>
             {(row) => (
               <tr
-                class={props.onRowClick ? "table-row-clickable" : "table-row"}
+                class={props.rowClass?.(row) ?? (props.onRowClick ? "table-row-clickable" : "table-row")}
                 onClick={() => props.onRowClick?.(row)}
               >
                 <Show when={props.selectable}>
