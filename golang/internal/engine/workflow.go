@@ -2,290 +2,79 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	"github.com/expr-lang/expr"
-
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
 )
 
-// TriggerWorkflows checks if any active workflows should be started based on
-// a state transition. Called after a successful write commit.
-func TriggerWorkflows(ctx context.Context, s *store.Store, reg *metadata.Registry,
+// WFEngine orchestrates workflow lifecycle: triggering, step advancement,
+// approval resolution, and timeout handling. All dependencies are injected.
+type WFEngine struct {
+	wfStore         WorkflowStore
+	registry        *metadata.Registry
+	pool            store.Querier
+	stepExecutors   map[string]StepExecutor
+	actionExecutors map[string]ActionExecutor
+	evaluator       ExpressionEvaluator
+}
+
+// NewWFEngine creates a WFEngine with the given dependencies.
+func NewWFEngine(
+	pool store.Querier,
+	registry *metadata.Registry,
+	wfStore WorkflowStore,
+	stepExecutors map[string]StepExecutor,
+	actionExecutors map[string]ActionExecutor,
+	evaluator ExpressionEvaluator,
+) *WFEngine {
+	return &WFEngine{
+		pool:            pool,
+		registry:        registry,
+		wfStore:         wfStore,
+		stepExecutors:   stepExecutors,
+		actionExecutors: actionExecutors,
+		evaluator:       evaluator,
+	}
+}
+
+// NewDefaultWFEngine creates a WFEngine with default executors and Postgres store.
+func NewDefaultWFEngine(s *store.Store, reg *metadata.Registry) *WFEngine {
+	return NewWFEngine(
+		s.Pool,
+		reg,
+		&PgWorkflowStore{},
+		DefaultStepExecutors(),
+		DefaultActionExecutors(),
+		NewExprLangEvaluator(),
+	)
+}
+
+// TriggerWorkflowsViaEngine checks if any active workflows match the state
+// transition and starts them.
+func (e *WFEngine) TriggerWorkflowsViaEngine(ctx context.Context,
 	entity, field, toState string, record map[string]any, recordID any) {
 
-	workflows := reg.GetWorkflowsForTrigger(entity, field, toState)
+	workflows := e.registry.GetWorkflowsForTrigger(entity, field, toState)
 	if len(workflows) == 0 {
 		return
 	}
 
 	for _, wf := range workflows {
-		if err := createWorkflowInstance(ctx, s, reg, wf, record, recordID); err != nil {
+		if err := e.createInstance(ctx, wf, record, recordID); err != nil {
 			log.Printf("ERROR: failed to create workflow instance for %s: %v", wf.Name, err)
 		}
 	}
 }
 
-// createWorkflowInstance builds the initial context, inserts a workflow instance row,
-// and starts executing steps.
-func createWorkflowInstance(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	wf *metadata.Workflow, record map[string]any, recordID any) error {
-
-	// Build context from workflow context mappings
-	wfCtx := buildWorkflowContext(wf.Context, record, recordID)
-
-	if len(wf.Steps) == 0 {
-		return fmt.Errorf("workflow %s has no steps", wf.Name)
-	}
-
-	firstStepID := wf.Steps[0].ID
-
-	// Marshal context and empty history
-	ctxJSON, err := json.Marshal(wfCtx)
-	if err != nil {
-		return fmt.Errorf("marshal workflow context: %w", err)
-	}
-	historyJSON, _ := json.Marshal([]metadata.WorkflowHistoryEntry{})
-
-	row, err := store.QueryRow(ctx, s.Pool,
-		`INSERT INTO _workflow_instances (workflow_id, workflow_name, status, current_step, context, history)
-		 VALUES ($1, $2, 'running', $3, $4, $5)
-		 RETURNING id`,
-		wf.ID, wf.Name, firstStepID, ctxJSON, historyJSON)
-	if err != nil {
-		return fmt.Errorf("insert workflow instance: %w", err)
-	}
-
-	instance := &metadata.WorkflowInstance{
-		ID:           fmt.Sprintf("%v", row["id"]),
-		WorkflowID:   wf.ID,
-		WorkflowName: wf.Name,
-		Status:       "running",
-		CurrentStep:  firstStepID,
-		Context:      wfCtx,
-		History:      []metadata.WorkflowHistoryEntry{},
-	}
-
-	log.Printf("Created workflow instance %s for workflow %s", instance.ID, wf.Name)
-
-	// Start advancing through steps
-	return advanceWorkflow(ctx, s, reg, instance, wf)
-}
-
-// advanceWorkflow continues executing steps until the workflow pauses (approval) or ends.
-func advanceWorkflow(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	instance *metadata.WorkflowInstance, wf *metadata.Workflow) error {
-
-	for {
-		if instance.Status != "running" {
-			return nil
-		}
-
-		step := wf.FindStep(instance.CurrentStep)
-		if step == nil {
-			instance.Status = "failed"
-			return persistInstance(ctx, s, instance)
-		}
-
-		paused, nextGoto, err := executeStep(ctx, s, reg, instance, wf, step)
-		if err != nil {
-			log.Printf("ERROR: workflow %s step %s failed: %v", wf.Name, step.ID, err)
-			instance.Status = "failed"
-			return persistInstance(ctx, s, instance)
-		}
-
-		if paused {
-			return persistInstance(ctx, s, instance)
-		}
-
-		// Advance to next step
-		if nextGoto == "" || nextGoto == "end" {
-			instance.Status = "completed"
-			instance.CurrentStep = ""
-			return persistInstance(ctx, s, instance)
-		}
-
-		instance.CurrentStep = nextGoto
-	}
-}
-
-// executeStep evaluates a single step. Returns (paused, nextGoto, error).
-func executeStep(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	instance *metadata.WorkflowInstance, wf *metadata.Workflow, step *metadata.WorkflowStep) (bool, string, error) {
-
-	switch step.Type {
-	case "action":
-		return executeActionStep(ctx, s, reg, instance, step)
-	case "condition":
-		return executeConditionStep(instance, step)
-	case "approval":
-		return executeApprovalStep(instance, step)
-	default:
-		return false, "", fmt.Errorf("unknown step type: %s", step.Type)
-	}
-}
-
-func executeActionStep(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	instance *metadata.WorkflowInstance, step *metadata.WorkflowStep) (bool, string, error) {
-
-	for _, action := range step.Actions {
-		if err := executeWorkflowAction(ctx, s, reg, instance, &action); err != nil {
-			return false, "", fmt.Errorf("action %s: %w", action.Type, err)
-		}
-	}
-
-	// Record in history
-	instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
-		Step:   step.ID,
-		Status: "completed",
-		At:     time.Now().UTC().Format(time.RFC3339),
-	})
-
-	next := ""
-	if step.Then != nil {
-		next = step.Then.Goto
-	}
-	return false, next, nil
-}
-
-func executeConditionStep(instance *metadata.WorkflowInstance, step *metadata.WorkflowStep) (bool, string, error) {
-	if step.Expression == "" {
-		return false, "", fmt.Errorf("condition step %s has no expression", step.ID)
-	}
-
-	env := map[string]any{
-		"context": instance.Context,
-	}
-
-	// Lazy-compile and cache the condition expression
-	if step.CompiledExpression == nil {
-		prog, err := expr.Compile(step.Expression, expr.AsBool())
-		if err != nil {
-			return false, "", fmt.Errorf("compile condition: %w", err)
-		}
-		step.CompiledExpression = prog
-	}
-
-	result, err := expr.Run(step.CompiledExpression, env)
-	if err != nil {
-		return false, "", fmt.Errorf("evaluate condition: %w", err)
-	}
-
-	isTrue, ok := result.(bool)
-	if !ok {
-		return false, "", fmt.Errorf("condition did not return bool")
-	}
-
-	status := "on_false"
-	next := ""
-	if isTrue {
-		status = "on_true"
-		if step.OnTrue != nil {
-			next = step.OnTrue.Goto
-		}
-	} else {
-		if step.OnFalse != nil {
-			next = step.OnFalse.Goto
-		}
-	}
-
-	instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
-		Step:   step.ID,
-		Status: status,
-		At:     time.Now().UTC().Format(time.RFC3339),
-	})
-
-	return false, next, nil
-}
-
-func executeApprovalStep(instance *metadata.WorkflowInstance, step *metadata.WorkflowStep) (bool, string, error) {
-	// Set deadline if timeout is specified
-	if step.Timeout != "" {
-		duration, err := time.ParseDuration(step.Timeout)
-		if err == nil {
-			deadline := time.Now().UTC().Add(duration).Format(time.RFC3339)
-			instance.CurrentStepDeadline = &deadline
-		}
-	}
-
-	// Approval step pauses the workflow
-	return true, "", nil
-}
-
-// executeWorkflowAction executes a single workflow action.
-func executeWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	instance *metadata.WorkflowInstance, action *metadata.WorkflowAction) error {
-
-	switch action.Type {
-	case "set_field":
-		return executeSetFieldAction(ctx, s, reg, instance, action)
-	case "webhook":
-		body, _ := json.Marshal(instance.Context)
-		result := DispatchWebhookDirect(ctx, action.URL, action.Method, nil, body)
-		if result.Error != "" {
-			return fmt.Errorf("workflow webhook %s %s failed: %s", action.Method, action.URL, result.Error)
-		}
-		if result.StatusCode < 200 || result.StatusCode >= 300 {
-			return fmt.Errorf("workflow webhook %s %s returned HTTP %d", action.Method, action.URL, result.StatusCode)
-		}
-		return nil
-	case "create_record":
-		log.Printf("STUB: workflow create_record action for entity %s (not yet implemented)", action.Entity)
-		return nil
-	case "send_event":
-		log.Printf("STUB: workflow send_event action '%s' (not yet implemented)", action.Event)
-		return nil
-	default:
-		log.Printf("WARN: unknown workflow action type: %s", action.Type)
-		return nil
-	}
-}
-
-// executeSetFieldAction performs a standalone UPDATE on the target entity/record.
-func executeSetFieldAction(ctx context.Context, s *store.Store, reg *metadata.Registry,
-	instance *metadata.WorkflowInstance, action *metadata.WorkflowAction) error {
-
-	entityName := action.Entity
-	if entityName == "" {
-		return fmt.Errorf("set_field action missing entity")
-	}
-
-	entity := reg.GetEntity(entityName)
-	if entity == nil {
-		return fmt.Errorf("entity not found: %s", entityName)
-	}
-
-	// Resolve record_id from context path (wrap in envelope so "context.record_id" works)
-	env := map[string]any{"context": instance.Context}
-	recordID := resolveContextPath(env, action.RecordID)
-	if recordID == nil {
-		return fmt.Errorf("could not resolve record_id: %s", action.RecordID)
-	}
-
-	val := action.Value
-	if s, ok := val.(string); ok && s == "now" {
-		val = time.Now().UTC().Format(time.RFC3339)
-	}
-
-	sql := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE %s = $2",
-		entity.Table, action.Field, entity.PrimaryKey.Field)
-	if _, err := store.Exec(ctx, s.Pool, sql, val, recordID); err != nil {
-		return fmt.Errorf("set_field UPDATE: %w", err)
-	}
-
-	return nil
-}
-
-// ResolveWorkflowAction handles approve/reject on a paused workflow instance.
-func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Registry,
+// ResolveAction handles approve/reject on a paused workflow instance.
+func (e *WFEngine) ResolveAction(ctx context.Context,
 	instanceID string, action string, userID string) (*metadata.WorkflowInstance, error) {
 
-	instance, err := loadWorkflowInstance(ctx, s, instanceID)
+	instance, err := e.wfStore.LoadInstance(ctx, e.pool, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -294,8 +83,7 @@ func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Re
 		return nil, fmt.Errorf("workflow instance is not running (status: %s)", instance.Status)
 	}
 
-	// Load workflow definition
-	wf := reg.GetWorkflow(instance.WorkflowName)
+	wf := e.registry.GetWorkflow(instance.WorkflowName)
 	if wf == nil {
 		return nil, fmt.Errorf("workflow definition not found: %s", instance.WorkflowName)
 	}
@@ -308,16 +96,14 @@ func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Re
 		return nil, fmt.Errorf("current step is not an approval step")
 	}
 
-	// Record in history
 	instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
 		Step:   step.ID,
-		Status: action, // "approved" or "rejected"
+		Status: action,
 		By:     userID,
 		At:     time.Now().UTC().Format(time.RFC3339),
 	})
 	instance.CurrentStepDeadline = nil
 
-	// Determine next step
 	var nextGoto string
 	switch action {
 	case "approved":
@@ -335,22 +121,186 @@ func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Re
 	if nextGoto == "" || nextGoto == "end" {
 		instance.Status = "completed"
 		instance.CurrentStep = ""
-		if err := persistInstance(ctx, s, instance); err != nil {
+		if err := e.wfStore.PersistInstance(ctx, e.pool, instance); err != nil {
 			return nil, err
 		}
 		return instance, nil
 	}
 
 	instance.CurrentStep = nextGoto
-	if err := advanceWorkflow(ctx, s, reg, instance, wf); err != nil {
+	if err := e.advanceWorkflow(ctx, instance, wf); err != nil {
 		return nil, err
 	}
 
-	// Reload instance after advancing (to get final state)
-	return loadWorkflowInstance(ctx, s, instance.ID)
+	return e.wfStore.LoadInstance(ctx, e.pool, instance.ID)
 }
 
-// buildWorkflowContext resolves context mappings from the trigger record.
+// ProcessTimeouts finds and handles timed-out workflow instances.
+func (e *WFEngine) ProcessTimeouts(ctx context.Context) {
+	instances, err := e.wfStore.FindTimedOut(ctx, e.pool)
+	if err != nil {
+		log.Printf("ERROR: workflow timeout query failed: %v", err)
+		return
+	}
+
+	for _, instance := range instances {
+		if err := e.handleTimeout(ctx, instance); err != nil {
+			log.Printf("ERROR: processing timeout for instance %s: %v", instance.ID, err)
+		}
+	}
+}
+
+// ── Internal ──
+
+func (e *WFEngine) createInstance(ctx context.Context,
+	wf *metadata.Workflow, record map[string]any, recordID any) error {
+
+	wfCtx := buildWorkflowContext(wf.Context, record, recordID)
+
+	if len(wf.Steps) == 0 {
+		return fmt.Errorf("workflow %s has no steps", wf.Name)
+	}
+
+	firstStepID := wf.Steps[0].ID
+
+	instanceID, err := e.wfStore.CreateInstance(ctx, e.pool, WorkflowInstanceData{
+		WorkflowID:   wf.ID,
+		WorkflowName: wf.Name,
+		CurrentStep:  firstStepID,
+		Context:      wfCtx,
+	})
+	if err != nil {
+		return err
+	}
+
+	instance := &metadata.WorkflowInstance{
+		ID:           instanceID,
+		WorkflowID:   wf.ID,
+		WorkflowName: wf.Name,
+		Status:       "running",
+		CurrentStep:  firstStepID,
+		Context:      wfCtx,
+		History:      []metadata.WorkflowHistoryEntry{},
+	}
+
+	log.Printf("Created workflow instance %s for workflow %s", instance.ID, wf.Name)
+
+	return e.advanceWorkflow(ctx, instance, wf)
+}
+
+func (e *WFEngine) advanceWorkflow(ctx context.Context,
+	instance *metadata.WorkflowInstance, wf *metadata.Workflow) error {
+
+	stepCtx := &StepExecutorContext{
+		ActionExecutors: e.actionExecutors,
+		Evaluator:       e.evaluator,
+		Registry:        e.registry,
+	}
+
+	for {
+		if instance.Status != "running" {
+			return nil
+		}
+
+		step := wf.FindStep(instance.CurrentStep)
+		if step == nil {
+			instance.Status = "failed"
+			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+		}
+
+		executor, ok := e.stepExecutors[step.Type]
+		if !ok {
+			return fmt.Errorf("unknown step type: %s", step.Type)
+		}
+
+		result, err := executor.Execute(ctx, e.pool, stepCtx, instance, step)
+		if err != nil {
+			log.Printf("ERROR: workflow %s step %s failed: %v", wf.Name, step.ID, err)
+			instance.Status = "failed"
+			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+		}
+
+		if result.Paused {
+			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+		}
+
+		if result.NextGoto == "" || result.NextGoto == "end" {
+			instance.Status = "completed"
+			instance.CurrentStep = ""
+			return e.wfStore.PersistInstance(ctx, e.pool, instance)
+		}
+
+		instance.CurrentStep = result.NextGoto
+	}
+}
+
+func (e *WFEngine) handleTimeout(ctx context.Context, instance *metadata.WorkflowInstance) error {
+	wf := e.registry.GetWorkflow(instance.WorkflowName)
+	if wf == nil {
+		log.Printf("WARN: workflow definition not found for timed-out instance %s: %s", instance.ID, instance.WorkflowName)
+		return nil
+	}
+
+	step := wf.FindStep(instance.CurrentStep)
+	if step == nil || step.Type != "approval" {
+		return nil
+	}
+
+	log.Printf("Workflow instance %s step %s timed out", instance.ID, step.ID)
+
+	instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
+		Step:   instance.CurrentStep,
+		Status: "timed_out",
+		At:     time.Now().UTC().Format(time.RFC3339),
+	})
+	instance.CurrentStepDeadline = nil
+
+	nextGoto := ""
+	if step.OnTimeout != nil {
+		nextGoto = step.OnTimeout.Goto
+	}
+
+	if nextGoto == "" || nextGoto == "end" {
+		if nextGoto == "end" {
+			instance.Status = "completed"
+		} else {
+			instance.Status = "failed"
+		}
+		instance.CurrentStep = ""
+		return e.wfStore.PersistInstance(ctx, e.pool, instance)
+	}
+
+	instance.CurrentStep = nextGoto
+	return e.advanceWorkflow(ctx, instance, wf)
+}
+
+// ── Backward-compatible free functions ──
+// These preserve the existing call signatures used by nested_write.go,
+// workflow_handler.go, and multiapp scheduler.
+
+// TriggerWorkflows checks if any active workflows should be started based on
+// a state transition. Called after a successful write commit.
+func TriggerWorkflows(ctx context.Context, s *store.Store, reg *metadata.Registry,
+	entity, field, toState string, record map[string]any, recordID any) {
+	engine := NewDefaultWFEngine(s, reg)
+	engine.TriggerWorkflowsViaEngine(ctx, entity, field, toState, record, recordID)
+}
+
+// ResolveWorkflowAction handles approve/reject on a paused workflow instance.
+func ResolveWorkflowAction(ctx context.Context, s *store.Store, reg *metadata.Registry,
+	instanceID string, action string, userID string) (*metadata.WorkflowInstance, error) {
+	engine := NewDefaultWFEngine(s, reg)
+	return engine.ResolveAction(ctx, instanceID, action, userID)
+}
+
+// ListPendingInstances returns workflow instances that are running (awaiting approval).
+func ListPendingInstances(ctx context.Context, s *store.Store) ([]*metadata.WorkflowInstance, error) {
+	wfStore := &PgWorkflowStore{}
+	return wfStore.ListPending(ctx, s.Pool)
+}
+
+// ── Context helpers ──
+
 func buildWorkflowContext(mappings map[string]string, record map[string]any, recordID any) map[string]any {
 	ctx := make(map[string]any, len(mappings))
 	for key, path := range mappings {
@@ -364,13 +314,11 @@ func buildWorkflowContext(mappings map[string]string, record map[string]any, rec
 	return ctx
 }
 
-// resolveContextPath resolves a dot-path like "trigger.record.amount" from a nested map.
 func resolveContextPath(data map[string]any, path string) any {
 	if path == "" {
 		return nil
 	}
 
-	// If path is a direct context reference like "context.record_id"
 	parts := strings.Split(path, ".")
 	var current any = data
 
@@ -383,113 +331,4 @@ func resolveContextPath(data map[string]any, path string) any {
 	}
 
 	return current
-}
-
-// persistInstance updates the workflow instance in the database.
-func persistInstance(ctx context.Context, s *store.Store, instance *metadata.WorkflowInstance) error {
-	ctxJSON, err := json.Marshal(instance.Context)
-	if err != nil {
-		return fmt.Errorf("marshal context: %w", err)
-	}
-	historyJSON, err := json.Marshal(instance.History)
-	if err != nil {
-		return fmt.Errorf("marshal history: %w", err)
-	}
-
-	_, err = store.Exec(ctx, s.Pool,
-		`UPDATE _workflow_instances
-		 SET status = $1, current_step = $2, current_step_deadline = $3, context = $4, history = $5, updated_at = NOW()
-		 WHERE id = $6`,
-		instance.Status, nilIfEmpty(instance.CurrentStep), instance.CurrentStepDeadline,
-		ctxJSON, historyJSON, instance.ID)
-	return err
-}
-
-// loadWorkflowInstance loads a single workflow instance by ID.
-func loadWorkflowInstance(ctx context.Context, s *store.Store, id string) (*metadata.WorkflowInstance, error) {
-	row, err := store.QueryRow(ctx, s.Pool,
-		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
-		 FROM _workflow_instances WHERE id = $1`, id)
-	if err != nil {
-		return nil, fmt.Errorf("workflow instance not found: %s", id)
-	}
-
-	return parseWorkflowInstanceRow(row)
-}
-
-// ListPendingInstances returns workflow instances that are running (awaiting approval).
-func ListPendingInstances(ctx context.Context, s *store.Store) ([]*metadata.WorkflowInstance, error) {
-	rows, err := store.QueryRows(ctx, s.Pool,
-		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
-		 FROM _workflow_instances WHERE status = 'running' AND current_step IS NOT NULL
-		 ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-
-	var instances []*metadata.WorkflowInstance
-	for _, row := range rows {
-		inst, err := parseWorkflowInstanceRow(row)
-		if err != nil {
-			log.Printf("WARN: skipping workflow instance: %v", err)
-			continue
-		}
-		instances = append(instances, inst)
-	}
-	return instances, nil
-}
-
-func parseWorkflowInstanceRow(row map[string]any) (*metadata.WorkflowInstance, error) {
-	instance := &metadata.WorkflowInstance{
-		ID:           fmt.Sprintf("%v", row["id"]),
-		WorkflowID:   fmt.Sprintf("%v", row["workflow_id"]),
-		WorkflowName: fmt.Sprintf("%v", row["workflow_name"]),
-		Status:       fmt.Sprintf("%v", row["status"]),
-	}
-
-	if cs, ok := row["current_step"]; ok && cs != nil {
-		instance.CurrentStep = fmt.Sprintf("%v", cs)
-	}
-	if d, ok := row["current_step_deadline"]; ok && d != nil {
-		s := fmt.Sprintf("%v", d)
-		instance.CurrentStepDeadline = &s
-	}
-	if ca, ok := row["created_at"]; ok && ca != nil {
-		instance.CreatedAt = fmt.Sprintf("%v", ca)
-	}
-	if ua, ok := row["updated_at"]; ok && ua != nil {
-		instance.UpdatedAt = fmt.Sprintf("%v", ua)
-	}
-
-	// Parse context JSONB
-	instance.Context = make(map[string]any)
-	if ctxRaw, ok := row["context"]; ok && ctxRaw != nil {
-		switch v := ctxRaw.(type) {
-		case map[string]any:
-			instance.Context = v
-		case string:
-			json.Unmarshal([]byte(v), &instance.Context)
-		}
-	}
-
-	// Parse history JSONB
-	instance.History = []metadata.WorkflowHistoryEntry{}
-	if histRaw, ok := row["history"]; ok && histRaw != nil {
-		switch v := histRaw.(type) {
-		case []any:
-			data, _ := json.Marshal(v)
-			json.Unmarshal(data, &instance.History)
-		case string:
-			json.Unmarshal([]byte(v), &instance.History)
-		}
-	}
-
-	return instance, nil
-}
-
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

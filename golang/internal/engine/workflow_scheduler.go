@@ -10,15 +10,21 @@ import (
 )
 
 // WorkflowScheduler runs background tasks for workflow timeouts.
+// Delegates all logic to WFEngine — no direct SQL or instance parsing.
 type WorkflowScheduler struct {
 	store    *store.Store
 	registry *metadata.Registry
+	engine   *WFEngine
 	ticker   *time.Ticker
 	done     chan struct{}
 }
 
 func NewWorkflowScheduler(s *store.Store, reg *metadata.Registry) *WorkflowScheduler {
-	return &WorkflowScheduler{store: s, registry: reg}
+	return &WorkflowScheduler{
+		store:    s,
+		registry: reg,
+		engine:   NewDefaultWFEngine(s, reg),
+	}
 }
 
 // Start begins the background ticker for processing timeouts.
@@ -45,78 +51,20 @@ func (ws *WorkflowScheduler) run() {
 		case <-ws.done:
 			return
 		case <-ws.ticker.C:
-			ws.processTimeouts()
+			ws.engine.ProcessTimeouts(context.Background())
 		}
 	}
 }
 
 // ProcessWorkflowTimeouts processes timed-out workflow instances for a given store and registry.
+// Used by the multi-app scheduler.
 func ProcessWorkflowTimeouts(s *store.Store, reg *metadata.Registry) {
-	tmp := &WorkflowScheduler{store: s, registry: reg}
-	tmp.processTimeouts()
+	engine := NewDefaultWFEngine(s, reg)
+	engine.ProcessTimeouts(context.Background())
 }
 
-func (ws *WorkflowScheduler) processTimeouts() {
-	ctx := context.Background()
-
-	rows, err := store.QueryRows(ctx, ws.store.Pool,
-		`SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at
-		 FROM _workflow_instances
-		 WHERE status = 'running'
-		   AND current_step_deadline IS NOT NULL
-		   AND current_step_deadline < NOW()`)
-	if err != nil {
-		log.Printf("ERROR: workflow scheduler query failed: %v", err)
-		return
-	}
-
-	for _, row := range rows {
-		instance, err := parseWorkflowInstanceRow(row)
-		if err != nil {
-			log.Printf("WARN: skipping timed-out instance: %v", err)
-			continue
-		}
-
-		wf := ws.registry.GetWorkflow(instance.WorkflowName)
-		if wf == nil {
-			log.Printf("WARN: workflow definition not found for timed-out instance %s: %s", instance.ID, instance.WorkflowName)
-			continue
-		}
-
-		step := wf.FindStep(instance.CurrentStep)
-		if step == nil || step.OnTimeout == nil {
-			// No timeout handler; mark as failed
-			log.Printf("WARN: no on_timeout handler for step %s in workflow %s, marking instance %s as failed",
-				instance.CurrentStep, wf.Name, instance.ID)
-			instance.Status = "failed"
-			instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
-				Step:   instance.CurrentStep,
-				Status: "timed_out",
-				At:     time.Now().UTC().Format(time.RFC3339),
-			})
-			persistInstance(ctx, ws.store, instance)
-			continue
-		}
-
-		// Execute on_timeout path
-		instance.History = append(instance.History, metadata.WorkflowHistoryEntry{
-			Step:   instance.CurrentStep,
-			Status: "timed_out",
-			At:     time.Now().UTC().Format(time.RFC3339),
-		})
-		instance.CurrentStepDeadline = nil
-		instance.CurrentStep = step.OnTimeout.Goto
-
-		if instance.CurrentStep == "end" {
-			instance.Status = "completed"
-			instance.CurrentStep = ""
-			persistInstance(ctx, ws.store, instance)
-		} else {
-			if err := advanceWorkflow(ctx, ws.store, ws.registry, instance, wf); err != nil {
-				log.Printf("ERROR: failed to advance timed-out workflow %s: %v", instance.ID, err)
-			}
-		}
-
-		log.Printf("Processed timeout for workflow instance %s (step: %s)", instance.ID, step.ID)
-	}
+// Ensure WorkflowHandler still has a function it needs — loadWorkflowInstance backward compat.
+func loadWorkflowInstance(ctx context.Context, s *store.Store, id string) (*metadata.WorkflowInstance, error) {
+	wfStore := &PgWorkflowStore{}
+	return wfStore.LoadInstance(ctx, s.Pool, id)
 }
