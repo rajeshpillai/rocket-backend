@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseConfig, InstrumentationConfig } from "../config/index.js";
-import { Store, queryRows, queryRow, createDatabase, dropDatabase } from "../store/postgres.js";
+import { Store, queryRows, queryRow, getDialect } from "../store/postgres.js";
 import { bootstrap } from "../store/bootstrap.js";
 import { Migrator } from "../store/migrator.js";
 import { Registry } from "../metadata/registry.js";
@@ -57,7 +57,7 @@ export class AppManager {
     const jwtSecret = generateJWTSecret();
 
     // Create the database
-    await createDatabase(this.mgmtStore.pool, dbName);
+    await getDialect().createDatabase(this.mgmtStore.pool, dbName, this.dbConfig.data_dir);
 
     // Register in _apps
     try {
@@ -66,7 +66,7 @@ export class AppManager {
         [name, displayName, dbName, jwtSecret, dbDriver],
       );
     } catch (err) {
-      await dropDatabase(this.mgmtStore.pool, dbName);
+      await getDialect().dropDatabase(this.mgmtStore.pool, dbName, this.dbConfig.data_dir);
       throw err;
     }
 
@@ -128,7 +128,7 @@ export class AppManager {
     await this.mgmtStore.pool.query("DELETE FROM _apps WHERE name = $1", [name]);
 
     // Drop the database
-    await dropDatabase(this.mgmtStore.pool, dbName);
+    await getDialect().dropDatabase(this.mgmtStore.pool, dbName, this.dbConfig.data_dir);
   }
 
   async list(): Promise<AppInfo[]> {

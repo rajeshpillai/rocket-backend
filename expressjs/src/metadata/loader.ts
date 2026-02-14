@@ -1,4 +1,5 @@
 import type { Queryable } from "../store/postgres.js";
+import { queryRows } from "../store/postgres.js";
 import type { Registry } from "./registry.js";
 import type { Entity, Relation } from "./types.js";
 import type { Rule, RuleDefinition } from "./rule.js";
@@ -45,11 +46,11 @@ export async function reload(
 }
 
 async function loadEntities(pool: Queryable): Promise<Entity[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT name, definition FROM _entities ORDER BY name",
   );
   const entities: Entity[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const def =
         typeof row.definition === "string"
@@ -64,11 +65,11 @@ async function loadEntities(pool: Queryable): Promise<Entity[]> {
 }
 
 async function loadRelations(pool: Queryable): Promise<Relation[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT name, definition FROM _relations ORDER BY name",
   );
   const relations: Relation[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const def =
         typeof row.definition === "string"
@@ -86,11 +87,11 @@ async function loadRelations(pool: Queryable): Promise<Relation[]> {
 }
 
 async function loadRules(pool: Queryable): Promise<Rule[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT id, entity, hook, type, definition, priority, active FROM _rules ORDER BY entity, priority",
   );
   const rules: Rule[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const def =
         typeof row.definition === "string"
@@ -113,11 +114,11 @@ async function loadRules(pool: Queryable): Promise<Rule[]> {
 }
 
 async function loadStateMachines(pool: Queryable): Promise<StateMachine[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT id, entity, field, definition, active FROM _state_machines ORDER BY entity",
   );
   const machines: StateMachine[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const def =
         typeof row.definition === "string"
@@ -141,11 +142,11 @@ async function loadStateMachines(pool: Queryable): Promise<StateMachine[]> {
 }
 
 async function loadPermissions(pool: Queryable): Promise<Permission[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT id, entity, action, roles, conditions FROM _permissions ORDER BY entity, action",
   );
   const permissions: Permission[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const conditions: PermissionCondition[] =
         typeof row.conditions === "string"
@@ -166,11 +167,11 @@ async function loadPermissions(pool: Queryable): Promise<Permission[]> {
 }
 
 async function loadWorkflows(pool: Queryable): Promise<Workflow[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT id, name, trigger, context, steps, active FROM _workflows ORDER BY name",
   );
   const workflows: Workflow[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const trigger: WorkflowTrigger =
         typeof row.trigger === "string"
@@ -200,11 +201,11 @@ async function loadWorkflows(pool: Queryable): Promise<Workflow[]> {
 }
 
 async function loadWebhooks(pool: Queryable): Promise<Webhook[]> {
-  const result = await pool.query(
+  const rows = await queryRows(pool,
     "SELECT id, entity, hook, url, method, headers, condition, async, retry, active FROM _webhooks ORDER BY entity, hook",
   );
   const webhooks: Webhook[] = [];
-  for (const row of result.rows) {
+  for (const row of rows) {
     try {
       const headers: Record<string, string> =
         typeof row.headers === "string"

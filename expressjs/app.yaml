@@ -11,9 +11,12 @@ storage:
   max_file_size: 10485760
 
 database:
+  driver: postgres
   host: localhost
   port: 5433
   user: rocket
   password: rocket
   name: rocket
   pool_size: 50
+  # driver: sqlite
+  # data_dir: ./data

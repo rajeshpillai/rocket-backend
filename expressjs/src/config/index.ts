@@ -7,12 +7,14 @@ export interface ServerConfig {
 }
 
 export interface DatabaseConfig {
+  driver: string;
   host: string;
   port: number;
   user: string;
   password: string;
   name: string;
   pool_size: number;
+  data_dir: string;
 }
 
 export interface StorageConfig {
@@ -82,12 +84,14 @@ export function loadConfig(): Config {
       flush_interval_ms: instrumentation.flush_interval_ms ?? 100,
     },
     database: {
+      driver: database.driver ?? "postgres",
       host: database.host ?? "localhost",
       port: database.port ?? 5432,
       user: database.user ?? "rocket",
       password: database.password ?? "rocket",
       name: database.name ?? "rocket",
       pool_size: database.pool_size ?? 10,
+      data_dir: database.data_dir ?? "./data",
     },
   };
 }

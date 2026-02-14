@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type pg from "pg";
-import { queryRows, queryRow } from "../store/postgres.js";
+import { queryRows, queryRow, getDialect, SQLiteDatabase } from "../store/postgres.js";
 import { AppError } from "../engine/errors.js";
 import { getInstrumenter } from "./instrument.js";
 
@@ -14,10 +14,17 @@ function asyncHandler(fn: AsyncHandler) {
   };
 }
 
-export class EventHandler {
-  private pool: Pool;
+function computeP95(values: number[]): number | null {
+  if (!values || values.length === 0) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const idx = Math.ceil(0.95 * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
 
-  constructor(pool: Pool) {
+export class EventHandler {
+  private pool: Pool | SQLiteDatabase;
+
+  constructor(pool: Pool | SQLiteDatabase) {
     this.pool = pool;
   }
 
@@ -209,8 +216,22 @@ export class EventHandler {
     const whereClause = " WHERE " + conditions.join(" AND ");
 
     // By-source stats
-    const bySourceSQL = `SELECT source, COUNT(*) as count, AVG(duration_ms) as avg_duration_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_duration_ms, COUNT(*) FILTER (WHERE status = 'error') as error_count FROM _events${whereClause} GROUP BY source ORDER BY count DESC`;
+    const d = getDialect();
+    const errorCountExpr = d.filterCountExpr("status = 'error'");
+    const p95SourceCol = d.supportsPercentile()
+      ? "percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_duration_ms,"
+      : "";
+    const bySourceSQL = `SELECT source, COUNT(*) as count, AVG(duration_ms) as avg_duration_ms, ${p95SourceCol} ${errorCountExpr} as error_count FROM _events${whereClause} GROUP BY source ORDER BY count DESC`;
     const bySourceRows = await queryRows(this.pool, bySourceSQL, args);
+
+    // If percentile not supported, compute p95 per source in JS
+    if (!d.supportsPercentile() && bySourceRows) {
+      for (const row of bySourceRows) {
+        const durSQL = `SELECT duration_ms FROM _events${whereClause} AND source = $${argIdx} AND duration_ms IS NOT NULL ORDER BY duration_ms`;
+        const durRows = await queryRows(this.pool, durSQL, [...args, row.source]);
+        row.p95_duration_ms = computeP95(durRows.map((r: any) => r.duration_ms));
+      }
+    }
 
     // Overall stats (separate query, uses all events not just those with duration_ms)
     const overallConditions: string[] = [];
@@ -232,7 +253,11 @@ export class EventHandler {
 
     const overallWhere = overallConditions.length > 0 ? " WHERE " + overallConditions.join(" AND ") : "";
 
-    const totalSQL = `SELECT COUNT(*) as total_events, AVG(duration_ms) as avg_latency_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_latency_ms, COUNT(*) FILTER (WHERE status = 'error') as error_count FROM _events${overallWhere}`;
+    const overallErrorCountExpr = d.filterCountExpr("status = 'error'");
+    const p95OverallCol = d.supportsPercentile()
+      ? "percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_latency_ms,"
+      : "";
+    const totalSQL = `SELECT COUNT(*) as total_events, AVG(duration_ms) as avg_latency_ms, ${p95OverallCol} ${overallErrorCountExpr} as error_count FROM _events${overallWhere}`;
 
     let totalEvents = 0;
     let avgLatencyMs: number | null = null;
@@ -243,7 +268,18 @@ export class EventHandler {
       const totalRow = await queryRow(this.pool, totalSQL, overallArgs);
       totalEvents = parseInt(String(totalRow.total_events), 10) || 0;
       avgLatencyMs = totalRow.avg_latency_ms != null ? parseFloat(String(totalRow.avg_latency_ms)) : null;
-      p95LatencyMs = totalRow.p95_latency_ms != null ? parseFloat(String(totalRow.p95_latency_ms)) : null;
+      if (d.supportsPercentile()) {
+        p95LatencyMs = totalRow.p95_latency_ms != null ? parseFloat(String(totalRow.p95_latency_ms)) : null;
+      } else {
+        // Compute p95 in JS for SQLite
+        const durSQL = `SELECT duration_ms FROM _events${overallWhere.length > 0 ? overallWhere + " AND" : " WHERE"} duration_ms IS NOT NULL ORDER BY duration_ms`;
+        try {
+          const durRows = await queryRows(this.pool, durSQL, overallArgs);
+          p95LatencyMs = computeP95(durRows.map((r: any) => r.duration_ms));
+        } catch {
+          p95LatencyMs = null;
+        }
+      }
       const errorCount = parseInt(String(totalRow.error_count), 10) || 0;
       errorRate = totalEvents > 0 ? errorCount / totalEvents : 0;
     } catch {

@@ -126,12 +126,14 @@ describe("field rule enforcement", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -204,12 +206,14 @@ describe("computed field enforcement", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -274,12 +278,14 @@ describe("rules CRUD", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -361,12 +367,14 @@ describe("state machine enforcement", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -503,12 +511,14 @@ describe("state machine CRUD", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -596,12 +606,14 @@ describe("unique constraint → 409 CONFLICT", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -663,12 +675,14 @@ describe("workflow CRUD", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -745,12 +759,14 @@ describe("workflow trigger and execution", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -851,12 +867,14 @@ describe("workflow approval flow", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -977,12 +995,14 @@ describe("workflow rejection", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1079,12 +1099,14 @@ describe("workflow condition branching", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1266,12 +1288,14 @@ describe("auth login/refresh/logout flow", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1325,12 +1349,14 @@ describe("auth login invalid credentials", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1374,12 +1400,14 @@ describe("middleware rejects missing/invalid token", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1418,12 +1446,14 @@ describe("admin role bypass", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1489,12 +1519,14 @@ describe("permission grants and denies access", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1585,12 +1617,14 @@ describe("row-level filtering", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1670,12 +1704,14 @@ describe("write permission with conditions", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1771,12 +1807,14 @@ describe("user CRUD", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1864,12 +1902,14 @@ describe("permission CRUD", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();
@@ -1929,12 +1969,14 @@ describe("disabled user cannot login", () => {
 
   before(async () => {
     store = await Store.connect({
+      driver: "postgres",
       host: "localhost",
       port: 5433,
       user: "rocket",
       password: "rocket",
       name: "rocket",
       pool_size: 2,
+      data_dir: "./data",
     });
     await bootstrap(store.pool);
     registry = new Registry();

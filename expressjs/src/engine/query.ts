@@ -3,6 +3,7 @@ import type { Entity, Field } from "../metadata/types.js";
 import type { Registry } from "../metadata/registry.js";
 import { getField, hasField, fieldNames } from "../metadata/types.js";
 import { AppError } from "./errors.js";
+import { getDialect } from "../store/postgres.js";
 
 export interface WhereClause {
   field: string;
@@ -31,7 +32,7 @@ export interface QueryResult {
 
 export class ParamBuilder {
   params: any[] = [];
-  private n = 0;
+  n = 0;
 
   add(v: any): string {
     this.n++;
@@ -194,10 +195,20 @@ function buildWhereClause(f: WhereClause, pb: ParamBuilder): string {
       return `${f.field} < ${pb.add(f.value)}`;
     case "lte":
       return `${f.field} <= ${pb.add(f.value)}`;
-    case "in":
-      return `${f.field} = ANY(${pb.add(f.value)})`;
-    case "not_in":
-      return `${f.field} != ALL(${pb.add(f.value)})`;
+    case "in": {
+      const d = getDialect();
+      const { sql, params, nextOffset } = d.inExpr(f.field, f.value, pb.params.length);
+      pb.params.push(...params);
+      pb.n = nextOffset;
+      return sql;
+    }
+    case "not_in": {
+      const d = getDialect();
+      const { sql, params, nextOffset } = d.notInExpr(f.field, f.value, pb.params.length);
+      pb.params.push(...params);
+      pb.n = nextOffset;
+      return sql;
+    }
     case "like":
       return `${f.field} LIKE ${pb.add(f.value)}`;
     default:

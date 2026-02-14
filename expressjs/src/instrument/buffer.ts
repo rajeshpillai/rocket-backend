@@ -1,13 +1,14 @@
 import type { Pool } from "pg";
+import { SQLiteDatabase, getDialect } from "../store/postgres.js";
 import type { EventRecord } from "./types.js";
 
 export class EventBuffer {
   private events: EventRecord[] = [];
-  private pool: Pool;
+  private pool: Pool | SQLiteDatabase;
   private maxSize: number;
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(pool: Pool, maxSize = 500, flushIntervalMs = 100) {
+  constructor(pool: Pool | SQLiteDatabase, maxSize = 500, flushIntervalMs = 100) {
     this.pool = pool;
     this.maxSize = maxSize;
     this.timer = setInterval(() => this.flush(), flushIntervalMs);
@@ -64,12 +65,21 @@ export class EventBuffer {
         );
       }
       const sql = `INSERT INTO _events (${cols.join(",")}) VALUES ${placeholders.join(",")}`;
-      const client = await this.pool.connect();
-      try {
-        await client.query("SET LOCAL synchronous_commit = off");
-        await client.query(sql, values);
-      } finally {
-        client.release();
+      if (this.pool instanceof SQLiteDatabase) {
+        // SQLite: no connection pooling, no sync_commit setting
+        this.pool.query(sql, values);
+      } else {
+        // PostgreSQL: use pooled client with sync_commit off
+        const client = await this.pool.connect();
+        try {
+          const syncOff = getDialect().syncCommitOff();
+          if (syncOff) {
+            await client.query(syncOff);
+          }
+          await client.query(sql, values);
+        } finally {
+          client.release();
+        }
       }
     } catch (err) {
       console.error("ERROR: event buffer flush failed:", err);

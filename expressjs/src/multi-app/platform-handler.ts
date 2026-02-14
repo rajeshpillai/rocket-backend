@@ -1,6 +1,6 @@
 import { Router, type Express, type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import type { Store } from "../store/postgres.js";
-import { queryRows, queryRow, exec } from "../store/postgres.js";
+import { queryRows, queryRow, exec, getDialect } from "../store/postgres.js";
 import { AppError } from "../engine/errors.js";
 import {
   checkPassword,
@@ -188,6 +188,7 @@ export class PlatformHandler {
 function extractRoles(v: any): string[] {
   if (!v) return [];
   if (Array.isArray(v)) return v.map(String);
+  if (typeof v === "string") return getDialect().scanArray(v);
   return [];
 }
 

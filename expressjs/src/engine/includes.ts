@@ -1,5 +1,5 @@
 import type { Queryable } from "../store/postgres.js";
-import { queryRows } from "../store/postgres.js";
+import { queryRows, getDialect } from "../store/postgres.js";
 import type { Entity } from "../metadata/types.js";
 import type { Registry } from "../metadata/registry.js";
 import { fieldNames } from "../metadata/types.js";
@@ -46,12 +46,13 @@ async function loadForwardRelation(
   if (!targetEntity) return;
 
   const columns = fieldNames(targetEntity).join(", ");
-  let sql = `SELECT ${columns} FROM ${targetEntity.table} WHERE ${rel.target_key} = ANY($1)`;
+  const { sql: inClause, params: inParams } = getDialect().inExpr(rel.target_key!, parentIDs, 0);
+  let sql = `SELECT ${columns} FROM ${targetEntity.table} WHERE ${inClause}`;
   if (targetEntity.soft_delete) {
     sql += " AND deleted_at IS NULL";
   }
 
-  const childRows = await queryRows(q, sql, [parentIDs]);
+  const childRows = await queryRows(q, sql, inParams);
 
   // Group by FK
   const grouped = new Map<string, Record<string, any>[]>();
@@ -87,8 +88,9 @@ async function loadManyToMany(
   if (!targetEntity) return;
 
   // Query join table
-  const joinSQL = `SELECT ${rel.source_join_key}, ${rel.target_join_key} FROM ${rel.join_table} WHERE ${rel.source_join_key} = ANY($1)`;
-  const joinRows = await queryRows(q, joinSQL, [parentIDs]);
+  const { sql: joinInClause, params: joinInParams } = getDialect().inExpr(rel.source_join_key!, parentIDs, 0);
+  const joinSQL = `SELECT ${rel.source_join_key}, ${rel.target_join_key} FROM ${rel.join_table} WHERE ${joinInClause}`;
+  const joinRows = await queryRows(q, joinSQL, joinInParams);
 
   if (joinRows.length === 0) {
     for (const row of rows) {
@@ -110,11 +112,12 @@ async function loadManyToMany(
 
   // Query target records
   const columns = fieldNames(targetEntity).join(", ");
-  let targetSQL = `SELECT ${columns} FROM ${targetEntity.table} WHERE ${targetEntity.primary_key.field} = ANY($1)`;
+  const { sql: targetInClause, params: targetInParams } = getDialect().inExpr(targetEntity.primary_key.field, targetIDs, 0);
+  let targetSQL = `SELECT ${columns} FROM ${targetEntity.table} WHERE ${targetInClause}`;
   if (targetEntity.soft_delete) {
     targetSQL += " AND deleted_at IS NULL";
   }
-  const targetRows = await queryRows(q, targetSQL, [targetIDs]);
+  const targetRows = await queryRows(q, targetSQL, targetInParams);
 
   // Index targets by PK
   const targetByPK = new Map<string, Record<string, any>>();
@@ -157,12 +160,13 @@ async function loadReverseRelation(
   if (fkValues.length === 0) return;
 
   const columns = fieldNames(sourceEntity).join(", ");
-  let sql = `SELECT ${columns} FROM ${sourceEntity.table} WHERE ${rel.source_key} = ANY($1)`;
+  const { sql: inClause, params: inParams } = getDialect().inExpr(rel.source_key, fkValues, 0);
+  let sql = `SELECT ${columns} FROM ${sourceEntity.table} WHERE ${inClause}`;
   if (sourceEntity.soft_delete) {
     sql += " AND deleted_at IS NULL";
   }
 
-  const parentRows = await queryRows(q, sql, [fkValues]);
+  const parentRows = await queryRows(q, sql, inParams);
 
   // Index by PK
   const parentByPK = new Map<string, Record<string, any>>();

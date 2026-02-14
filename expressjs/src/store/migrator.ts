@@ -1,6 +1,7 @@
 import type { Store } from "./postgres.js";
+import { getDialect } from "./postgres.js";
 import type { Entity, Relation } from "../metadata/types.js";
-import { getField, postgresType } from "../metadata/types.js";
+import { getField } from "../metadata/types.js";
 
 export class Migrator {
   private store: Store;
@@ -10,7 +11,7 @@ export class Migrator {
   }
 
   async migrate(entity: Entity): Promise<void> {
-    const exists = await this.tableExists(entity.table);
+    const exists = await getDialect().tableExists(this.store.pool, entity.table);
     if (!exists) {
       await this.createTable(entity);
     } else {
@@ -24,7 +25,7 @@ export class Migrator {
     targetEntity: Entity,
   ): Promise<void> {
     if (!rel.join_table) return;
-    const exists = await this.tableExists(rel.join_table);
+    const exists = await getDialect().tableExists(this.store.pool, rel.join_table);
     if (exists) return;
 
     const sourceField = getField(sourceEntity, rel.source_key);
@@ -38,20 +39,13 @@ export class Migrator {
       );
     }
 
+    const dialect = getDialect();
     const sql = `CREATE TABLE ${rel.join_table} (
-      ${rel.source_join_key} ${postgresType(sourceField)} NOT NULL,
-      ${rel.target_join_key} ${postgresType(targetField)} NOT NULL,
+      ${rel.source_join_key} ${dialect.columnType(sourceField.type, sourceField.precision)} NOT NULL,
+      ${rel.target_join_key} ${dialect.columnType(targetField.type, targetField.precision)} NOT NULL,
       PRIMARY KEY (${rel.source_join_key}, ${rel.target_join_key})
     )`;
     await this.store.pool.query(sql);
-  }
-
-  private async tableExists(tableName: string): Promise<boolean> {
-    const result = await this.store.pool.query(
-      `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = $1 AND table_schema = 'public')`,
-      [tableName],
-    );
-    return result.rows[0].exists;
   }
 
   private async createTable(entity: Entity): Promise<void> {
@@ -61,7 +55,7 @@ export class Migrator {
     }
 
     if (entity.soft_delete && !getField(entity, "deleted_at")) {
-      cols.push("deleted_at TIMESTAMPTZ");
+      cols.push(`deleted_at ${getDialect().columnType("timestamp")}`);
     }
 
     const sql = `CREATE TABLE ${entity.table} (\n  ${cols.join(",\n  ")}\n)`;
@@ -70,11 +64,12 @@ export class Migrator {
   }
 
   private async alterTable(entity: Entity): Promise<void> {
-    const existing = await this.getColumns(entity.table);
+    const dialect = getDialect();
+    const existing = await dialect.getColumns(this.store.pool, entity.table);
 
     for (const f of entity.fields) {
       if (!existing.has(f.name)) {
-        const colType = postgresType(f);
+        const colType = dialect.columnType(f.type, f.precision);
         let notNull = "";
         if (f.required && !f.nullable) {
           notNull = " NOT NULL DEFAULT ''";
@@ -85,7 +80,7 @@ export class Migrator {
     }
 
     if (entity.soft_delete && !existing.has("deleted_at")) {
-      const sql = `ALTER TABLE ${entity.table} ADD COLUMN deleted_at TIMESTAMPTZ`;
+      const sql = `ALTER TABLE ${entity.table} ADD COLUMN deleted_at ${dialect.columnType("timestamp")}`;
       await this.store.pool.query(sql);
     }
 
@@ -94,9 +89,10 @@ export class Migrator {
 
   private buildColumnDef(
     entity: Entity,
-    f: { name: string; type: string; required?: boolean; nullable?: boolean; default?: any },
+    f: { name: string; type: string; required?: boolean; nullable?: boolean; default?: any; precision?: number },
   ): string {
-    let col = `${f.name} ${postgresType(f as any)}`;
+    const dialect = getDialect();
+    let col = `${f.name} ${dialect.columnType(f.type, f.precision)}`;
 
     if (f.name === entity.primary_key.field) {
       col += " PRIMARY KEY";
@@ -104,7 +100,8 @@ export class Migrator {
         entity.primary_key.generated &&
         entity.primary_key.type === "uuid"
       ) {
-        col += " DEFAULT gen_random_uuid()";
+        const uuidDef = dialect.uuidDefault();
+        if (uuidDef) col += ` ${uuidDef}`;
       }
     }
 
@@ -125,18 +122,6 @@ export class Migrator {
     }
 
     return col;
-  }
-
-  private async getColumns(tableName: string): Promise<Map<string, string>> {
-    const result = await this.store.pool.query(
-      `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'`,
-      [tableName],
-    );
-    const cols = new Map<string, string>();
-    for (const row of result.rows) {
-      cols.set(row.column_name, row.data_type);
-    }
-    return cols;
   }
 
   private async createIndexes(entity: Entity): Promise<void> {

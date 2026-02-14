@@ -1,12 +1,12 @@
-import type { Pool } from "pg";
+import { exec, getDialect } from "../store/postgres.js";
+import type { Queryable } from "../store/postgres.js";
 
 export async function cleanupOldEvents(
-  pool: Pool,
+  pool: Queryable,
   retentionDays: number,
 ): Promise<number> {
-  const result = await pool.query(
-    `DELETE FROM _events WHERE created_at < now() - ($1 || ' days')::interval`,
-    [String(retentionDays)],
-  );
-  return result.rowCount ?? 0;
+  const d = getDialect();
+  const { sql: intervalClause } = d.intervalDeleteExpr("created_at", 0);
+  const sql = `DELETE FROM _events WHERE ${intervalClause}`;
+  return exec(pool, sql, [String(retentionDays)]);
 }

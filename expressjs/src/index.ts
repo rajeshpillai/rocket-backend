@@ -1,7 +1,8 @@
 import express from "express";
 import morgan from "morgan";
 import { loadConfig } from "./config/index.js";
-import { Store } from "./store/postgres.js";
+import { Store, setDialect } from "./store/postgres.js";
+import { newDialect } from "./store/dialect.js";
 import { AppManager } from "./multi-app/manager.js";
 import { platformBootstrap } from "./multi-app/platform-bootstrap.js";
 import { PlatformHandler, registerPlatformRoutes } from "./multi-app/platform-handler.js";
@@ -18,7 +19,9 @@ async function main() {
     `Config loaded (port: ${cfg.server.port}, db: ${cfg.database.host}:${cfg.database.port}/${cfg.database.name})`,
   );
 
-  // 2. Connect to management database
+  // 2. Initialize dialect and connect to management database
+  setDialect(newDialect(cfg.database.driver));
+  console.log(`Database driver: ${cfg.database.driver}`);
   const mgmtStore = await Store.connect(cfg.database);
   console.log("Management database connected");
 

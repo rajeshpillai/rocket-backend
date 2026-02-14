@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Entity, Relation } from "../metadata/types.js";
 import type { Registry } from "../metadata/registry.js";
 import {
@@ -8,6 +9,7 @@ import {
 } from "../metadata/types.js";
 import { ParamBuilder } from "./query.js";
 import type { ErrorDetail } from "./errors.js";
+import { getDialect } from "../store/postgres.js";
 
 export interface RelationWrite {
   relation: Relation;
@@ -23,11 +25,19 @@ export function buildInsertSQL(
   const cols: string[] = [];
   const vals: string[] = [];
 
+  const dialect = getDialect();
+  const needsAppUUID =
+    entity.primary_key.generated &&
+    entity.primary_key.type === "uuid" &&
+    dialect.name() === "sqlite";
+
   for (const f of entity.fields) {
-    if (
-      f.name === entity.primary_key.field &&
-      entity.primary_key.generated
-    ) {
+    if (f.name === entity.primary_key.field && entity.primary_key.generated) {
+      if (needsAppUUID) {
+        // SQLite has no gen_random_uuid() default — generate in app code
+        cols.push(f.name);
+        vals.push(pb.add(randomUUID()));
+      }
       continue;
     }
     if (f.auto === "create" || f.auto === "update") {
