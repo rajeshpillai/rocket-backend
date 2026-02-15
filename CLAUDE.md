@@ -165,8 +165,8 @@ Default credentials: `platform@localhost / changeme` (platform), `admin@localhos
 - Go: `snake_case.go`, `pgx` directly, `fmt.Errorf` wrapping, context threading
 - TypeScript: strict mode, ESM, `pg` directly, async/await
 - Elixir: Phoenix conventions, pattern matching, GenServer for background tasks
-- Each backend has its own `todo.md` tracking implementation status
-- Root `todo.md` is the canonical feature roadmap
+- **Feature workflow:** root `todo.md` is updated first (source of truth for all features/changes), then backend-specific `todo.md` files are updated as each implementation progresses
+- Each backend `todo.md` tracks implementation status only — feature definitions live in root `todo.md`
 - Docs in `docs/` are shared and language-agnostic
 - After implementing a backend feature, update the admin UI in `admin/` to expose it
 - Update `man-days.md` with efforts
