@@ -161,19 +161,26 @@
 - [ ] Sensitive field masking (password fields, PII) in audit entries
 - [ ] Admin UI: Audit log viewer page with filters and record timeline view
 
-## Phase 10: Notifications & Email
-- [ ] `_notification_channels` system table (id, type [email/webhook/in_app], config JSONB, active)
-- [ ] `_notifications` system table (id, channel_id, recipient, subject, body, status, metadata JSONB, created_at, sent_at)
-- [ ] Notification engine (pluggable channels: email via SMTP, in-app, webhook)
-- [ ] SMTP email provider (configurable in app.yaml: host, port, from address, credentials)
-- [ ] Template system for notification bodies (entity fields, workflow context, approval links)
-- [ ] Workflow integration: notify assigned approvers when approval step is reached
-- [ ] Workflow integration: notify initiator on approval/rejection/completion
-- [ ] Notification on workflow timeout/escalation
-- [ ] Metadata-driven notification rules (entity + hook → send notification to channel)
-- [ ] Admin API for notification channel CRUD
-- [ ] Admin API for notification log/history query
-- [ ] Admin UI: Notification channel management + notification log viewer
+## Phase 10: Email Providers & Templates (see [docs/email-providers.md](../docs/email-providers.md))
+- [ ] `_email_providers` system table (id, name UNIQUE, provider, config JSONB, priority, active, created_at, updated_at)
+- [ ] `_email_templates` system table (id, key UNIQUE, subject, body_html, body_text, active, created_at, updated_at)
+- [ ] `_email_logs` system table (id, provider_id FK, template_key, to_email, subject, status, provider_response JSONB, error, attempt, created_at)
+- [ ] Provider adapters: SendGrid, Postmark, SMTP, Resend, Mailgun
+- [ ] Template engine: `{{variable}}` substitution (reuse webhook `{{env.VAR}}` pattern)
+- [ ] Built-in default templates: invite, welcome, password_reset
+- [ ] Async email dispatch (fire-and-forget after API response, same pattern as async webhooks)
+- [ ] Provider fallback: try providers in priority order, log failures
+- [ ] Secrets via `{{env.VAR}}` references in provider config (never stored in plaintext)
+- [ ] App settings: `invite_accept_url` template for generating clickable links
+- [ ] Integration: invite creation → auto-send invite email (if provider configured)
+- [ ] Integration: accept-invite → auto-send welcome email (if provider configured)
+- [ ] Admin API: provider CRUD + test endpoint (`POST /_admin/email/providers/:id/test`)
+- [ ] Admin API: template CRUD + preview endpoint (`POST /_admin/email/templates/:id/preview`)
+- [ ] Admin API: email log query (`GET /_admin/email/logs`)
+- [ ] Admin API: ad-hoc send (`POST /_admin/email/send`)
+- [ ] Admin UI: Email Providers page (add/edit/test, priority ordering)
+- [ ] Admin UI: Email Templates page (edit subject/body, variable reference, preview)
+- [ ] Admin UI: Email Logs page (delivery status, filters)
 
 ## Phase 11: Comments & Activity Stream
 - [ ] `_comments` system table (id, entity, record_id, user_id, user_email, body, parent_id, created_at, updated_at)
@@ -240,6 +247,7 @@
 ## User Invites (done)
 - [x] `_invites` system table (DDL in both Postgres and SQLite dialects)
 - [x] Admin endpoints: `POST /_admin/invites`, `GET /_admin/invites`, `DELETE /_admin/invites/:id`
+- [x] Bulk invite endpoint: `POST /_admin/invites/bulk` (shared roles, skip & report)
 - [x] Public endpoint: `POST /auth/accept-invite` (token + password → user creation + auto-login)
 - [x] Validation: duplicate email, pending invite, expired token, already accepted
 - [x] Transaction safety for user creation + invite acceptance
