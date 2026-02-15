@@ -138,7 +138,21 @@
 - [ ] Admin UI: Email Templates page (edit subject/body, variable reference, preview)
 - [ ] Admin UI: Email Logs page (delivery status, filters)
 
-## Phase 11: Comments & Activity Stream
+## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](../docs/api-connectors.md))
+- [ ] `_api_connectors` system table (name, base_url, auth_type, auth_config JSONB, default_headers JSONB, timeout_ms, retry JSONB, active)
+- [ ] Auth types: `none`, `bearer`, `basic`, `api_key`, `custom_header` with `{{env.VAR}}` secret resolution
+- [ ] Connector CRUD admin API (`/_admin/api-connectors`) + test endpoint
+- [ ] New workflow action: `http_request` — call external API via connector, map response into context
+- [ ] New workflow action: `send_email` — send email via provider + template
+- [ ] New workflow action: `update_record`, `delete_record`, `transform`, `delay`
+- [ ] Implement stubs: `create_record`, `send_event`
+- [ ] New workflow step type: `http_request` — call API and branch on success/error
+- [ ] New state machine transition actions: `http_request`, `send_email`
+- [ ] New rule type: `http_validate` — validate against external API before write
+- [ ] Response mapping (dot-path extraction from JSON response into workflow context)
+- [ ] Admin UI: API Connectors settings page
+
+## Phase 12: Comments & Activity Stream
 - [ ] `_comments` system table (id, entity, record_id, user_id, user_email, body, parent_id, created_at, updated_at)
 - [ ] `_activity` system table (id, entity, record_id, type [comment/state_change/workflow/field_update], summary, user_id, metadata JSONB, created_at)
 - [ ] Comment CRUD endpoints (`POST/GET/PUT/DELETE /api/:app/:entity/:id/comments`)
@@ -149,7 +163,7 @@
 - [ ] Permission-aware (comment visibility respects entity read permissions)
 - [ ] Admin UI: Activity/comment panel on data record detail view
 
-## Phase 12: Parallel & Advanced Workflows
+## Phase 13: Parallel & Advanced Workflows
 - [ ] Parallel approval gates: AND (all must approve), OR (any one approves), N-of-M (quorum)
 - [ ] Multi-approver step type (roles/users list, approval threshold)
 - [ ] Delegation: user A delegates approval authority to user B (time-bounded)
@@ -161,7 +175,7 @@
 - [ ] Reassign approval step to different user
 - [ ] Admin UI: Enhanced workflow builder with parallel gates, delegation config, step forms
 
-## Phase 13: Field-Level Permissions & Conditional Visibility
+## Phase 14: Field-Level Permissions & Conditional Visibility
 - [ ] Field-level permission rules in `_permissions` (fields array: include/exclude per role+action)
 - [ ] Read filtering: strip restricted fields from API responses based on user role
 - [ ] Write filtering: reject writes to restricted fields with field-level error details
@@ -169,7 +183,7 @@
 - [ ] Field masking (partial display: last 4 digits of SSN, masked email)
 - [ ] Admin UI: Field permission matrix editor (role × field × action grid)
 
-## Phase 14: SSO & External Auth
+## Phase 15: SSO & External Auth
 - [ ] OAuth 2.0 / OpenID Connect provider support (authorization code flow)
 - [ ] SAML 2.0 SP implementation (for enterprise IdPs like Okta, Azure AD, OneLogin)
 - [ ] LDAP/Active Directory bind authentication
@@ -179,7 +193,7 @@
 - [ ] Session management (SSO sessions, single logout)
 - [ ] Admin UI: Auth provider configuration page
 
-## Phase 15: Reporting & Dashboards
+## Phase 16: Reporting & Dashboards
 - [ ] Aggregate query endpoint (`GET /api/:app/:entity/_aggregate`) — count, sum, avg, min, max, group_by
 - [ ] Workflow KPI queries: avg approval time, bottleneck steps, SLA breach counts, pending by approver
 - [ ] Dashboard metadata (`_dashboards` table) — saved dashboard definitions with widget configs
@@ -188,7 +202,7 @@
 - [ ] Scheduled reports (cron-based, email delivery via notification channels)
 - [ ] Admin UI: Dashboard builder + KPI overview page
 
-## Phase 16: Bulk Operations & API Hardening
+## Phase 17: Bulk Operations & API Hardening
 - [ ] Bulk create endpoint (`POST /api/:app/:entity/_bulk` — array of records, transactional)
 - [ ] Bulk update endpoint (`PUT /api/:app/:entity/_bulk` — array of {id, ...fields}, transactional)
 - [ ] Bulk delete endpoint (`DELETE /api/:app/:entity/_bulk` — array of IDs)
