@@ -78,6 +78,7 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [x] Export all metadata (entities, relations, rules, state machines, workflows, permissions, webhooks) as JSON
 - [x] Import with dependency-ordered insert and idempotent dedup
 - [x] Sample data support in import
+- [x] Example schemas: `examples/backend/` — content-management, employee-management, helpdesk-ticketing
 
 ## User Invites ✅
 - [x] `_invites` system table
@@ -85,6 +86,23 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [x] Bulk invite endpoint (`POST /_admin/invites/bulk`) — shared roles, skip & report
 - [x] Public accept-invite endpoint (token + password → user creation + auto-login)
 - [x] Validation: duplicate email, pending invite, expired token, already accepted
+
+## Client App & UI Configs ✅
+- [x] SolidJS client app (`client/`) — separate from admin panel
+- [x] `_ui_configs` system table (entity, scope, config JSONB) with unique (entity, scope) constraint
+- [x] Admin CRUD endpoints (`/_admin/ui-configs`) + non-admin read endpoints (`/_ui/configs`, `/_ui/config/:entity`)
+- [x] Config-driven list view: columns, sort, pagination, searchable fields
+- [x] Config-driven detail view: grouped sections with field selection
+- [x] Config-driven form: field overrides (label, widget, readonly, help), hidden/readonly fields
+- [x] Sidebar config: icon, label, group for navigation grouping
+- [x] Public landing pages (`/pages/:entity`) — card grid or list layout, filter/sort/include from config
+- [x] Public detail pages (`/pages/:entity/:id`) — hero, meta, content sections, markdown/HTML rendering
+- [x] Comments section on public detail pages (config-driven, `allow_submit` flag)
+- [x] Standalone deployment mode (`VITE_FIXED_APP` env var)
+- [x] Custom page registry for full-control overrides
+- [x] Export/import UI configs (JSON) from admin UI
+- [x] Example configs: `examples/frontend/` — ui-configs-cms, ui-configs-helpdesk
+- [x] Docs: `docs/client-ui.md`, `client/docs/ui-metadata.md`
 
 ---
 
@@ -122,21 +140,24 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [ ] Sensitive field masking (passwords, PII)
 - [ ] Admin UI: Audit log viewer with filters and record timeline
 
-## Phase 10: Email Providers & Templates (see [docs/email-providers.md](docs/email-providers.md))
-- [ ] `_email_providers` system table (provider, config JSONB, priority, active)
-- [ ] `_email_templates` system table (key, subject, body_html, body_text, active)
-- [ ] `_email_logs` system table (provider_id, template_key, to_email, subject, status, error, attempt)
-- [ ] Provider adapters: SendGrid, Postmark, SMTP, Resend, Mailgun
+## Phase 10: Notifications & Templates (see [docs/email-providers.md](docs/email-providers.md))
+- [ ] `_notification_providers` system table (channel, provider, config JSONB, priority, active)
+- [ ] `_notification_templates` system table (key, channel, subject, body_html, body_text, active)
+- [ ] `_notification_logs` system table (provider_id, template_key, channel, to, subject, status, error, attempt)
+- [ ] **Email channel**: SendGrid, Postmark, SMTP, Resend, Mailgun adapters
+- [ ] **SMS channel**: Twilio, MSG91 adapters
+- [ ] **WhatsApp channel**: WhatsApp Business API adapter (template messages)
+- [ ] **Push channel**: FCM (Firebase Cloud Messaging) adapter
 - [ ] Template engine: `{{variable}}` substitution (reuse webhook `{{env.VAR}}` pattern)
-- [ ] Built-in default templates: invite, welcome, password_reset
-- [ ] Async email dispatch (fire-and-forget, same pattern as async webhooks)
-- [ ] Provider fallback: try providers in priority order, log failures
+- [ ] Built-in default templates: invite, welcome, password_reset, otp_verification, status_update
+- [ ] Async dispatch (fire-and-forget, same pattern as async webhooks)
+- [ ] Provider fallback: try providers in priority order per channel, log failures
 - [ ] Secrets via `{{env.VAR}}` references (never stored in plaintext)
 - [ ] App settings: `invite_accept_url` template for accept links
 - [ ] Integration: invite creation → auto-send invite email
 - [ ] Integration: accept-invite → auto-send welcome email
-- [ ] Admin API: provider CRUD + test, template CRUD + preview, email logs, ad-hoc send
-- [ ] Admin UI: Email Providers, Templates, and Logs pages
+- [ ] Admin API: provider CRUD + test, template CRUD + preview, logs, ad-hoc send
+- [ ] Admin UI: Notification Providers, Templates, and Logs pages
 
 ## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](docs/api-connectors.md))
 - [ ] `_api_connectors` system table (name, base_url, auth_type, auth_config JSONB, default_headers JSONB, timeout_ms, retry JSONB, active)
@@ -144,15 +165,16 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [ ] Secrets via `{{env.VAR}}` references in auth_config (never stored in plaintext)
 - [ ] Connector resolution at request time (lookup by name, resolve env vars, inject auth)
 - [ ] New workflow action: `http_request` — call external API via connector, map response into workflow context
-- [ ] New workflow action: `send_email` — send email via configured provider and template
+- [ ] New workflow action: `send_notification` — send via configured provider, channel, and template
 - [ ] New workflow action: `update_record` — update existing entity record (multi-field)
 - [ ] New workflow action: `delete_record` — soft-delete entity record
 - [ ] New workflow action: `transform` — compute values into workflow context without DB
 - [ ] New workflow action: `delay` — pause workflow for specified duration
 - [ ] Implement existing stubs: `create_record`, `send_event`
 - [ ] New workflow step type: `http_request` — call API and branch on success/error
+- [ ] New workflow step type: `verification` — send OTP (SMS/email), pause workflow, resume on valid input
 - [ ] New state machine transition action: `http_request` — call API on transition
-- [ ] New state machine transition action: `send_email` — send email on transition
+- [ ] New state machine transition action: `send_notification` — send notification on transition
 - [ ] New rule type: `http_validate` — validate against external API before write
 - [ ] Response mapping: dot-path extraction from JSON response into workflow context
 - [ ] Variable resolution: `{{context.record.field}}`, `{{record.field}}`, `{{env.VAR}}`, `{{response.field}}`
@@ -182,14 +204,20 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [ ] Parallel step type: execute multiple branches concurrently
 - [ ] Cancel/abort workflow instance endpoint
 - [ ] Reassign approval step to different user
+- [ ] **Return-to-step / correction flow**: reject and send back to a previous step (e.g., document re-upload)
+- [ ] **Workflow versioning**: in-progress instances continue on original version, new instances use latest
+- [ ] **Scheduled reminders**: per-step configurable nudges (e.g., nudge after 24h, 72h, then escalate)
 - [ ] Admin UI: Enhanced workflow builder with parallel gates, delegation config, step forms
 
-## Phase 14: Field-Level Permissions & Conditional Visibility
+## Phase 14: Field-Level Permissions & Data Protection
 - [ ] Field-level permission rules in `_permissions` (fields array: include/exclude per role+action)
 - [ ] Read filtering: strip restricted fields from API responses by role
 - [ ] Write filtering: reject writes to restricted fields with field-level errors
 - [ ] Conditional field visibility rules (show/hide based on record state, role, or expression)
-- [ ] Field masking (partial display: last 4 digits of SSN, masked email)
+- [ ] Field masking (partial display: last 4 digits of Aadhaar, masked email)
+- [ ] **PII encryption at rest**: `encrypted` field flag → AES-256 encrypt before DB, decrypt on read
+- [ ] **Data retention policies**: per-entity auto-purge rules (delete PII after X days post-completion)
+- [ ] **Sensitive field annotation**: mark fields as PII in entity metadata (drives masking, encryption, audit, retention)
 - [ ] Admin UI: Field permission matrix editor (role x field x action grid)
 
 ## Phase 15: SSO & External Auth
@@ -221,6 +249,21 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [ ] API key authentication (alternative to JWT for service-to-service)
 - [ ] Admin UI: Bulk import page (CSV/JSON upload with field mapping)
 
+## Phase 18: Self-Service & Onboarding Journeys
+- [ ] **Public form submission**: `POST /api/:app/_public/:entity` — create records without auth (rate-limited, honeypot/captcha)
+- [ ] **Token-based applicant access**: submission returns a tracking token; `GET /api/:app/_public/status/:token` returns journey progress
+- [ ] **Document checklist**: per-entity conditional requirements (e.g., "if type=individual require PAN+Aadhaar; if type=company require GST+board_resolution")
+- [ ] **Document review cycle**: reviewer rejects document with reason → applicant notified → re-upload via token → workflow resumes
+- [ ] **Journey progress API**: `GET /api/:app/_public/progress/:token` — step X of Y, % complete, next action required, pending items
+- [ ] **Applicant status page**: client app page at `/track/:token` — shows progress bar, completed/pending steps, re-upload prompts
+- [ ] **E-signature integration**: workflow step type `e_sign` — triggers signing request via connector (Digio, DocuSign), pauses until signed
+- [ ] **Conditional field requirements**: field `required_when` expression (e.g., `"record.type == 'individual'"`) — drives both validation and UI
+- [ ] **Application resume**: applicant can return via token and continue incomplete submission (draft state)
+- [ ] **SLA tracking**: per-workflow expected completion time, per-step SLA, breach alerts via notification
+- [ ] Client App: Public submission form (config-driven via `_ui_configs` `pages.form` section)
+- [ ] Client App: Application tracker page (progress bar, document status, re-upload)
+- [ ] Admin UI: Onboarding dashboard (funnel view, drop-off rates, avg completion time)
+
 ---
 
 ## Nice to Have
@@ -240,6 +283,8 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 | `condition` | Live | Evaluates expression, branches `on_true`/`on_false` |
 | `approval` | Live | Pauses for human approval, optional timeout |
 | `http_request` | Planned (Phase 11) | Calls external API via connector, branches on success/error |
+| `verification` | Planned (Phase 11) | Sends OTP (SMS/email), pauses workflow, resumes on valid input |
+| `e_sign` | Planned (Phase 18) | Triggers e-signature request via connector, pauses until signed |
 | `loop` | Planned (Phase 13) | Iterates over a collection in workflow context |
 | `parallel` | Planned (Phase 13) | Executes multiple branches concurrently |
 
@@ -252,7 +297,7 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 | `create_record` | Stub | Creates a new entity record |
 | `send_event` | Stub | Emits a business event (Phase 8 integration) |
 | `http_request` | Planned (Phase 11) | Calls API via connector, maps response to context |
-| `send_email` | Planned (Phase 11) | Sends email via configured provider + template |
+| `send_notification` | Planned (Phase 11) | Sends notification via configured provider, channel + template |
 | `update_record` | Planned (Phase 11) | Updates existing record (multi-field) |
 | `delete_record` | Planned (Phase 11) | Soft-deletes a record |
 | `transform` | Planned (Phase 11) | Computes values into workflow context (no DB) |
@@ -267,7 +312,7 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 | `create_record` | Stub | Creates a new entity record |
 | `send_event` | Stub | Emits a business event |
 | `http_request` | Planned (Phase 11) | Calls API via connector on transition |
-| `send_email` | Planned (Phase 11) | Sends email on transition |
+| `send_notification` | Planned (Phase 11) | Sends notification on transition |
 
 ### Rule Types
 
@@ -277,6 +322,15 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 | `expression` | Live | Validates against boolean expressions |
 | `computed` | Live | Auto-calculates field from expression |
 | `http_validate` | Planned (Phase 11) | Validates against external API before write |
+
+### Notification Channels
+
+| Channel | Providers | Status |
+|---------|-----------|--------|
+| `email` | SendGrid, Postmark, SMTP, Resend, Mailgun | Planned (Phase 10) |
+| `sms` | Twilio, MSG91 | Planned (Phase 10) |
+| `whatsapp` | WhatsApp Business API | Planned (Phase 10) |
+| `push` | FCM (Firebase Cloud Messaging) | Planned (Phase 10) |
 
 ### Webhook Hook Types
 
