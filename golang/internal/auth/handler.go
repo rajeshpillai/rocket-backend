@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -147,12 +148,118 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"message": "Logged out"})
 }
 
+// AcceptInvite handles POST /api/auth/accept-invite.
+func (h *AuthHandler) AcceptInvite(c *fiber.Ctx) error {
+	var body struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return engine.NewAppError("INVALID_PAYLOAD", 400, "Invalid JSON body")
+	}
+	if body.Token == "" {
+		return engine.NewAppError("VALIDATION_FAILED", 422, "token is required")
+	}
+	if body.Password == "" {
+		return engine.NewAppError("VALIDATION_FAILED", 422, "password is required")
+	}
+
+	// Look up invite by token
+	pb := h.store.Dialect.NewParamBuilder()
+	invite, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id, email, roles, expires_at, accepted_at FROM _invites WHERE token = %s", pb.Add(body.Token)),
+		pb.Params()...)
+	if err != nil {
+		return engine.NewAppError("NOT_FOUND", 404, "Invalid invite token")
+	}
+
+	// Check not already accepted
+	if invite["accepted_at"] != nil {
+		return engine.NewAppError("VALIDATION_FAILED", 400, "Invite has already been accepted")
+	}
+
+	// Check not expired — parse timestamp and compare in Go
+	expiresAt, err := time.Parse(time.RFC3339, fmt.Sprintf("%v", invite["expires_at"]))
+	if err != nil {
+		// Try other formats
+		expiresAt, err = time.Parse("2006-01-02T15:04:05Z07:00", fmt.Sprintf("%v", invite["expires_at"]))
+		if err != nil {
+			expiresAt, err = time.Parse("2006-01-02 15:04:05", fmt.Sprintf("%v", invite["expires_at"]))
+			if err != nil {
+				return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to parse invite expiry")
+			}
+		}
+	}
+	if time.Now().After(expiresAt) {
+		return engine.NewAppError("VALIDATION_FAILED", 400, "Invite has expired")
+	}
+
+	hash, err := HashPassword(body.Password)
+	if err != nil {
+		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to hash password")
+	}
+
+	email := fmt.Sprintf("%v", invite["email"])
+	roles := extractRoles(invite["roles"])
+
+	// Begin transaction: create user + mark invite accepted
+	tx, err := h.store.BeginTx(c.Context())
+	if err != nil {
+		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to begin transaction")
+	}
+	defer tx.Rollback()
+
+	userID := store.GenerateUUID()
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), tx,
+		fmt.Sprintf("INSERT INTO _users (id, email, password_hash, roles, active) VALUES (%s, %s, %s, %s, %s)",
+			pb2.Add(userID), pb2.Add(email), pb2.Add(hash), pb2.Add(h.store.Dialect.ArrayParam(roles)), pb2.Add(true)),
+		pb2.Params()...)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "duplicate") {
+			return engine.NewAppError("CONFLICT", 409, "A user with this email already exists")
+		}
+		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to create user")
+	}
+
+	inviteID := fmt.Sprintf("%v", invite["id"])
+	pb3 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), tx,
+		fmt.Sprintf("UPDATE _invites SET accepted_at = %s WHERE id = %s",
+			h.store.Dialect.NowExpr(), pb3.Add(inviteID)),
+		pb3.Params()...)
+	if err != nil {
+		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to update invite")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return engine.NewAppError("INTERNAL_ERROR", 500, "Failed to commit transaction")
+	}
+
+	// Generate token pair so user is immediately logged in
+	tokenPair, err := h.generateTokenPair(c.Context(), userID, roles)
+	if err != nil {
+		return err
+	}
+
+	return c.Status(201).JSON(fiber.Map{"data": fiber.Map{
+		"access_token":  tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+		"user": fiber.Map{
+			"id":    userID,
+			"email": email,
+			"roles": roles,
+		},
+	}})
+}
+
 // RegisterAuthRoutes registers auth routes on the given Fiber app.
 func RegisterAuthRoutes(app *fiber.App, h *AuthHandler) {
 	auth := app.Group("/api/auth")
 	auth.Post("/login", h.Login)
 	auth.Post("/refresh", h.Refresh)
 	auth.Post("/logout", h.Logout)
+	auth.Post("/accept-invite", h.AcceptInvite)
 }
 
 // --- helpers ---

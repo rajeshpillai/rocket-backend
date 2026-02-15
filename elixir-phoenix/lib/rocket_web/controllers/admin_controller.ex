@@ -663,6 +663,172 @@ defmodule RocketWeb.AdminController do
     end
   end
 
+  # ── Invites ──
+
+  def create_invite(conn, params) do
+    email = params["email"]
+
+    if !email || email == "" do
+      respond_error(conn, AppError.validation_failed([%{field: "email", rule: "required", message: "email is required"}]))
+    else
+      db = get_conn(conn)
+      roles = params["roles"] || []
+      dialect = Store.dialect()
+
+      # Check email not already a user
+      case Store.query_row(db, "SELECT id FROM _users WHERE email = $1", [email]) do
+        {:ok, _} ->
+          respond_error(conn, AppError.conflict("A user with this email already exists"))
+
+        {:error, :not_found} ->
+          # Check no pending invite for this email
+          case Store.query_rows(db,
+                 "SELECT id FROM _invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > #{dialect.now_expr()}",
+                 [email]) do
+            {:ok, [_ | _]} ->
+              respond_error(conn, AppError.conflict("A pending invite already exists for this email"))
+
+            _ ->
+              token = Ecto.UUID.generate()
+              expires_at = DateTime.utc_now() |> DateTime.add(72 * 3600, :second)
+
+              invited_by =
+                case conn.assigns[:current_user] do
+                  %{"id" => uid} -> uid
+                  _ -> nil
+                end
+
+              {sql, prms} =
+                if dialect.uuid_default() == "" do
+                  id = Ecto.UUID.generate()
+                  {"INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, roles, token, expires_at, invited_by, created_at",
+                   [id, email, dialect.array_param(roles), token, expires_at, invited_by]}
+                else
+                  {"INSERT INTO _invites (email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, roles, token, expires_at, invited_by, created_at",
+                   [email, dialect.array_param(roles), token, expires_at, invited_by]}
+                end
+
+              case Store.query_row(db, sql, prms) do
+                {:ok, row} ->
+                  conn |> put_status(201) |> json(%{data: row})
+
+                {:error, err} ->
+                  respond_error(conn, wrap_error(err))
+              end
+          end
+
+        {:error, err} ->
+          respond_error(conn, wrap_error(err))
+      end
+    end
+  end
+
+  def list_invites(conn, _params) do
+    db = get_conn(conn)
+
+    case Store.query_rows(db, "SELECT id, email, roles, token, expires_at, accepted_at, invited_by, created_at FROM _invites ORDER BY created_at DESC") do
+      {:ok, rows} -> json(conn, %{data: rows})
+      {:error, err} -> respond_error(conn, wrap_error(err))
+    end
+  end
+
+  def delete_invite(conn, %{"id" => id}) do
+    db = get_conn(conn)
+
+    case Store.query_row(db, "SELECT id FROM _invites WHERE id = $1", [id]) do
+      {:ok, _} ->
+        Store.exec(db, "DELETE FROM _invites WHERE id = $1", [id])
+        json(conn, %{data: %{id: id, deleted: true}})
+
+      {:error, :not_found} ->
+        respond_error(conn, AppError.not_found("Invite", id))
+
+      {:error, err} ->
+        respond_error(conn, wrap_error(err))
+    end
+  end
+
+  def bulk_create_invites(conn, params) do
+    emails_raw = params["emails"]
+
+    if !is_list(emails_raw) || emails_raw == [] do
+      respond_error(conn, AppError.validation_failed([%{field: "emails", rule: "required", message: "emails is required and must be a non-empty array"}]))
+    else
+      # Trim, lowercase, deduplicate
+      emails =
+        emails_raw
+        |> Enum.map(&(String.trim(to_string(&1)) |> String.downcase()))
+        |> Enum.uniq()
+
+      if Enum.any?(emails, &(&1 == "")) do
+        respond_error(conn, AppError.validation_failed([%{field: "emails", rule: "required", message: "emails must not contain blank entries"}]))
+      else
+        db = get_conn(conn)
+        roles = params["roles"] || []
+        dialect = Store.dialect()
+        expires_at = DateTime.utc_now() |> DateTime.add(72 * 3600, :second)
+        roles_param = dialect.array_param(roles)
+
+        invited_by =
+          case conn.assigns[:current_user] do
+            %{"id" => uid} -> uid
+            _ -> nil
+          end
+
+        {created, skipped} =
+          Enum.reduce(emails, {[], []}, fn email, {created_acc, skipped_acc} ->
+            # Check email not already a user
+            case Store.query_row(db, "SELECT id FROM _users WHERE email = $1", [email]) do
+              {:ok, _} ->
+                {created_acc, skipped_acc ++ [%{email: email, reason: "A user with this email already exists"}]}
+
+              _ ->
+                # Check no pending invite
+                case Store.query_rows(db,
+                       "SELECT id FROM _invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > #{dialect.now_expr()}",
+                       [email]) do
+                  {:ok, [_ | _]} ->
+                    {created_acc, skipped_acc ++ [%{email: email, reason: "A pending invite already exists for this email"}]}
+
+                  _ ->
+                    token = Ecto.UUID.generate()
+
+                    {sql, prms} =
+                      if dialect.uuid_default() == "" do
+                        id = Ecto.UUID.generate()
+                        {"INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, token, expires_at",
+                         [id, email, roles_param, token, expires_at, invited_by]}
+                      else
+                        {"INSERT INTO _invites (email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, token, expires_at",
+                         [email, roles_param, token, expires_at, invited_by]}
+                      end
+
+                    case Store.query_row(db, sql, prms) do
+                      {:ok, row} ->
+                        {created_acc ++ [%{id: row["id"], email: email, token: row["token"], expires_at: row["expires_at"]}], skipped_acc}
+
+                      {:error, err} ->
+                        {created_acc, skipped_acc ++ [%{email: email, reason: "Insert failed: #{inspect(err)}"}]}
+                    end
+                end
+            end
+          end)
+
+        json(conn, %{
+          data: %{
+            created: created,
+            skipped: skipped,
+            summary: %{
+              total: length(emails),
+              created: length(created),
+              skipped: length(skipped)
+            }
+          }
+        })
+      end
+    end
+  end
+
   # ── Permissions ──
 
   def list_permissions(conn, _params) do

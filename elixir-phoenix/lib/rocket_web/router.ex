@@ -61,6 +61,7 @@ defmodule RocketWeb.Router do
     post "/login", AuthController, :login
     post "/refresh", AuthController, :refresh
     post "/logout", AuthController, :logout
+    post "/accept-invite", AuthController, :accept_invite
   end
 
   # App admin — require app resolver + dual auth + admin
@@ -108,6 +109,12 @@ defmodule RocketWeb.Router do
     get "/users/:id", AdminController, :get_user
     put "/users/:id", AdminController, :update_user
     delete "/users/:id", AdminController, :delete_user
+
+    # Invites
+    post "/invites/bulk", AdminController, :bulk_create_invites
+    get "/invites", AdminController, :list_invites
+    post "/invites", AdminController, :create_invite
+    delete "/invites/:id", AdminController, :delete_invite
 
     # Permissions
     get "/permissions", AdminController, :list_permissions

@@ -17,6 +17,7 @@ const navItems = [
   { href: "/data", label: "Data Browser", icon: "\u25A4" },
   { href: "/playground", label: "API Playground", icon: "\u25B7" },
   { href: "/users", label: "Users", icon: "\uD83D\uDC64" },
+  { href: "/invites", label: "Invites", icon: "\u2709" },
   { href: "/permissions", label: "Permissions", icon: "\uD83D\uDD12" },
   { href: "/webhooks", label: "Webhooks", icon: "\uD83D\uDD17" },
   { href: "/webhook-logs", label: "Webhook Logs", icon: "\uD83D\uDCCB" },

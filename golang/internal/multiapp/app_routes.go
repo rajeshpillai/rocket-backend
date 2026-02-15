@@ -38,6 +38,7 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	appAuth.Post("/login", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Login }))
 	appAuth.Post("/refresh", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Refresh }))
 	appAuth.Post("/logout", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.Logout }))
+	appAuth.Post("/accept-invite", dispatch(func(ac *AppContext) fiber.Handler { return ac.AuthHandler.AcceptInvite }))
 
 	// All other routes require app resolver + auth + instrumentation
 	protected := app.Group("/api/:app", resolverMW, appAuthMW, instrMW)
@@ -86,6 +87,12 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	adm.Post("/users", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.CreateUser }))
 	adm.Put("/users/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.UpdateUser }))
 	adm.Delete("/users/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.DeleteUser }))
+
+	// Invites
+	adm.Post("/invites/bulk", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.BulkCreateInvites }))
+	adm.Get("/invites", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.ListInvites }))
+	adm.Post("/invites", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.CreateInvite }))
+	adm.Delete("/invites/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.DeleteInvite }))
 
 	// Permissions
 	adm.Get("/permissions", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.ListPermissions }))

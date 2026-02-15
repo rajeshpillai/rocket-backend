@@ -42,6 +42,7 @@ export function registerAppRoutes(
   authRouter.post("/login", dispatch((ac) => ac.authHandler.login));
   authRouter.post("/refresh", dispatch((ac) => ac.authHandler.refresh));
   authRouter.post("/logout", dispatch((ac) => ac.authHandler.logout));
+  authRouter.post("/accept-invite", dispatch((ac) => ac.authHandler.acceptInvite));
   app.use("/api/:app/auth", resolverMW, instrMW, authRouter);
 
   // Admin routes (auth + admin required)
@@ -88,6 +89,12 @@ export function registerAppRoutes(
   adminRouter.post("/users", dispatch((ac) => ac.adminHandler.createUser));
   adminRouter.put("/users/:id", dispatch((ac) => ac.adminHandler.updateUser));
   adminRouter.delete("/users/:id", dispatch((ac) => ac.adminHandler.deleteUser));
+
+  // Invites
+  adminRouter.post("/invites/bulk", dispatch((ac) => ac.adminHandler.bulkCreateInvites));
+  adminRouter.get("/invites", dispatch((ac) => ac.adminHandler.listInvites));
+  adminRouter.post("/invites", dispatch((ac) => ac.adminHandler.createInvite));
+  adminRouter.delete("/invites/:id", dispatch((ac) => ac.adminHandler.deleteInvite));
 
   // Permissions
   adminRouter.get("/permissions", dispatch((ac) => ac.adminHandler.listPermissions));

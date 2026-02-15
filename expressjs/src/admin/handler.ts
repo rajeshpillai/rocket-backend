@@ -15,6 +15,8 @@ import type { Webhook } from "../metadata/webhook.js";
 import { reload } from "../metadata/loader.js";
 import { AppError } from "../engine/errors.js";
 import { hashPassword } from "../auth/auth.js";
+import { getDialect } from "../store/postgres.js";
+import crypto from "crypto";
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
@@ -679,6 +681,145 @@ export class AdminHandler {
     }
 
     await exec(this.store.pool, "DELETE FROM _users WHERE id = $1", [id]);
+
+    res.json({ data: { id, deleted: true } });
+  });
+
+  // --- Invite Endpoints ---
+
+  createInvite = asyncHandler(async (req: Request, res: Response) => {
+    const { email, roles } = req.body ?? {};
+    if (!email) {
+      throw new AppError("VALIDATION_FAILED", 422, "email is required");
+    }
+    const inviteRoles = roles ?? [];
+
+    // Check email not already a user
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _users WHERE email = $1", [email]);
+      throw new AppError("CONFLICT", 409, "A user with this email already exists");
+    } catch (e: any) {
+      if (e instanceof AppError && e.code === "CONFLICT") throw e;
+      // User not found — good, continue
+    }
+
+    // Check no pending invite for this email
+    const dialect = getDialect();
+    const pendingRows = await queryRows(
+      this.store.pool,
+      `SELECT id FROM _invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > ${dialect.nowExpr()}`,
+      [email],
+    );
+    if (pendingRows && pendingRows.length > 0) {
+      throw new AppError("CONFLICT", 409, "A pending invite already exists for this email");
+    }
+
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const invitedBy = req.user?.id ?? null;
+
+    const row = await queryRow(
+      this.store.pool,
+      "INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, roles, token, expires_at, invited_by, created_at",
+      [crypto.randomUUID(), email, dialect.arrayParam(inviteRoles), token, expiresAt, invitedBy],
+    );
+
+    res.status(201).json({ data: row });
+  });
+
+  bulkCreateInvites = asyncHandler(async (req: Request, res: Response) => {
+    const { emails, roles } = req.body ?? {};
+    if (!Array.isArray(emails) || emails.length === 0) {
+      throw new AppError("VALIDATION_FAILED", 422, "emails is required and must be a non-empty array");
+    }
+    const inviteRoles = roles ?? [];
+
+    // Trim, lowercase, deduplicate
+    const seen = new Set<string>();
+    const uniqueEmails: string[] = [];
+    for (const raw of emails) {
+      const e = String(raw).trim().toLowerCase();
+      if (!e) {
+        throw new AppError("VALIDATION_FAILED", 422, "emails must not contain blank entries");
+      }
+      if (!seen.has(e)) {
+        seen.add(e);
+        uniqueEmails.push(e);
+      }
+    }
+
+    const dialect = getDialect();
+    const invitedBy = req.user?.id ?? null;
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const rolesParam = dialect.arrayParam(inviteRoles);
+
+    const created: { id: string; email: string; token: string; expires_at: any }[] = [];
+    const skipped: { email: string; reason: string }[] = [];
+
+    for (const email of uniqueEmails) {
+      // Check email not already a user
+      try {
+        await queryRow(this.store.pool, "SELECT id FROM _users WHERE email = $1", [email]);
+        skipped.push({ email, reason: "A user with this email already exists" });
+        continue;
+      } catch (e: any) {
+        if (e instanceof AppError && e.code === "CONFLICT") {
+          skipped.push({ email, reason: e.message });
+          continue;
+        }
+        // User not found — good, continue
+      }
+
+      // Check no pending invite
+      const pendingRows = await queryRows(
+        this.store.pool,
+        `SELECT id FROM _invites WHERE email = $1 AND accepted_at IS NULL AND expires_at > ${dialect.nowExpr()}`,
+        [email],
+      );
+      if (pendingRows && pendingRows.length > 0) {
+        skipped.push({ email, reason: "A pending invite already exists for this email" });
+        continue;
+      }
+
+      try {
+        const token = crypto.randomUUID();
+        const row = await queryRow(
+          this.store.pool,
+          "INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, email, token, expires_at",
+          [crypto.randomUUID(), email, rolesParam, token, expiresAt, invitedBy],
+        );
+        created.push({ id: row.id, email, token: row.token, expires_at: row.expires_at });
+      } catch (err: any) {
+        skipped.push({ email, reason: `Insert failed: ${err.message ?? err}` });
+      }
+    }
+
+    res.json({
+      data: {
+        created,
+        skipped,
+        summary: { total: uniqueEmails.length, created: created.length, skipped: skipped.length },
+      },
+    });
+  });
+
+  listInvites = asyncHandler(async (_req: Request, res: Response) => {
+    const rows = await queryRows(
+      this.store.pool,
+      "SELECT id, email, roles, token, expires_at, accepted_at, invited_by, created_at FROM _invites ORDER BY created_at DESC",
+    );
+    res.json({ data: rows ?? [] });
+  });
+
+  deleteInvite = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await queryRow(this.store.pool, "SELECT id FROM _invites WHERE id = $1", [id]);
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Invite not found: ${id}`);
+    }
+
+    await exec(this.store.pool, "DELETE FROM _invites WHERE id = $1", [id]);
 
     res.json({ data: { id, deleted: true } });
   });
@@ -1613,6 +1754,11 @@ export function registerAdminRoutes(
   admin.get("/webhook-logs", handler.listWebhookLogs);
   admin.get("/webhook-logs/:id", handler.getWebhookLog);
   admin.post("/webhook-logs/:id/retry", handler.retryWebhookLog);
+
+  admin.post("/invites/bulk", handler.bulkCreateInvites);
+  admin.get("/invites", handler.listInvites);
+  admin.post("/invites", handler.createInvite);
+  admin.delete("/invites/:id", handler.deleteInvite);
 
   admin.get("/export", handler.export);
   admin.post("/import", handler.import);

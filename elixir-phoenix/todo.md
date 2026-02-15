@@ -193,6 +193,15 @@
 
 ---
 
+## User Invites (done)
+- [x] `_invites` system table (DDL in both Postgres and SQLite dialects)
+- [x] Admin endpoints: `POST /_admin/invites`, `GET /_admin/invites`, `DELETE /_admin/invites/:id`
+- [x] Public endpoint: `POST /auth/accept-invite` (token + password → user creation + auto-login)
+- [x] Validation: duplicate email, pending invite, expired token, already accepted
+- [x] Route registration in router.ex
+
+---
+
 ## Nice to Have
 - [ ] **Role master table** (`_roles`): name (PK), display_name, description, created_at — enables role discovery, autocomplete in admin UI, typo prevention on role assignment, and bulk role rename/revoke across users
 - [ ] **Per-entity query caching**: metadata-driven cache config in entity definition (`cache.enabled`, `cache.ttl`, `cache.max_size`, `cache.strategy`), auto-invalidate on write, skip for entities with row-level permissions, global config in app.yaml (`cache.driver: memory|redis`, `cache.default_ttl`), admin purge endpoint (`DELETE /_cache/:entity`)

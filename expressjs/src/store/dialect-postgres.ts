@@ -328,6 +328,19 @@ CREATE INDEX IF NOT EXISTS idx_events_trace ON _events (trace_id);
 CREATE INDEX IF NOT EXISTS idx_events_entity_created ON _events (entity, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_created ON _events (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_type_source ON _events (event_type, source);
+
+CREATE TABLE IF NOT EXISTS _invites (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email       TEXT NOT NULL,
+    roles       TEXT[] DEFAULT '{}',
+    token       TEXT NOT NULL UNIQUE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    invited_by  UUID,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_invites_token ON _invites(token);
+CREATE INDEX IF NOT EXISTS idx_invites_email ON _invites(email);
 `;
 
 const pgPlatformTablesSQL = `

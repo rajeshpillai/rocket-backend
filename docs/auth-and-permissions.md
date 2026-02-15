@@ -254,3 +254,73 @@ roles:    ["admin"]
 ```
 
 A startup log warns: `"Default admin created — change the password immediately."`
+
+---
+
+## User Invites
+
+An alternative to direct user creation — admin invites users by email, and invitees set their own password.
+
+### System Table
+
+```
+_invites — id (UUID PK), email, roles (TEXT[]), token (UNIQUE), expires_at, accepted_at, invited_by (UUID), created_at
+```
+
+### Endpoints
+
+```
+POST   /_admin/invites        # Admin creates invite {email, roles} → returns invite with token
+POST   /_admin/invites/bulk   # Admin bulk creates invites {emails, roles} → {created, skipped, summary}
+GET    /_admin/invites         # Admin lists all invites
+DELETE /_admin/invites/:id     # Admin revokes/cancels invite
+POST   /auth/accept-invite     # Public — accept invite {token, password} → {access_token, refresh_token, user}
+```
+
+### Invite Lifecycle
+
+1. **Create**: Admin calls `POST /_admin/invites` with `{email, roles}`. System validates email is not an existing user and no pending invite exists, generates a crypto-random token (72h expiry), and returns the invite record including the token.
+2. **Share**: Admin copies the token and shares it with the invitee (manually, or via a webhook-triggered email).
+3. **Accept**: Invitee calls `POST /auth/accept-invite` with `{token, password}`. System validates the token, creates the user (active, with assigned roles), marks the invite as accepted, and returns access + refresh tokens so the invitee is immediately logged in.
+4. **Expiry**: Unaccepted invites expire after 72 hours. Expired tokens are rejected on accept.
+5. **Revoke**: Admin can delete a pending invite at any time via `DELETE /_admin/invites/:id`.
+
+### Bulk Invites
+
+For organizations onboarding many users at once, `POST /_admin/invites/bulk` accepts multiple emails with shared roles:
+
+```json
+// Request
+{ "emails": ["alice@co.com", "bob@co.com"], "roles": ["editor"] }
+
+// Response
+{
+  "data": {
+    "created": [
+      { "id": "uuid", "email": "alice@co.com", "token": "tok-1", "expires_at": "..." },
+      { "id": "uuid", "email": "bob@co.com", "token": "tok-2", "expires_at": "..." }
+    ],
+    "skipped": [],
+    "summary": { "total": 2, "created": 2, "skipped": 0 }
+  }
+}
+```
+
+- Emails are trimmed, lowercased, and deduplicated before processing
+- Each email is validated independently (existing user? pending invite?)
+- Valid invites succeed even if others are skipped (skip & report pattern)
+- Skipped entries include a `reason` field explaining why
+
+### Validation Rules
+
+- Email must not already exist in `_users` (409 CONFLICT)
+- No pending (non-expired, non-accepted) invite for the same email (409 CONFLICT)
+- Token must exist and not be expired or already accepted
+- Both token and password required on accept (422 VALIDATION_FAILED)
+
+### Design Notes
+
+- Purely additive — no changes to existing `_users` table or auth flow
+- Direct user creation via `POST /_admin/users` continues to work unchanged
+- Email delivery is not built into the engine — use webhooks or share tokens manually
+- Accept-invite returns tokens directly, avoiding a separate login call

@@ -78,6 +78,11 @@ func RegisterAdminRoutes(app *fiber.App, h *Handler, middleware ...fiber.Handler
 	admin.Get("/webhook-logs/:id", h.GetWebhookLog)
 	admin.Post("/webhook-logs/:id/retry", h.RetryWebhookLog)
 
+	admin.Post("/invites/bulk", h.BulkCreateInvites)
+	admin.Get("/invites", h.ListInvites)
+	admin.Post("/invites", h.CreateInvite)
+	admin.Delete("/invites/:id", h.DeleteInvite)
+
 	admin.Get("/export", h.Export)
 	admin.Post("/import", h.Import)
 }
@@ -1054,6 +1059,215 @@ func (h *Handler) DeleteUser(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+// --- Invite Endpoints ---
+
+func (h *Handler) CreateInvite(c *fiber.Ctx) error {
+	var body struct {
+		Email string   `json:"email"`
+		Roles []string `json:"roles"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if body.Email == "" {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "email is required"}})
+	}
+	if body.Roles == nil {
+		body.Roles = []string{}
+	}
+
+	// Check email not already a user
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _users WHERE email = %s", pb.Add(body.Email)),
+		pb.Params()...)
+	if err == nil {
+		return c.Status(409).JSON(fiber.Map{"error": fiber.Map{"code": "CONFLICT", "message": "A user with this email already exists"}})
+	}
+
+	// Check no pending invite for this email
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _invites WHERE email = %s AND accepted_at IS NULL AND expires_at > %s",
+			pb2.Add(body.Email), h.store.Dialect.NowExpr()),
+		pb2.Params()...)
+	if err == nil {
+		return c.Status(409).JSON(fiber.Map{"error": fiber.Map{"code": "CONFLICT", "message": "A pending invite already exists for this email"}})
+	}
+
+	token := store.GenerateUUID()
+	expiresAt := time.Now().Add(72 * time.Hour)
+
+	var invitedBy *string
+	if user, ok := c.Locals("user").(*metadata.UserContext); ok && user != nil {
+		invitedBy = &user.ID
+	}
+
+	id := store.GenerateUUID()
+	pb3 := h.store.Dialect.NewParamBuilder()
+	row, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, email, roles, token, expires_at, invited_by, created_at",
+			pb3.Add(id), pb3.Add(body.Email), pb3.Add(h.store.Dialect.ArrayParam(body.Roles)), pb3.Add(token), pb3.Add(expiresAt), pb3.Add(invitedBy)),
+		pb3.Params()...)
+	if err != nil {
+		return fmt.Errorf("insert invite: %w", err)
+	}
+	row["roles"] = metadata.ParseStringArray(row["roles"])
+
+	return c.Status(201).JSON(fiber.Map{"data": row})
+}
+
+func (h *Handler) ListInvites(c *fiber.Ctx) error {
+	rows, err := store.QueryRows(c.Context(), h.store.DB,
+		"SELECT id, email, roles, token, expires_at, accepted_at, invited_by, created_at FROM _invites ORDER BY created_at DESC")
+	if err != nil {
+		return fmt.Errorf("list invites: %w", err)
+	}
+	if rows == nil {
+		rows = []map[string]any{}
+	}
+	for _, r := range rows {
+		r["roles"] = metadata.ParseStringArray(r["roles"])
+	}
+	return c.JSON(fiber.Map{"data": rows})
+}
+
+func (h *Handler) DeleteInvite(c *fiber.Ctx) error {
+	id := c.Params("id")
+	pb := h.store.Dialect.NewParamBuilder()
+	_, err := store.QueryRow(c.Context(), h.store.DB,
+		fmt.Sprintf("SELECT id FROM _invites WHERE id = %s", pb.Add(id)),
+		pb.Params()...)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": fiber.Map{"code": "NOT_FOUND", "message": "Invite not found: " + id}})
+	}
+
+	pb2 := h.store.Dialect.NewParamBuilder()
+	_, err = store.Exec(c.Context(), h.store.DB,
+		fmt.Sprintf("DELETE FROM _invites WHERE id = %s", pb2.Add(id)),
+		pb2.Params()...)
+	if err != nil {
+		return fmt.Errorf("delete invite %s: %w", id, err)
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"id": id, "deleted": true}})
+}
+
+func (h *Handler) BulkCreateInvites(c *fiber.Ctx) error {
+	var body struct {
+		Emails []string `json:"emails"`
+		Roles  []string `json:"roles"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": fiber.Map{"code": "INVALID_PAYLOAD", "message": "Invalid JSON body"}})
+	}
+
+	if len(body.Emails) == 0 {
+		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "emails is required and must be a non-empty array"}})
+	}
+	if body.Roles == nil {
+		body.Roles = []string{}
+	}
+
+	// Trim, lowercase, deduplicate emails
+	seen := map[string]bool{}
+	var emails []string
+	for _, e := range body.Emails {
+		e = strings.TrimSpace(strings.ToLower(e))
+		if e == "" {
+			return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "emails must not contain blank entries"}})
+		}
+		if !seen[e] {
+			seen[e] = true
+			emails = append(emails, e)
+		}
+	}
+
+	var invitedBy *string
+	if user, ok := c.Locals("user").(*metadata.UserContext); ok && user != nil {
+		invitedBy = &user.ID
+	}
+
+	expiresAt := time.Now().Add(72 * time.Hour)
+	rolesParam := h.store.Dialect.ArrayParam(body.Roles)
+
+	type createdItem struct {
+		ID        string `json:"id"`
+		Email     string `json:"email"`
+		Token     string `json:"token"`
+		ExpiresAt any    `json:"expires_at"`
+	}
+	type skippedItem struct {
+		Email  string `json:"email"`
+		Reason string `json:"reason"`
+	}
+
+	var created []createdItem
+	var skipped []skippedItem
+
+	for _, email := range emails {
+		// Check email not already a user
+		pb := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(c.Context(), h.store.DB,
+			fmt.Sprintf("SELECT id FROM _users WHERE email = %s", pb.Add(email)),
+			pb.Params()...)
+		if err == nil {
+			skipped = append(skipped, skippedItem{Email: email, Reason: "A user with this email already exists"})
+			continue
+		}
+
+		// Check no pending invite
+		pb2 := h.store.Dialect.NewParamBuilder()
+		_, err = store.QueryRow(c.Context(), h.store.DB,
+			fmt.Sprintf("SELECT id FROM _invites WHERE email = %s AND accepted_at IS NULL AND expires_at > %s",
+				pb2.Add(email), h.store.Dialect.NowExpr()),
+			pb2.Params()...)
+		if err == nil {
+			skipped = append(skipped, skippedItem{Email: email, Reason: "A pending invite already exists for this email"})
+			continue
+		}
+
+		token := store.GenerateUUID()
+		id := store.GenerateUUID()
+		pb3 := h.store.Dialect.NewParamBuilder()
+		row, err := store.QueryRow(c.Context(), h.store.DB,
+			fmt.Sprintf("INSERT INTO _invites (id, email, roles, token, expires_at, invited_by) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id, email, token, expires_at",
+				pb3.Add(id), pb3.Add(email), pb3.Add(rolesParam), pb3.Add(token), pb3.Add(expiresAt), pb3.Add(invitedBy)),
+			pb3.Params()...)
+		if err != nil {
+			skipped = append(skipped, skippedItem{Email: email, Reason: fmt.Sprintf("Insert failed: %v", err)})
+			continue
+		}
+
+		created = append(created, createdItem{
+			ID:        fmt.Sprintf("%v", row["id"]),
+			Email:     email,
+			Token:     fmt.Sprintf("%v", row["token"]),
+			ExpiresAt: row["expires_at"],
+		})
+	}
+
+	if created == nil {
+		created = []createdItem{}
+	}
+	if skipped == nil {
+		skipped = []skippedItem{}
+	}
+
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"created": created,
+			"skipped": skipped,
+			"summary": fiber.Map{
+				"total":   len(emails),
+				"created": len(created),
+				"skipped": len(skipped),
+			},
+		},
+	})
 }
 
 // --- Permission Endpoints ---

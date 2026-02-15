@@ -1,13 +1,16 @@
 import { Router, type Express, type Request, type Response, type NextFunction } from "express";
 import type { Store } from "../store/postgres.js";
-import { queryRow, exec, getDialect } from "../store/postgres.js";
+import { queryRow, queryRows, exec, getDialect } from "../store/postgres.js";
+import type { UniqueViolationError } from "../store/postgres.js";
 import { AppError } from "../engine/errors.js";
 import {
   checkPassword,
+  hashPassword,
   generateAccessToken,
   generateRefreshToken,
   REFRESH_TOKEN_TTL,
 } from "./auth.js";
+import crypto from "crypto";
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
@@ -133,6 +136,81 @@ export class AuthHandler {
     res.json({ message: "Logged out" });
   });
 
+  acceptInvite = asyncHandler(async (req: Request, res: Response) => {
+    const { token, password } = req.body ?? {};
+    if (!token) {
+      throw new AppError("VALIDATION_FAILED", 422, "token is required");
+    }
+    if (!password) {
+      throw new AppError("VALIDATION_FAILED", 422, "password is required");
+    }
+
+    // Look up invite by token
+    let invite: Record<string, any>;
+    try {
+      invite = await queryRow(
+        this.store.pool,
+        "SELECT id, email, roles, expires_at, accepted_at FROM _invites WHERE token = $1",
+        [token],
+      );
+    } catch {
+      throw new AppError("NOT_FOUND", 404, "Invalid invite token");
+    }
+
+    // Check not already accepted
+    if (invite.accepted_at != null) {
+      throw new AppError("VALIDATION_FAILED", 400, "Invite has already been accepted");
+    }
+
+    // Check not expired
+    const expiresAt = new Date(invite.expires_at);
+    if (new Date() > expiresAt) {
+      throw new AppError("VALIDATION_FAILED", 400, "Invite has expired");
+    }
+
+    const hash = await hashPassword(password);
+    const email = invite.email;
+    const roles = extractRoles(invite.roles);
+    const dialect = getDialect();
+
+    // Begin transaction: create user + mark invite accepted
+    const client = await this.store.beginTx();
+    try {
+      const userID = crypto.randomUUID();
+      await exec(
+        client,
+        "INSERT INTO _users (id, email, password_hash, roles, active) VALUES ($1, $2, $3, $4, $5)",
+        [userID, email, hash, dialect.arrayParam(roles), true],
+      );
+
+      await exec(
+        client,
+        `UPDATE _invites SET accepted_at = ${dialect.nowExpr()} WHERE id = $1`,
+        [invite.id],
+      );
+
+      await client.query("COMMIT");
+
+      // Generate token pair so user is immediately logged in
+      const pair = await this.generateTokenPair(userID, roles);
+
+      res.status(201).json({
+        data: {
+          ...pair,
+          user: { id: userID, email, roles },
+        },
+      });
+    } catch (e: any) {
+      await client.query("ROLLBACK");
+      if (e.code === "23505" || (e.message && e.message.includes("UNIQUE"))) {
+        throw new AppError("CONFLICT", 409, "A user with this email already exists");
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  });
+
   private async generateTokenPair(userID: string, roles: string[]) {
     const accessToken = generateAccessToken(userID, roles, this.jwtSecret);
     const refreshToken = generateRefreshToken();
@@ -163,5 +241,6 @@ export function registerAuthRoutes(app: Express, handler: AuthHandler): void {
   router.post("/login", handler.login);
   router.post("/refresh", handler.refresh);
   router.post("/logout", handler.logout);
+  router.post("/accept-invite", handler.acceptInvite);
   app.use("/api/auth", router);
 }

@@ -16,10 +16,11 @@ Actual Hours: 20 Hours (Don't change this)
 | Documentation | Detailed examples & cookbook — entities, relations, rules, state machines, workflows, webhooks, permissions, nested writes, files, export/import with curl examples and complete scenario | 1 | — | — | 1 |
 | Public Pages UI | Extended UI config schema with `pages` section, public layout, post card grid, article detail page, tag pills, author display, comment section with submission form, public routes | — | — | 2 | 2 |
 | Workflow Engine Refactoring | Extract WorkflowStore, StepExecutor registry, ActionExecutor registry, ExpressionEvaluator abstractions. Engine becomes composable facade. Scheduler simplified to delegate. Backward-compat free functions preserved. | 2 | 2 | — | 4 |
-| **Total** | | **46** | **45** | **14.5** | **105.5** |
+| User Invites | `_invites` table, admin invite CRUD (create/list/revoke), public accept-invite endpoint with token validation + user creation + auto-login, transaction safety, Admin UI invites page with token copy | 1 | 1 | 0.5 | 2.5 |
+| **Total** | | **47** | **46** | **15** | **108** |
 
 ### Summary
 
-- **Estimated effort (traditional):** 105.5 man-days (~5.0 months for a solo developer)
+- **Estimated effort (traditional):** 108 man-days (~5.1 months for a solo developer)
 - **Actual time with AI assistance:** 20 hours
 - **Speedup factor:** ~84x

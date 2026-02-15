@@ -12,6 +12,7 @@ import { WorkflowsList } from "./pages/workflows-list";
 import { WorkflowMonitor } from "./pages/workflow-monitor";
 import { DataBrowser } from "./pages/data-browser";
 import { UsersList } from "./pages/users-list";
+import { InvitesList } from "./pages/invites-list";
 import { PermissionsList } from "./pages/permissions-list";
 import { WebhooksList } from "./pages/webhooks-list";
 import { WebhookLogs } from "./pages/webhook-logs";
@@ -82,6 +83,7 @@ export function App() {
       <Route path="/data" component={DataBrowser} />
       <Route path="/data/:entity" component={DataBrowser} />
       <Route path="/users" component={UsersList} />
+      <Route path="/invites" component={InvitesList} />
       <Route path="/permissions" component={PermissionsList} />
       <Route path="/webhooks" component={WebhooksList} />
       <Route path="/webhook-logs" component={WebhookLogs} />

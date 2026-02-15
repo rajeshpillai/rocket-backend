@@ -12,6 +12,9 @@ Metadata-driven backend engine. Entities, relations, and business logic are defi
 |----------------|-----------|-----------|--------|--------|
 | Go | `golang/` | Fiber v2 | pgx v5 | Phase 7 done |
 | TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Phase 7 done |
+| Elixir | `elixir-phoenix/` | Phoenix | Ecto/Postgrex | In progress |
+
+**Important:** All three implementations must be kept in sync — same API contracts, same features, same behavior. When adding a new feature to Go and Express, the Elixir-Phoenix implementation must be updated to match.
 
 **What Phase 0 delivers:**
 - Admin API (`/api/_admin/*`) for entity + relation CRUD
@@ -167,6 +170,7 @@ _permissions        — id (UUID PK), entity, action, roles (TEXT[]), conditions
 _webhooks           — id (UUID PK), entity, hook, url, method, headers (JSONB), condition, async, retry (JSONB), active, created_at, updated_at
 _webhook_logs       — id (UUID PK), webhook_id (FK→_webhooks), entity, hook, url, method, request_headers (JSONB), request_body (JSONB), response_status, response_body, status, attempt, max_attempts, next_retry_at, error, idempotency_key, created_at, updated_at
 _files              — id (UUID PK), filename, storage_path, mime_type, size (BIGINT), uploaded_by (UUID), created_at
+_invites            — id (UUID PK), email, roles (TEXT[]), token (UNIQUE), expires_at, accepted_at, invited_by (UUID), created_at
 _events             — id (UUID PK), trace_id (UUID), span_id (UUID), parent_span_id (UUID), event_type, source, component, action, entity, record_id, user_id (UUID), duration_ms, status, metadata (JSONB), created_at  [Phase 8]
 ```
 
@@ -208,6 +212,7 @@ DELETE /api/_platform/apps/:name     # Delete app (drops database)
 POST /api/:app/auth/login            # Per-app user login → {access_token, refresh_token}
 POST /api/:app/auth/refresh          # Per-app token refresh
 POST /api/:app/auth/logout           # Per-app logout
+POST /api/:app/auth/accept-invite    # Accept invite {token, password} → {access_token, refresh_token, user}
 ```
 
 ### App-Scoped Admin (requires auth + admin role)
@@ -231,6 +236,9 @@ GET/PUT/DELETE /api/:app/_admin/webhooks/:id
 GET            /api/:app/_admin/webhook-logs          # ?webhook_id, ?status, ?entity filters
 GET            /api/:app/_admin/webhook-logs/:id
 POST           /api/:app/_admin/webhook-logs/:id/retry
+GET/POST       /api/:app/_admin/invites               # List / create invites
+POST           /api/:app/_admin/invites/bulk           # Bulk create invites {emails, roles}
+DELETE         /api/:app/_admin/invites/:id            # Revoke invite
 GET            /api/:app/_admin/export                # Export full schema as JSON
 POST           /api/:app/_admin/import                # Import schema JSON (idempotent)
 ```

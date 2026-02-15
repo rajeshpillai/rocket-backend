@@ -109,6 +109,75 @@ defmodule RocketWeb.AuthController do
     json(conn, %{message: "Logged out"})
   end
 
+  # POST /api/auth/accept-invite
+  def accept_invite(conn, params) do
+    token = params["token"]
+    password = params["password"]
+
+    cond do
+      !token || token == "" ->
+        respond_error(conn, AppError.new("VALIDATION_FAILED", 422, "token is required"))
+
+      !password || password == "" ->
+        respond_error(conn, AppError.new("VALIDATION_FAILED", 422, "password is required"))
+
+      true ->
+        db = get_conn(conn)
+        jwt_secret = get_jwt_secret(conn)
+
+        case Store.query_row(db,
+               "SELECT id, email, roles, expires_at, accepted_at FROM _invites WHERE token = $1",
+               [token]) do
+          {:ok, invite} ->
+            cond do
+              invite["accepted_at"] != nil ->
+                respond_error(conn, AppError.new("VALIDATION_FAILED", 400, "Invite has already been accepted"))
+
+              expired?(invite["expires_at"]) ->
+                respond_error(conn, AppError.new("VALIDATION_FAILED", 400, "Invite has expired"))
+
+              true ->
+                hash = Bcrypt.hash_pwd_salt(password)
+                email = invite["email"]
+                roles = extract_roles(invite["roles"])
+                dialect = Store.dialect()
+                user_id = Ecto.UUID.generate()
+
+                case Store.exec(db,
+                       "INSERT INTO _users (id, email, password_hash, roles, active) VALUES ($1, $2, $3, $4, $5)",
+                       [user_id, email, hash, dialect.array_param(roles), true]) do
+                  {:ok, _} ->
+                    Store.exec(db,
+                      "UPDATE _invites SET accepted_at = #{dialect.now_expr()} WHERE id = $1",
+                      [invite["id"]])
+
+                    case generate_token_pair(db, user_id, roles, jwt_secret) do
+                      {:ok, pair} ->
+                        conn
+                        |> put_status(201)
+                        |> json(%{data: Map.merge(pair, %{user: %{id: user_id, email: email, roles: roles}})})
+
+                      {:error, err} ->
+                        respond_error(conn, AppError.new("INTERNAL_ERROR", 500, "Token generation failed: #{inspect(err)}"))
+                    end
+
+                  {:error, {:unique_violation, _}} ->
+                    respond_error(conn, AppError.new("CONFLICT", 409, "A user with this email already exists"))
+
+                  {:error, err} ->
+                    respond_error(conn, AppError.new("INTERNAL_ERROR", 500, "Failed to create user: #{inspect(err)}"))
+                end
+            end
+
+          {:error, :not_found} ->
+            respond_error(conn, AppError.new("NOT_FOUND", 404, "Invalid invite token"))
+
+          {:error, err} ->
+            respond_error(conn, AppError.new("INTERNAL_ERROR", 500, "#{inspect(err)}"))
+        end
+    end
+  end
+
   # ── Helpers ──
 
   defp generate_token_pair(db, user_id, roles, secret) do
