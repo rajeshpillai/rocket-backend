@@ -122,34 +122,34 @@
 
 ---
 
-## Phase 8: Instrumentation & Events
-- [ ] `_events` system table (id UUID, trace_id UUID, span_id UUID, parent_span_id UUID, event_type TEXT, source TEXT, component TEXT, action TEXT, entity TEXT, record_id TEXT, user_id UUID, duration_ms DOUBLE PRECISION, status TEXT, metadata JSONB, created_at TIMESTAMPTZ)
-- [ ] Indexes: trace_id, entity+created_at DESC, created_at DESC, event_type+source
-- [ ] Instrumenter interface: `startSpan(source, component, action) → Span`, `emitBusinessEvent(action, entity, recordID, metadata)`
-- [ ] Span type: `end()`, `setStatus()`, `setMetadata()`, `traceId`, `spanId`
-- [ ] Trace ID propagation via `AsyncLocalStorage` — generate UUID per request or accept `X-Trace-ID` header
-- [ ] Auto-instrumented system events:
-  - [ ] HTTP middleware: request.start, request.end (method, path, status, latency)
-  - [ ] Auth middleware: auth.validate, auth.login, auth.denied
-  - [ ] Permission engine: permission.check, permission.denied
-  - [ ] DB query wrapper: query.execute (SQL fingerprint, duration, rows affected)
-  - [ ] Write pipeline stages: write.validate, write.rules, write.state_machine, write.insert, write.update, write.delete
-  - [ ] Nested writes: nested_write.plan, nested_write.child (per child op)
-  - [ ] Webhook dispatch: webhook.match, webhook.dispatch, webhook.success, webhook.fail, webhook.circuit_open
-  - [ ] Workflow engine: workflow.trigger, workflow.advance, workflow.approve, workflow.reject, workflow.timeout
-  - [ ] File storage: file.upload, file.serve, file.delete
-- [ ] Fire-and-forget event writes via async write buffer (batch flush with setInterval)
-- [ ] Business event API:
-  - [ ] `POST /api/:app/_events` — emit custom business events (entity, action, metadata)
-  - [ ] `GET /api/:app/_events` — query events (?source, ?entity, ?trace_id, ?user_id, ?status, ?from, ?to, page, per_page)
-  - [ ] `GET /api/:app/_events/trace/:trace_id` — full trace waterfall (all spans for a trace)
-  - [ ] `GET /api/:app/_events/stats` — aggregate stats (count, avg latency by source/entity/action, error rate)
-- [ ] Config in app.yaml: `instrumentation.enabled` (default true), `instrumentation.retention_days` (default 7), `instrumentation.sampling_rate` (default 1.0)
-- [ ] Background retention cleanup job (delete events older than retention period)
-- [ ] Multi-app support: events scoped per-app database, scheduler iterates all apps for cleanup
-- [ ] Admin UI: Event stream page (filterable table, color-coded by source)
-- [ ] Admin UI: Trace waterfall view (nested span timeline for a single trace_id)
-- [ ] Admin UI: Stats overview dashboard (request count, avg latency, error rate, slowest traces)
+## Phase 8: Instrumentation & Events [DONE]
+- [x] `_events` system table (id UUID, trace_id UUID, span_id UUID, parent_span_id UUID, event_type TEXT, source TEXT, component TEXT, action TEXT, entity TEXT, record_id TEXT, user_id UUID, duration_ms DOUBLE PRECISION, status TEXT, metadata JSONB, created_at TIMESTAMPTZ)
+- [x] Indexes: trace_id, entity+created_at DESC, created_at DESC, event_type+source
+- [x] Instrumenter interface: `startSpan(source, component, action) → Span`, `emitBusinessEvent(action, entity, recordID, metadata)`
+- [x] Span type: `end()`, `setStatus()`, `setMetadata()`, `traceId`, `spanId`
+- [x] Trace ID propagation via `AsyncLocalStorage` — generate UUID per request or accept `X-Trace-ID` header
+- [x] Auto-instrumented system events:
+  - [x] HTTP middleware: request.start, request.end (method, path, status, latency)
+  - [x] Auth middleware: auth.validate, auth.login, auth.denied
+  - [x] Permission engine: permission.check, permission.denied
+  - [x] DB query wrapper: query.execute (SQL fingerprint, duration, rows affected)
+  - [x] Write pipeline stages: write.validate, write.rules, write.state_machine, write.insert, write.update, write.delete
+  - [x] Nested writes: nested_write.plan, nested_write.child (per child op)
+  - [x] Webhook dispatch: webhook.match, webhook.dispatch, webhook.success, webhook.fail, webhook.circuit_open
+  - [x] Workflow engine: workflow.trigger, workflow.advance, workflow.approve, workflow.reject, workflow.timeout
+  - [x] File storage: file.upload, file.serve, file.delete
+- [x] Fire-and-forget event writes via async write buffer (batch flush with setInterval)
+- [x] Business event API:
+  - [x] `POST /api/:app/_events` — emit custom business events (entity, action, metadata)
+  - [x] `GET /api/:app/_events` — query events (?source, ?entity, ?trace_id, ?user_id, ?status, ?from, ?to, page, per_page)
+  - [x] `GET /api/:app/_events/trace/:trace_id` — full trace waterfall (all spans for a trace)
+  - [x] `GET /api/:app/_events/stats` — aggregate stats (count, avg latency by source/entity/action, error rate)
+- [x] Config in app.yaml: `instrumentation.enabled` (default true), `instrumentation.retention_days` (default 7), `instrumentation.sampling_rate` (default 1.0)
+- [x] Background retention cleanup job (delete events older than retention period)
+- [x] Multi-app support: events scoped per-app database, scheduler iterates all apps for cleanup
+- [x] Admin UI: Event stream page (filterable table, color-coded by source)
+- [x] Admin UI: Trace waterfall view (nested span timeline for a single trace_id)
+- [x] Admin UI: Stats overview dashboard (request count, avg latency, error rate, slowest traces)
 
 ## Phase 9: Audit Log
 - [ ] `_audit_logs` system table (id, entity, record_id, action, old_data JSONB, new_data JSONB, changed_fields TEXT[], user_id, user_email, ip_address, timestamp)

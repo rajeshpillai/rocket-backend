@@ -88,28 +88,28 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 
 ---
 
-## Phase 8: Instrumentation & Events
-- [ ] `_events` system table (trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata)
-- [ ] Instrumenter interface with span lifecycle (start, finish, set_status, set_metadata)
-- [ ] Trace ID propagation (generate per request or accept `X-Trace-ID` header)
-- [ ] Auto-instrumented system events:
-  - [ ] HTTP request lifecycle (method, path, status, latency)
-  - [ ] Auth + permission checks
-  - [ ] DB query execution (SQL fingerprint, duration, rows)
-  - [ ] Write pipeline stages (validate, rules, state_machine, insert/update/delete)
-  - [ ] Nested writes (plan, child operations)
-  - [ ] Webhook dispatch (match, dispatch, success, fail)
-  - [ ] Workflow engine (trigger, advance, approve, reject, timeout)
-  - [ ] File storage (upload, serve, delete)
-- [ ] Fire-and-forget event writes via async buffer (batch flush)
-- [ ] Business event API:
-  - [ ] `POST /_events` — emit custom events
-  - [ ] `GET /_events` — query events (filters: source, entity, trace_id, user_id, status, date range)
-  - [ ] `GET /_events/trace/:trace_id` — full trace waterfall
-  - [ ] `GET /_events/stats` — aggregate stats (count, avg latency, error rate)
-- [ ] Config: `instrumentation.enabled`, `instrumentation.retention_days`, `instrumentation.sampling_rate`
-- [ ] Background retention cleanup job
-- [ ] Admin UI: Event stream, trace waterfall, stats dashboard
+## Phase 8: Instrumentation & Events ✅
+- [x] `_events` system table (trace_id, span_id, parent_span_id, event_type, source, component, action, entity, record_id, user_id, duration_ms, status, metadata)
+- [x] Instrumenter interface with span lifecycle (start, finish, set_status, set_metadata)
+- [x] Trace ID propagation (generate per request or accept `X-Trace-ID` header)
+- [x] Auto-instrumented system events:
+  - [x] HTTP request lifecycle (method, path, status, latency)
+  - [x] Auth + permission checks
+  - [x] DB query execution (SQL fingerprint, duration, rows)
+  - [x] Write pipeline stages (validate, rules, state_machine, insert/update/delete)
+  - [x] Nested writes (plan, child operations)
+  - [x] Webhook dispatch (match, dispatch, success, fail)
+  - [x] Workflow engine (trigger, advance, approve, reject, timeout)
+  - [x] File storage (upload, serve, delete)
+- [x] Fire-and-forget event writes via async buffer (batch flush)
+- [x] Business event API:
+  - [x] `POST /_events` — emit custom events
+  - [x] `GET /_events` — query events (filters: source, entity, trace_id, user_id, status, date range)
+  - [x] `GET /_events/trace/:trace_id` — full trace waterfall
+  - [x] `GET /_events/stats` — aggregate stats (count, avg latency, error rate)
+- [x] Config: `instrumentation.enabled`, `instrumentation.retention_days`, `instrumentation.sampling_rate`
+- [x] Background retention cleanup job
+- [x] Admin UI: Event stream, trace waterfall, stats dashboard
 
 ## Phase 9: Audit Log
 - [ ] `_audit_logs` system table (entity, record_id, action, old_data, new_data, changed_fields, user_id, user_email, ip_address, timestamp)

@@ -16,7 +16,7 @@ All implementations share the same API contracts and must produce identical resp
 
 **Admin UI:** `admin/` — SolidJS + Vite + Tailwind
 
-**Completed:** Phases 0–7 + Schema Export/Import + User Invites (see [todo.md](todo.md) for full roadmap)
+**Completed:** Phases 0–8 + Schema Export/Import + User Invites (see [todo.md](todo.md) for full roadmap)
 
 ## Project Structure
 
