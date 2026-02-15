@@ -2,6 +2,60 @@
   "version": 1,
   "ui_configs": [
     {
+      "entity": "_app",
+      "config": {
+        "dashboard": {
+          "title": "Support Dashboard",
+          "subtitle": "Track and manage your support operations",
+          "widgets": [
+            {
+              "type": "stat",
+              "title": "Open Tickets",
+              "entity": "ticket",
+              "filter": { "status": "open" },
+              "color": "blue"
+            },
+            {
+              "type": "stat",
+              "title": "In Progress",
+              "entity": "ticket",
+              "filter": { "status": "in_progress" },
+              "color": "yellow"
+            },
+            {
+              "type": "stat",
+              "title": "Resolved",
+              "entity": "ticket",
+              "filter": { "status": "resolved" },
+              "color": "green"
+            },
+            {
+              "type": "stat",
+              "title": "Customers",
+              "entity": "customer",
+              "color": "purple"
+            },
+            {
+              "type": "recent",
+              "title": "Recent Tickets",
+              "entity": "ticket",
+              "sort": "-updated_at",
+              "limit": 5,
+              "columns": ["title", "status", "priority", "updated_at"]
+            },
+            {
+              "type": "recent",
+              "title": "Latest Replies",
+              "entity": "response",
+              "sort": "-created_at",
+              "limit": 5,
+              "columns": ["body", "author_type", "created_at"]
+            }
+          ]
+        }
+      }
+    },
+    {
       "entity": "ticket",
       "config": {
         "list": {

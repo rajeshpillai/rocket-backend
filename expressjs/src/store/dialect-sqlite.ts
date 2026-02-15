@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS _files (
 
 CREATE TABLE IF NOT EXISTS _ui_configs (
     id         TEXT PRIMARY KEY,
-    entity     TEXT NOT NULL REFERENCES _entities(name) ON DELETE CASCADE,
+    entity     TEXT NOT NULL,
     scope      TEXT NOT NULL DEFAULT 'default',
     config     TEXT NOT NULL DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now')),

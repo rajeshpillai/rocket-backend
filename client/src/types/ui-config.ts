@@ -4,6 +4,28 @@ export interface UIConfig {
   form?: FormConfig;
   sidebar?: SidebarConfig;
   pages?: PagesConfig;
+  dashboard?: DashboardConfig;
+}
+
+// ── Dashboard Configuration (used with entity: "_app") ──
+
+export interface DashboardConfig {
+  title?: string;
+  subtitle?: string;
+  widgets?: DashboardWidget[];
+}
+
+export interface DashboardWidget {
+  type: "stat" | "recent";
+  title: string;
+  entity: string;
+  filter?: Record<string, unknown>;
+  color?: "blue" | "green" | "purple" | "yellow";
+  // "stat" widget: shows a count
+  // "recent" widget: shows a table of recent records
+  sort?: string;
+  limit?: number;
+  columns?: string[];
 }
 
 export interface ListConfig {

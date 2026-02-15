@@ -1733,13 +1733,15 @@ func (h *Handler) CreateUIConfig(c *fiber.Ctx) error {
 		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity is required"}})
 	}
 
-	// Verify entity exists
-	pbCheck := h.store.Dialect.NewParamBuilder()
-	_, err := store.QueryRow(c.Context(), h.store.DB,
-		fmt.Sprintf("SELECT name FROM _entities WHERE name = %s", pbCheck.Add(entity)),
-		pbCheck.Params()...)
-	if err != nil {
-		return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity not found: " + entity}})
+	// Verify entity exists (skip for reserved names like _app)
+	if !strings.HasPrefix(entity, "_") {
+		pbCheck := h.store.Dialect.NewParamBuilder()
+		_, err := store.QueryRow(c.Context(), h.store.DB,
+			fmt.Sprintf("SELECT name FROM _entities WHERE name = %s", pbCheck.Add(entity)),
+			pbCheck.Params()...)
+		if err != nil {
+			return c.Status(422).JSON(fiber.Map{"error": fiber.Map{"code": "VALIDATION_FAILED", "message": "entity not found: " + entity}})
+		}
 	}
 
 	scope, _ := body["scope"].(string)

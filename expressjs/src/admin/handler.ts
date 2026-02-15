@@ -1151,11 +1151,13 @@ export class AdminHandler {
       throw new AppError("VALIDATION_FAILED", 422, "entity is required");
     }
 
-    // Verify entity exists
-    try {
-      await queryRow(this.store.pool, "SELECT name FROM _entities WHERE name = $1", [entity]);
-    } catch {
-      throw new AppError("VALIDATION_FAILED", 422, `entity not found: ${entity}`);
+    // Verify entity exists (skip for reserved names like _app)
+    if (!entity.startsWith("_")) {
+      try {
+        await queryRow(this.store.pool, "SELECT name FROM _entities WHERE name = $1", [entity]);
+      } catch {
+        throw new AppError("VALIDATION_FAILED", 422, `entity not found: ${entity}`);
+      }
     }
 
     const scope = body.scope || "default";

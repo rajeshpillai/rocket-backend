@@ -1144,9 +1144,20 @@ defmodule RocketWeb.AdminController do
     if !entity || entity == "" do
       respond_error(conn, AppError.validation_failed([%{field: "entity", rule: "required", message: "entity is required"}]))
     else
-      # Verify entity exists
-      case Store.query_row(db, "SELECT name FROM _entities WHERE name = $1", [entity]) do
-        {:ok, _} ->
+      # Skip entity validation for reserved names (e.g. _app for dashboard config)
+      entity_valid =
+        if String.starts_with?(entity, "_") do
+          :ok
+        else
+          case Store.query_row(db, "SELECT name FROM _entities WHERE name = $1", [entity]) do
+            {:ok, _} -> :ok
+            {:error, :not_found} -> {:error, :not_found}
+            {:error, err} -> {:error, err}
+          end
+        end
+
+      case entity_valid do
+        :ok ->
           scope = params["scope"] || "default"
           config = params["config"] || %{}
 

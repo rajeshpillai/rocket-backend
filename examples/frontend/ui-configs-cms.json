@@ -2,6 +2,60 @@
   "version": 1,
   "ui_configs": [
     {
+      "entity": "_app",
+      "config": {
+        "dashboard": {
+          "title": "Content Dashboard",
+          "subtitle": "Overview of your content and editorial activity",
+          "widgets": [
+            {
+              "type": "stat",
+              "title": "Published Articles",
+              "entity": "post",
+              "filter": { "status": "published" },
+              "color": "green"
+            },
+            {
+              "type": "stat",
+              "title": "Drafts",
+              "entity": "post",
+              "filter": { "status": "draft" },
+              "color": "yellow"
+            },
+            {
+              "type": "stat",
+              "title": "Pending Comments",
+              "entity": "comment",
+              "filter": { "status": "pending" },
+              "color": "purple"
+            },
+            {
+              "type": "stat",
+              "title": "Authors",
+              "entity": "author",
+              "color": "blue"
+            },
+            {
+              "type": "recent",
+              "title": "Latest Articles",
+              "entity": "post",
+              "sort": "-updated_at",
+              "limit": 5,
+              "columns": ["title", "status", "updated_at"]
+            },
+            {
+              "type": "recent",
+              "title": "Recent Comments",
+              "entity": "comment",
+              "sort": "-created_at",
+              "limit": 5,
+              "columns": ["author_name", "body", "status", "created_at"]
+            }
+          ]
+        }
+      }
+    },
+    {
       "entity": "post",
       "config": {
         "list": {

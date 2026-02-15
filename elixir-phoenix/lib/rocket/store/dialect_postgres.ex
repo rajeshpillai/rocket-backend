@@ -206,7 +206,7 @@ defmodule Rocket.Store.DialectPostgres do
       """
       CREATE TABLE IF NOT EXISTS _ui_configs (
           id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          entity     TEXT NOT NULL REFERENCES _entities(name) ON DELETE CASCADE,
+          entity     TEXT NOT NULL,
           scope      TEXT NOT NULL DEFAULT 'default',
           config     JSONB NOT NULL DEFAULT '{}',
           created_at TIMESTAMPTZ DEFAULT NOW(),
