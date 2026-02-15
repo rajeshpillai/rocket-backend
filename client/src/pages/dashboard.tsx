@@ -1,8 +1,8 @@
-import { createSignal, onMount, For, Show } from "solid-js";
+import { createSignal, createEffect, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { listRecords } from "../api/data";
 import { selectedApp } from "../stores/app";
-import { getEntityUIConfig } from "../stores/ui-config";
+import { getEntityUIConfig, uiConfigsLoaded } from "../stores/ui-config";
 import { addToast } from "../stores/notifications";
 import type { DashboardConfig, DashboardWidget } from "../types/ui-config";
 
@@ -30,17 +30,21 @@ export default function DashboardPage() {
   const [recents, setRecents] = createSignal<RecentResult[]>([]);
   const [config, setConfig] = createSignal<DashboardConfig | null>(null);
 
-  onMount(() => {
+  // React to UI configs becoming available (loaded async by sidebar/layout)
+  createEffect(() => {
+    if (!uiConfigsLoaded()) return;
     const appConfig = getEntityUIConfig("_app");
     if (appConfig?.dashboard) {
       setConfig(appConfig.dashboard);
+      loadData(appConfig.dashboard);
+    } else {
+      setLoading(false);
     }
-    loadData();
   });
 
-  async function loadData() {
-    const cfg = config();
-    if (!cfg?.widgets?.length) {
+  async function loadData(cfg?: DashboardConfig | null) {
+    const dashConfig = cfg ?? config();
+    if (!dashConfig?.widgets?.length) {
       setLoading(false);
       return;
     }
@@ -50,7 +54,7 @@ export default function DashboardPage() {
       const statResults: StatResult[] = [];
       const recentResults: RecentResult[] = [];
 
-      for (const widget of cfg.widgets) {
+      for (const widget of dashConfig.widgets) {
         try {
           const filters: Record<string, string> = {};
           if (widget.filter) {
@@ -103,7 +107,7 @@ export default function DashboardPage() {
           </Show>
         </div>
         <Show when={config()?.widgets?.length}>
-          <button class="btn-secondary btn-sm" onClick={loadData}>
+          <button class="btn-secondary btn-sm" onClick={() => loadData()}>
             Refresh
           </button>
         </Show>
