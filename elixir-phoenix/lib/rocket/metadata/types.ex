@@ -33,6 +33,20 @@ defmodule Rocket.Metadata.Field do
   end
 end
 
+defmodule Rocket.Metadata.SlugConfig do
+  defstruct [:field, :source, regenerate_on_update: false]
+
+  def from_map(nil), do: nil
+
+  def from_map(map) when is_map(map) do
+    %__MODULE__{
+      field: map["field"],
+      source: map["source"],
+      regenerate_on_update: map["regenerate_on_update"] || false
+    }
+  end
+end
+
 defmodule Rocket.Metadata.Entity do
   @moduledoc "Entity metadata struct."
 
@@ -41,6 +55,7 @@ defmodule Rocket.Metadata.Entity do
     :table,
     :primary_key,
     :soft_delete,
+    :slug,
     fields: []
   ]
 
@@ -75,6 +90,7 @@ defmodule Rocket.Metadata.Entity do
       name: map["name"],
       table: map["table"] || map["name"],
       soft_delete: map["soft_delete"] || false,
+      slug: Rocket.Metadata.SlugConfig.from_map(map["slug"]),
       primary_key: %Rocket.Metadata.PrimaryKey{
         field: pk_map["field"] || "id",
         type: pk_map["type"] || "uuid",

@@ -789,6 +789,24 @@ func validateEntity(e *metadata.Entity) error {
 	if !e.HasField(e.PrimaryKey.Field) {
 		return fmt.Errorf("primary key field %s not found in fields", e.PrimaryKey.Field)
 	}
+
+	// Validate slug config if present
+	if e.Slug != nil {
+		slugField := e.GetField(e.Slug.Field)
+		if slugField == nil {
+			return fmt.Errorf("slug field %q not found in fields", e.Slug.Field)
+		}
+		if slugField.Type != "string" && slugField.Type != "text" {
+			return fmt.Errorf("slug field %q must be of type string or text", e.Slug.Field)
+		}
+		if !slugField.Unique {
+			return fmt.Errorf("slug field %q must have unique: true", e.Slug.Field)
+		}
+		if e.Slug.Source != "" && !e.HasField(e.Slug.Source) {
+			return fmt.Errorf("slug source field %q not found in fields", e.Slug.Source)
+		}
+	}
+
 	return nil
 }
 

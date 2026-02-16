@@ -16,11 +16,18 @@ export interface PrimaryKey {
   generated: boolean;
 }
 
+export interface SlugConfig {
+  field: string;                  // slug field name (must exist in fields, must be unique)
+  source?: string;                // auto-generate from this field (e.g., "title")
+  regenerate_on_update?: boolean; // re-generate slug on update when source changes (default: false)
+}
+
 export interface Entity {
   name: string;
   table: string;
   primary_key: PrimaryKey;
   soft_delete: boolean;
+  slug?: SlugConfig;
   fields: Field[];
 }
 

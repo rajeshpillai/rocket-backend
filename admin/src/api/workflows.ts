@@ -41,3 +41,7 @@ export function approveInstance(id: string): Promise<ApiResponse<WorkflowInstanc
 export function rejectInstance(id: string): Promise<ApiResponse<WorkflowInstance>> {
   return post<ApiResponse<WorkflowInstance>>(`/_workflows/${id}/reject`, {});
 }
+
+export function deleteInstance(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+  return del<ApiResponse<{ deleted: boolean }>>(`/_workflows/${id}`);
+}

@@ -21,6 +21,7 @@
       "name": "category",
       "table": "categories",
       "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "slug": { "field": "slug", "source": "name" },
       "soft_delete": false,
       "fields": [
         { "name": "id", "type": "uuid", "required": true },
@@ -35,6 +36,7 @@
       "name": "tag",
       "table": "tags",
       "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "slug": { "field": "slug", "source": "name" },
       "soft_delete": false,
       "fields": [
         { "name": "id", "type": "uuid", "required": true },
@@ -47,6 +49,7 @@
       "name": "post",
       "table": "posts",
       "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "slug": { "field": "slug", "source": "title" },
       "soft_delete": true,
       "fields": [
         { "name": "id", "type": "uuid", "required": true },
@@ -228,9 +231,9 @@
         "to": "review"
       },
       "context": {
-        "record_id": "record.id",
-        "title": "record.title",
-        "author_id": "record.author_id"
+        "record_id": "trigger.record_id",
+        "title": "trigger.record.title",
+        "author_id": "trigger.record.author_id"
       },
       "steps": [
         {

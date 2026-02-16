@@ -88,6 +88,19 @@ defmodule RocketWeb.WorkflowController do
     end
   end
 
+  # DELETE /api/_workflows/:id
+  def delete_instance(conn, %{"id" => id}) do
+    db = get_conn(conn)
+
+    case WorkflowEngine.delete_workflow_instance(db, id) do
+      :ok ->
+        json(conn, %{data: %{deleted: true}})
+
+      {:error, err} ->
+        respond_error(conn, wrap_error(err))
+    end
+  end
+
   # ── Helpers ──
 
   defp get_registry(conn) do

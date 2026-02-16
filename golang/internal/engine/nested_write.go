@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
+	"unicode"
 
 	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -96,6 +100,13 @@ func ExecuteWritePlan(ctx context.Context, s *store.Store, reg *metadata.Registr
 	if len(smErrs) > 0 {
 		span.SetStatus("error")
 		return nil, ValidationError(smErrs)
+	}
+
+	// Auto-generate slug if configured
+	if err := autoGenerateSlug(ctx, tx, plan.Entity, s.Dialect, plan.Fields, plan.IsCreate, old, plan.ID); err != nil {
+		span.SetStatus("error")
+		span.SetMetadata("error", err.Error())
+		return nil, err
 	}
 
 	// Resolve file fields: UUID string -> JSONB metadata object
@@ -193,13 +204,151 @@ func fetchRecord(ctx context.Context, q store.Querier, entity *metadata.Entity, 
 		columns = append(columns, "deleted_at")
 	}
 
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s",
-		joinColumns(columns), entity.Table, entity.PrimaryKey.Field, dialect.Placeholder(1))
+	softDeleteClause := ""
 	if entity.SoftDelete {
-		sql += " AND deleted_at IS NULL"
+		softDeleteClause = " AND deleted_at IS NULL"
 	}
 
+	// If entity has a slug config and the param doesn't look like the PK type, try slug first
+	idStr := fmt.Sprintf("%v", id)
+	if entity.Slug != nil && !looksLikePK(entity, idStr) {
+		slugSQL := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s%s",
+			joinColumns(columns), entity.Table, entity.Slug.Field, dialect.Placeholder(1), softDeleteClause)
+		row, err := store.QueryRow(ctx, q, slugSQL, idStr)
+		if err == nil {
+			return row, nil
+		}
+		// slug lookup failed, fall through to PK lookup
+	}
+
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s%s",
+		joinColumns(columns), entity.Table, entity.PrimaryKey.Field, dialect.Placeholder(1), softDeleteClause)
+
 	return store.QueryRow(ctx, q, sql, id)
+}
+
+var intRE = regexp.MustCompile(`^\d+$`)
+
+func looksLikePK(entity *metadata.Entity, value string) bool {
+	switch entity.PrimaryKey.Type {
+	case "uuid":
+		return uuidRE.MatchString(value)
+	case "int", "integer", "bigint":
+		return intRE.MatchString(value)
+	default:
+		return false // string PKs — can't distinguish, always try slug first
+	}
+}
+
+// Slugify converts a string into a URL-friendly slug.
+func Slugify(text string) string {
+	// Normalize unicode and strip accents
+	result := norm.NFD.String(text)
+	var b strings.Builder
+	for _, r := range result {
+		if unicode.Is(unicode.Mn, r) {
+			continue // skip combining marks (accents)
+		}
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else if r >= 'A' && r <= 'Z' {
+			b.WriteRune(r + 32) // lowercase
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	// Collapse multiple hyphens and trim
+	s := b.String()
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	s = strings.Trim(s, "-")
+	return s
+}
+
+func generateUniqueSlug(ctx context.Context, q store.Querier, entity *metadata.Entity, dialect store.Dialect, baseSlug string, excludeID any) (string, error) {
+	slugField := entity.Slug.Field
+	softDeleteClause := ""
+	if entity.SoftDelete {
+		softDeleteClause = " AND deleted_at IS NULL"
+	}
+
+	checkSQL := fmt.Sprintf("SELECT 1 FROM %s WHERE %s = %s%s", entity.Table, slugField, dialect.Placeholder(1), softDeleteClause)
+	excludeClause := ""
+	if excludeID != nil {
+		excludeClause = fmt.Sprintf(" AND %s != %s", entity.PrimaryKey.Field, dialect.Placeholder(2))
+		checkSQL = fmt.Sprintf("SELECT 1 FROM %s WHERE %s = %s%s%s", entity.Table, slugField, dialect.Placeholder(1), softDeleteClause, excludeClause)
+	}
+
+	// Try base slug
+	var params []any
+	if excludeID != nil {
+		params = []any{baseSlug, excludeID}
+	} else {
+		params = []any{baseSlug}
+	}
+	rows, err := store.QueryRows(ctx, q, checkSQL+" LIMIT 1", params...)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return baseSlug, nil
+	}
+
+	// Append incrementing suffix
+	for i := 2; i <= 100; i++ {
+		candidate := fmt.Sprintf("%s-%d", baseSlug, i)
+		params[0] = candidate
+		rows, err = store.QueryRows(ctx, q, checkSQL+" LIMIT 1", params...)
+		if err != nil {
+			return "", err
+		}
+		if len(rows) == 0 {
+			return candidate, nil
+		}
+	}
+
+	// Fallback: should not normally reach here
+	return fmt.Sprintf("%s-%d", baseSlug, 101), nil
+}
+
+func autoGenerateSlug(ctx context.Context, q store.Querier, entity *metadata.Entity, dialect store.Dialect, fields map[string]any, isCreate bool, old map[string]any, existingID any) error {
+	slugCfg := entity.Slug
+	if slugCfg == nil || slugCfg.Source == "" {
+		return nil
+	}
+
+	// If slug is explicitly provided, skip auto-generation
+	if val, ok := fields[slugCfg.Field]; ok && val != nil && fmt.Sprintf("%v", val) != "" {
+		return nil
+	}
+
+	sourceVal, hasSource := fields[slugCfg.Source]
+	if !hasSource || sourceVal == nil || fmt.Sprintf("%v", sourceVal) == "" {
+		return nil
+	}
+
+	if isCreate {
+		slug, err := generateUniqueSlug(ctx, q, entity, dialect, Slugify(fmt.Sprintf("%v", sourceVal)), nil)
+		if err != nil {
+			return fmt.Errorf("generate slug: %w", err)
+		}
+		fields[slugCfg.Field] = slug
+	} else if slugCfg.RegenerateOnUpdate {
+		// Only regenerate if source field changed
+		oldSourceVal := fmt.Sprintf("%v", old[slugCfg.Source])
+		newSourceVal := fmt.Sprintf("%v", sourceVal)
+		if oldSourceVal == newSourceVal {
+			return nil
+		}
+		slug, err := generateUniqueSlug(ctx, q, entity, dialect, Slugify(newSourceVal), existingID)
+		if err != nil {
+			return fmt.Errorf("generate slug: %w", err)
+		}
+		fields[slugCfg.Field] = slug
+	}
+
+	return nil
 }
 
 func joinColumns(cols []string) string {

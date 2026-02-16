@@ -143,9 +143,19 @@ func ValidateFields(entity *metadata.Entity, fields map[string]any, isCreate boo
 	}
 
 	if isCreate {
+		// If entity has auto-slug, skip required check for the slug field (backend auto-generates it)
+		autoSlugField := ""
+		if entity.Slug != nil && entity.Slug.Source != "" {
+			autoSlugField = entity.Slug.Field
+		}
+
 		// Check required fields
 		for _, f := range entity.WritableFields() {
 			if f.Required && !f.Nullable {
+				// Skip required validation for auto-generated slug field
+				if f.Name == autoSlugField {
+					continue
+				}
 				val, ok := fields[f.Name]
 				if !ok || val == nil || val == "" {
 					errs = append(errs, ErrorDetail{

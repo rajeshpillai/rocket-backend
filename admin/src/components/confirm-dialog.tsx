@@ -6,6 +6,7 @@ interface ConfirmDialogProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  confirmVariant?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -26,7 +27,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               <button class="btn-secondary" onClick={() => props.onCancel()}>
                 Cancel
               </button>
-              <button class="btn-danger" onClick={() => props.onConfirm()}>
+              <button class={props.confirmVariant === "primary" ? "btn-primary" : "btn-danger"} onClick={() => props.onConfirm()}>
                 {props.confirmLabel ?? "Delete"}
               </button>
             </div>

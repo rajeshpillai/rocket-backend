@@ -305,6 +305,7 @@ export default function EntityDetailPage() {
                     errors={fieldErrors()}
                     fkFields={fkFields()}
                     formConfig={uiConfig()?.form}
+                    slugConfig={(entityDef() as any)?.slug}
                   />
                 </div>
               }
@@ -323,6 +324,7 @@ export default function EntityDetailPage() {
                         errors={fieldErrors()}
                         fkFields={fkFields()}
                         formConfig={uiConfig()?.form}
+                        slugConfig={(entityDef() as any)?.slug}
                       />
                     </div>
                   )}

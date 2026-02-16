@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { EntityDefinition } from "../types/entity";
 import type { RelationDefinition } from "../types/relation";
 import { FileUploadField } from "../components/form/file-upload-field";
+import { FkSelect, type FkFieldInfo } from "../components/form/fk-select";
 import { RelatedRecordsEditor, type ChildRecordState } from "../components/form/related-records-editor";
 import { writableFields, inputType, coerceFieldValue } from "../utils/field-helpers";
 
@@ -14,6 +15,7 @@ interface DataRecordEditorProps {
   error: string | null;
   relations?: RelationDefinition[];
   allEntities?: EntityDefinition[];
+  fkFields?: FkFieldInfo[];
 }
 
 export function DataRecordEditor(props: DataRecordEditorProps) {
@@ -53,10 +55,13 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
 
   const handleSubmit = () => {
     const data: Record<string, unknown> = {};
+    const slugField = props.entity.slug?.source ? props.entity.slug.field : null;
 
     // Parent fields
     for (const f of fields()) {
       const raw = values()[f.name];
+      // Skip empty auto-generated slug field — backend will fill it
+      if (f.name === slugField && (!raw || raw === "")) continue;
       const val = coerceFieldValue(raw, f);
       if (val !== undefined) {
         data[f.name] = val;
@@ -119,83 +124,104 @@ export function DataRecordEditor(props: DataRecordEditorProps) {
       </Show>
 
       <For each={fields()}>
-        {(field) => (
-          <div class="form-group">
-            <label class="form-label">
-              {field.name}
-              {field.required && <span class="text-red-500 dark:text-red-400 ml-1">*</span>}
-              <span class="text-gray-400 dark:text-gray-500 ml-2 text-xs font-normal">
-                {field.type}
-              </span>
-            </label>
-            <Show
-              when={field.type !== "file"}
-              fallback={
-                <FileUploadField
-                  label={field.name}
-                  value={values()[field.name]}
-                  onChange={(fileId) => updateValue(field.name, fileId)}
-                  required={field.required}
-                />
-              }
-            >
-            <Show
-              when={field.type !== "boolean"}
-              fallback={
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    class="form-checkbox"
-                    checked={values()[field.name] === "true"}
-                    onChange={(e) =>
-                      updateValue(field.name, String(e.currentTarget.checked))
-                    }
-                  />
-                  <span class="text-sm text-gray-600 dark:text-gray-400">
-                    {values()[field.name] === "true" ? "true" : "false"}
-                  </span>
-                </label>
-              }
-            >
+        {(field) => {
+          const fkInfo = props.fkFields?.find((fk) => fk.fieldName === field.name);
+          const slugCfg = props.entity.slug;
+          const isAutoSlug = slugCfg?.field === field.name && !!slugCfg?.source;
+
+          // FK field → render as dropdown
+          if (fkInfo) {
+            return (
+              <FkSelect
+                label={field.name}
+                value={values()[field.name]}
+                onChange={(v) => updateValue(field.name, v != null ? String(v) : "")}
+                required={field.required}
+                fkInfo={fkInfo}
+              />
+            );
+          }
+
+          return (
+            <div class="form-group">
+              <label class="form-label">
+                {field.name}
+                {field.required && !isAutoSlug && <span class="text-red-500 dark:text-red-400 ml-1">*</span>}
+                <span class="text-gray-400 dark:text-gray-500 ml-2 text-xs font-normal">
+                  {field.type}
+                  {isAutoSlug && ` · auto-generated from ${slugCfg!.source}`}
+                </span>
+              </label>
               <Show
-                when={!field.enum || field.enum.length === 0}
+                when={field.type !== "file"}
                 fallback={
-                  <select
-                    class="form-select"
+                  <FileUploadField
+                    label={field.name}
                     value={values()[field.name]}
-                    onChange={(e) => updateValue(field.name, e.currentTarget.value)}
-                  >
-                    <option value="">-- select --</option>
-                    <For each={field.enum!}>
-                      {(opt) => <option value={opt}>{opt}</option>}
-                    </For>
-                  </select>
+                    onChange={(fileId) => updateValue(field.name, fileId)}
+                    required={field.required}
+                  />
+                }
+              >
+              <Show
+                when={field.type !== "boolean"}
+                fallback={
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      class="form-checkbox"
+                      checked={values()[field.name] === "true"}
+                      onChange={(e) =>
+                        updateValue(field.name, String(e.currentTarget.checked))
+                      }
+                    />
+                    <span class="text-sm text-gray-600 dark:text-gray-400">
+                      {values()[field.name] === "true" ? "true" : "false"}
+                    </span>
+                  </label>
                 }
               >
                 <Show
-                  when={field.type !== "text" && field.type !== "json"}
+                  when={!field.enum || field.enum.length === 0}
                   fallback={
-                    <textarea
-                      class="form-input"
-                      rows={field.type === "json" ? 5 : 3}
+                    <select
+                      class="form-select"
                       value={values()[field.name]}
-                      onInput={(e) => updateValue(field.name, e.currentTarget.value)}
-                      placeholder={field.type === "json" ? '{"key": "value"}' : ""}
-                    />
+                      onChange={(e) => updateValue(field.name, e.currentTarget.value)}
+                    >
+                      <option value="">-- select --</option>
+                      <For each={field.enum!}>
+                        {(opt) => <option value={opt}>{opt}</option>}
+                      </For>
+                    </select>
                   }
                 >
-                  <input
-                    type={inputType(field.type)}
-                    class="form-input"
-                    value={values()[field.name]}
-                    onInput={(e) => updateValue(field.name, e.currentTarget.value)}
-                  />
+                  <Show
+                    when={field.type !== "text" && field.type !== "json"}
+                    fallback={
+                      <textarea
+                        class="form-input"
+                        rows={field.type === "json" ? 5 : 3}
+                        value={values()[field.name]}
+                        onInput={(e) => updateValue(field.name, e.currentTarget.value)}
+                        placeholder={field.type === "json" ? '{"key": "value"}' : ""}
+                      />
+                    }
+                  >
+                    <input
+                      type={inputType(field.type)}
+                      class="form-input"
+                      value={values()[field.name]}
+                      onInput={(e) => updateValue(field.name, e.currentTarget.value)}
+                      placeholder={isAutoSlug ? "Leave empty to auto-generate" : ""}
+                    />
+                  </Show>
                 </Show>
               </Show>
-            </Show>
-            </Show>
-          </div>
-        )}
+              </Show>
+            </div>
+          );
+        }}
       </For>
 
       {/* Related records sections */}

@@ -4,6 +4,7 @@ import {
   getWorkflowInstance,
   approveInstance,
   rejectInstance,
+  deleteInstance,
 } from "../api/workflows";
 import type { WorkflowInstance } from "../types/workflow";
 import { isApiError } from "../types/api";
@@ -18,7 +19,7 @@ export function WorkflowMonitor() {
   const [loading, setLoading] = createSignal(false);
   const [detailOpen, setDetailOpen] = createSignal(false);
   const [selectedInstance, setSelectedInstance] = createSignal<WorkflowInstance | null>(null);
-  const [confirmAction, setConfirmAction] = createSignal<{ id: string; action: "approve" | "reject" } | null>(null);
+  const [confirmAction, setConfirmAction] = createSignal<{ id: string; action: "approve" | "reject" | "delete" } | null>(null);
 
   async function loadInstances() {
     setLoading(true);
@@ -56,9 +57,12 @@ export function WorkflowMonitor() {
       if (ca.action === "approve") {
         await approveInstance(ca.id);
         addToast("success", "Workflow approved");
-      } else {
+      } else if (ca.action === "reject") {
         await rejectInstance(ca.id);
         addToast("success", "Workflow rejected");
+      } else {
+        await deleteInstance(ca.id);
+        addToast("success", "Workflow instance deleted");
       }
       setConfirmAction(null);
       setDetailOpen(false);
@@ -149,6 +153,16 @@ export function WorkflowMonitor() {
             }}
           >
             Reject
+          </button>
+          <button
+            class="btn-danger btn-sm"
+            onClick={(e: Event) => {
+              e.stopPropagation();
+              setConfirmAction({ id: row.id, action: "delete" });
+            }}
+            title="Delete instance"
+          >
+            Delete
           </button>
         </div>
       ),
@@ -254,8 +268,8 @@ export function WorkflowMonitor() {
                 </div>
               </div>
 
-              <Show when={inst().status === "running" && inst().current_step}>
-                <div class="flex gap-2 mt-2">
+              <div class="flex gap-2 mt-2">
+                <Show when={inst().status === "running" && inst().current_step}>
                   <button
                     class="btn-primary"
                     onClick={() =>
@@ -272,8 +286,16 @@ export function WorkflowMonitor() {
                   >
                     Reject
                   </button>
-                </div>
-              </Show>
+                </Show>
+                <button
+                  class="btn-danger"
+                  onClick={() =>
+                    setConfirmAction({ id: inst().id, action: "delete" })
+                  }
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           )}
         </Show>
@@ -281,8 +303,10 @@ export function WorkflowMonitor() {
 
       <ConfirmDialog
         open={confirmAction() !== null}
-        title={`${confirmAction()?.action === "approve" ? "Approve" : "Reject"} Workflow`}
+        title={`${confirmAction()?.action === "approve" ? "Approve" : confirmAction()?.action === "reject" ? "Reject" : "Delete"} Workflow`}
         message={`Are you sure you want to ${confirmAction()?.action} this workflow instance?`}
+        confirmLabel={confirmAction()?.action === "approve" ? "Approve" : confirmAction()?.action === "reject" ? "Reject" : "Delete"}
+        confirmVariant={confirmAction()?.action === "approve" ? "primary" : "danger"}
         onConfirm={handleAction}
         onCancel={() => setConfirmAction(null)}
       />

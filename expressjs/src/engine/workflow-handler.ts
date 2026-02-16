@@ -6,6 +6,7 @@ import {
   resolveWorkflowAction,
   loadWorkflowInstance,
   listPendingInstances,
+  deleteWorkflowInstance,
 } from "./workflow.js";
 import { getInstrumenter } from "../instrument/instrument.js";
 
@@ -72,6 +73,16 @@ export class WorkflowHandler {
     }
   });
 
+  deleteInstance = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id;
+    try {
+      await deleteWorkflowInstance(this.store, id);
+      res.json({ data: { deleted: true } });
+    } catch {
+      throw new AppError("NOT_FOUND", 404, `Workflow instance not found: ${id}`);
+    }
+  });
+
   rejectInstance = asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id;
     const userID = (req.headers["x-user-id"] as string) || "system";
@@ -115,6 +126,7 @@ export function registerWorkflowRoutes(
   router.get("/:id", handler.getInstance);
   router.post("/:id/approve", handler.approveInstance);
   router.post("/:id/reject", handler.rejectInstance);
+  router.delete("/:id", handler.deleteInstance);
 
   app.use("/api/_workflows", ...middleware, router);
 }

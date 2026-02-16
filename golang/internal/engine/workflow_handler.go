@@ -26,6 +26,7 @@ func RegisterWorkflowRoutes(app *fiber.App, h *WorkflowHandler, middleware ...fi
 	wf.Get("/:id", h.GetInstance)
 	wf.Post("/:id/approve", h.Approve)
 	wf.Post("/:id/reject", h.Reject)
+	wf.Delete("/:id", h.Delete)
 }
 
 func (h *WorkflowHandler) GetInstance(c *fiber.Ctx) error {
@@ -67,6 +68,14 @@ func (h *WorkflowHandler) Approve(c *fiber.Ctx) error {
 
 	span.SetStatus("ok")
 	return c.JSON(fiber.Map{"data": instance})
+}
+
+func (h *WorkflowHandler) Delete(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if err := DeleteWorkflowInstance(c.Context(), h.store, id); err != nil {
+		return NewAppError("NOT_FOUND", 404, "Workflow instance not found: "+id)
+	}
+	return c.JSON(fiber.Map{"data": fiber.Map{"deleted": true}})
 }
 
 func (h *WorkflowHandler) Reject(c *fiber.Ctx) error {

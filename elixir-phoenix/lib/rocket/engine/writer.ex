@@ -122,10 +122,18 @@ defmodule Rocket.Engine.Writer do
       end)
 
     # Check required fields on create
+    # Skip required validation for auto-generated slug field
+    auto_slug_field =
+      if entity.slug != nil && entity.slug.source != nil && entity.slug.source != "" do
+        entity.slug.field
+      else
+        nil
+      end
+
     errs =
       if is_create do
         Enum.reduce(Entity.writable_fields(entity), errs, fn f, errs ->
-          if f.required && !f.nullable do
+          if f.required && !f.nullable && f.name != auto_slug_field do
             val = Map.get(fields, f.name)
 
             if val == nil || val == "" do

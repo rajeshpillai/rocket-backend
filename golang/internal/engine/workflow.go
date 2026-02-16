@@ -334,6 +334,12 @@ func ListPendingInstances(ctx context.Context, s *store.Store) ([]*metadata.Work
 	return wfStore.ListPending(ctx, s.DB, s.Dialect)
 }
 
+// DeleteWorkflowInstance removes a workflow instance by ID.
+func DeleteWorkflowInstance(ctx context.Context, s *store.Store, id string) error {
+	wfStore := &PgWorkflowStore{}
+	return wfStore.DeleteInstance(ctx, s.DB, s.Dialect, id)
+}
+
 // ── Context helpers ──
 
 func buildWorkflowContext(mappings map[string]string, record map[string]any, recordID any) map[string]any {
@@ -344,6 +350,9 @@ func buildWorkflowContext(mappings map[string]string, record map[string]any, rec
 				"record_id": recordID,
 				"record":    record,
 			},
+			// Allow shorthand: "record.field" as alias for "trigger.record.field"
+			"record":    record,
+			"record_id": recordID,
 		}, path)
 	}
 	return ctx

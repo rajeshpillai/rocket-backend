@@ -142,8 +142,14 @@ export function validateFields(
   }
 
   if (isCreate) {
+    // If entity has auto-slug, skip required check for the slug field (backend auto-generates it)
+    const autoSlugField = entity.slug?.source ? entity.slug.field : null;
+
     for (const f of writableFields(entity)) {
       if (f.required && !f.nullable) {
+        // Skip required validation for auto-generated slug field
+        if (f.name === autoSlugField) continue;
+
         const val = fields[f.name];
         if (val === undefined || val === null || val === "") {
           errs.push({

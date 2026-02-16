@@ -352,6 +352,11 @@ export async function listPendingInstances(store: Store): Promise<WorkflowInstan
   return wfStore.listPending(store.pool);
 }
 
+export async function deleteWorkflowInstance(store: Store, id: string): Promise<void> {
+  const wfStore = new PostgresWorkflowStore();
+  await wfStore.deleteInstance(store.pool, id);
+}
+
 // ── Context helpers (still needed by external callers) ──
 
 export function buildWorkflowContext(
@@ -365,6 +370,9 @@ export function buildWorkflowContext(
       record_id: recordID,
       record,
     },
+    // Allow shorthand: "record.field" as alias for "trigger.record.field"
+    record,
+    record_id: recordID,
   };
   for (const [key, path] of Object.entries(mappings)) {
     ctx[key] = resolveContextPath(env, path);

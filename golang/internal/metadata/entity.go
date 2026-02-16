@@ -1,11 +1,18 @@
 package metadata
 
+type SlugConfig struct {
+	Field              string `json:"field"`                         // slug field name (must exist in fields, must be unique)
+	Source             string `json:"source,omitempty"`              // auto-generate from this field
+	RegenerateOnUpdate bool   `json:"regenerate_on_update,omitempty"` // re-generate slug on update when source changes
+}
+
 type Entity struct {
-	Name       string     `json:"name"`
-	Table      string     `json:"table"`
-	PrimaryKey PrimaryKey `json:"primary_key"`
-	SoftDelete bool       `json:"soft_delete"`
-	Fields     []Field    `json:"fields"`
+	Name       string      `json:"name"`
+	Table      string      `json:"table"`
+	PrimaryKey PrimaryKey  `json:"primary_key"`
+	SoftDelete bool        `json:"soft_delete"`
+	Slug       *SlugConfig `json:"slug,omitempty"`
+	Fields     []Field     `json:"fields"`
 }
 
 type PrimaryKey struct {

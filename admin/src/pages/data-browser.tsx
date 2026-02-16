@@ -22,15 +22,32 @@ import { CsvImport } from "../components/csv-import";
 import { BulkActionBar } from "../components/bulk-action-bar";
 import { BulkUpdateModal } from "../components/bulk-update-modal";
 import { InlineFieldInput } from "../components/form/inline-field-input";
+import { FkSelect, type FkFieldInfo } from "../components/form/fk-select";
 import { writableFields, coerceFieldValue } from "../utils/field-helpers";
 import { batchExecute, generateCsv, downloadFile } from "../utils/bulk-operations";
 import { addToast } from "../stores/notifications";
+
+/** Pick a human-readable display field from an entity's fields */
+function pickDisplayField(fields: { name: string; type: string; auto?: string }[], pkField: string): string | null {
+  const preferred = ["name", "title", "label", "display_name", "email", "username", "slug"];
+  for (const name of preferred) {
+    if (fields.some((f) => f.name === name)) return name;
+  }
+  const systemFields = new Set([pkField, "id", "created_at", "updated_at", "deleted_at"]);
+  const stringField = fields.find(
+    (f) => (f.type === "string" || f.type === "text") && !systemFields.has(f.name) && !f.auto
+  );
+  return stringField?.name || null;
+}
+
+/** Lookup map: FK field name → { id → display string } */
+type FkLookupMap = Record<string, Record<string, string>>;
 
 export function DataBrowser() {
   const params = useParams<{ entity?: string }>();
   const navigate = useNavigate();
   const { entities, load: loadEntities, entityNames, parsed: allEntitiesParsed } = useEntities();
-  const { load: loadRelations, forSource } = useRelations();
+  const { load: loadRelations, forSource, forTarget } = useRelations();
 
   const [entityDef, setEntityDef] = createSignal<EntityDefinition | null>(null);
   const [records, setRecords] = createSignal<Record<string, unknown>[]>([]);
@@ -59,6 +76,10 @@ export function DataBrowser() {
   const [bulkLoading, setBulkLoading] = createSignal(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = createSignal(false);
   const [bulkUpdateOpen, setBulkUpdateOpen] = createSignal(false);
+
+  // FK field state
+  const [fkFields, setFkFields] = createSignal<FkFieldInfo[]>([]);
+  const [fkLookups, setFkLookups] = createSignal<FkLookupMap>({});
 
   // Inline editing state
   const [inlineEditId, setInlineEditId] = createSignal<string | null>(null);
@@ -98,9 +119,57 @@ export function DataBrowser() {
       setSortField("");
       setSelectedIds(new Set<string>());
       cancelInlineEdit();
+
+      // Detect FK fields: relations where this entity is the target (has FK column)
+      const targetRels = forTarget(name);
+      const allEnts = allEntitiesParsed();
+      const fks: FkFieldInfo[] = [];
+      for (const rel of targetRels) {
+        if (rel.target_key) {
+          const targetDef = allEnts.find((e) => e.name === rel.source);
+          fks.push({
+            fieldName: rel.target_key,
+            targetEntity: rel.source,
+            targetKey: rel.source_key || "id",
+            targetDef: targetDef,
+          });
+        }
+      }
+      setFkFields(fks);
+      loadFkLookups(fks, allEnts);
+
       fetchData(name);
     }
   });
+
+  async function loadFkLookups(fks: FkFieldInfo[], allEnts: EntityDefinition[]) {
+    if (fks.length === 0) {
+      setFkLookups({});
+      return;
+    }
+
+    const lookups: FkLookupMap = {};
+    await Promise.all(
+      fks.map(async (fk) => {
+        try {
+          const def = fk.targetDef ?? allEnts.find((e) => e.name === fk.targetEntity);
+          const pkField = def?.primary_key.field ?? "id";
+          const displayField = def ? pickDisplayField(def.fields, pkField) : null;
+
+          const res = await listRecords(fk.targetEntity, { perPage: 200 });
+          const map: Record<string, string> = {};
+          for (const row of res.data ?? []) {
+            const pk = String(row[fk.targetKey] ?? row[pkField] ?? "");
+            map[pk] = displayField ? String(row[displayField] ?? pk) : pk;
+          }
+          lookups[fk.fieldName] = map;
+        } catch {
+          // Silently skip — column will show raw value
+        }
+      })
+    );
+    setFkLookups(lookups);
+  }
 
   async function fetchData(entityName?: string) {
     const name = entityName ?? params.entity;
@@ -268,12 +337,16 @@ export function DataBrowser() {
     return <span>{String(val)}</span>;
   };
 
+  const getFkInfo = (fieldName: string): FkFieldInfo | undefined =>
+    fkFields().find((fk) => fk.fieldName === fieldName);
+
   const columns = (): Column[] => {
     const def = entityDef();
     if (!def) return [];
     const editId = inlineEditId();
     const wFields = writableFields(def, false);
     const writableNames = new Set(wFields.map((f) => f.name));
+    const lookups = fkLookups();
 
     const cols: Column[] = def.fields.map((f) => ({
       key: f.name,
@@ -285,6 +358,19 @@ export function DataBrowser() {
 
         // Inline editing mode for this row
         if (editId === rowId && writableNames.has(f.name) && isInlineEditable(f.type)) {
+          const fkInfo = getFkInfo(f.name);
+          if (fkInfo) {
+            return (
+              <FkSelect
+                label={f.name}
+                value={inlineValues()[f.name] ?? val}
+                onChange={(newVal) => updateInlineValue(f.name, newVal)}
+                fkInfo={fkInfo}
+                error={inlineErrors()[f.name]}
+                compact
+              />
+            );
+          }
           return (
             <InlineFieldInput
               field={f}
@@ -293,6 +379,15 @@ export function DataBrowser() {
               error={inlineErrors()[f.name]}
             />
           );
+        }
+
+        // Display mode: show FK display name instead of raw UUID
+        if (lookups[f.name]) {
+          const id = val != null ? String(val) : "";
+          const display = lookups[f.name][id];
+          if (display && display !== id) {
+            return <span title={id}>{display}</span>;
+          }
         }
 
         return renderDisplayValue(val, f);
@@ -675,6 +770,7 @@ export function DataBrowser() {
                 error={editorError()}
                 relations={forSource(params.entity!)}
                 allEntities={allEntitiesParsed()}
+                fkFields={fkFields()}
               />
             </Modal>
 

@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { type Field, isEditableField } from "../types/entity";
+import { type Field, type SlugConfig, isEditableField } from "../types/entity";
 import type { FormConfig } from "../types/ui-config";
 import FileField from "./file-field";
 import FkSelect from "./fk-select";
@@ -21,6 +21,7 @@ interface RecordFormProps {
   isNew?: boolean;
   fkFields?: FkFieldInfo[];
   formConfig?: FormConfig;
+  slugConfig?: SlugConfig;
 }
 
 export default function RecordForm(props: RecordFormProps) {
@@ -63,9 +64,11 @@ export default function RecordForm(props: RecordFormProps) {
     const value = getFieldValue(field.name);
     const errorMsg = props.errors?.[field.name];
     const label = getFieldLabel(field.name);
-    const labelClass = field.required ? "form-label form-label-required" : "form-label";
+    const slugCfg = props.slugConfig;
+    const isAutoSlug = slugCfg?.field === field.name && !!slugCfg?.source;
+    const labelClass = (field.required && !isAutoSlug) ? "form-label form-label-required" : "form-label";
     const readonly = isFieldReadonly(field.name);
-    const helpText = getFieldHelp(field.name);
+    const helpText = getFieldHelp(field.name) ?? (isAutoSlug ? `Auto-generated from ${slugCfg!.source}` : undefined);
 
     // Check if this field is a FK and should render as a dropdown
     const fkInfo = getFkInfo(field.name);

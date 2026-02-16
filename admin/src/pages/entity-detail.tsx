@@ -132,6 +132,31 @@ export function EntityDetail() {
       return;
     }
 
+    // Validate slug config
+    if (def.slug) {
+      if (!def.slug.field) {
+        setError("Slug is enabled but no slug field is selected");
+        return;
+      }
+      const slugField = def.fields.find((f) => f.name === def.slug!.field);
+      if (!slugField) {
+        setError(`Slug field "${def.slug.field}" not found in fields`);
+        return;
+      }
+      if (slugField.type !== "string" && slugField.type !== "text") {
+        setError(`Slug field "${def.slug.field}" must be of type string or text`);
+        return;
+      }
+      if (!slugField.unique) {
+        setError(`Slug field "${def.slug.field}" must have unique enabled`);
+        return;
+      }
+      if (def.slug.source && !def.fields.find((f) => f.name === def.slug!.source)) {
+        setError(`Slug source field "${def.slug.source}" not found in fields`);
+        return;
+      }
+    }
+
     // Auto-set table name if empty
     const payload: EntityDefinition = {
       ...def,
@@ -278,6 +303,86 @@ export function EntityDetail() {
               }
             />
           </div>
+        </div>
+
+        {/* Slug Section */}
+        <div class="section">
+          <h2 class="section-title">Slug</h2>
+          <Toggle
+            label="Enable Slug"
+            checked={!!definition().slug}
+            onChange={(val) => {
+              if (val) {
+                const firstUniqueString = definition().fields.find(
+                  (f) => f.unique && (f.type === "string" || f.type === "text")
+                );
+                updateDef({
+                  slug: {
+                    field: firstUniqueString?.name || "",
+                    source: "",
+                    regenerate_on_update: false,
+                  },
+                });
+              } else {
+                const { slug: _, ...rest } = definition();
+                setDefinition(rest as any);
+              }
+            }}
+          />
+          <Show when={definition().slug}>
+            <div class="form-row mt-4">
+              <SelectInput
+                label="Slug Field"
+                value={definition().slug?.field || ""}
+                onChange={(val) =>
+                  updateDef({
+                    slug: { ...definition().slug!, field: val },
+                  })
+                }
+                options={definition()
+                  .fields.filter(
+                    (f) =>
+                      f.unique && (f.type === "string" || f.type === "text")
+                  )
+                  .map((f) => ({ value: f.name, label: f.name }))}
+                placeholder="Select unique string field"
+              />
+              <SelectInput
+                label="Auto-generate from"
+                value={definition().slug?.source || ""}
+                onChange={(val) =>
+                  updateDef({
+                    slug: { ...definition().slug!, source: val },
+                  })
+                }
+                options={[
+                  { value: "", label: "(manual)" },
+                  ...definition()
+                    .fields.filter(
+                      (f) => f.type === "string" || f.type === "text"
+                    )
+                    .map((f) => ({ value: f.name, label: f.name })),
+                ]}
+                placeholder="Select source field"
+              />
+            </div>
+            <Show when={definition().slug?.source}>
+              <div class="mt-4">
+                <Toggle
+                  label="Regenerate on Update"
+                  checked={definition().slug?.regenerate_on_update || false}
+                  onChange={(val) =>
+                    updateDef({
+                      slug: {
+                        ...definition().slug!,
+                        regenerate_on_update: val,
+                      },
+                    })
+                  }
+                />
+              </div>
+            </Show>
+          </Show>
         </div>
 
         {/* Fields Section */}

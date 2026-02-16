@@ -7,6 +7,7 @@ defmodule Rocket.Engine.NestedWrite do
   alias Rocket.Instrument.Instrumenter
 
   @uuid_regex ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+  @int_regex ~r/^\d+$/
 
   defmodule WritePlan do
     defstruct [:entity, :fields, :id, :user, is_create: true, child_ops: []]
@@ -83,6 +84,10 @@ defmodule Rocket.Engine.NestedWrite do
         end
 
       # Evaluate rules (stubbed for Phase 0, implemented in Phase 1)
+      # Auto-generate slug if configured
+      fields = auto_generate_slug(tx_conn, plan.entity, plan.fields, plan.is_create, old, plan.id)
+      plan = %{plan | fields: fields}
+
       with :ok <- evaluate_rules_if_available(registry, plan, old),
            :ok <- evaluate_state_machines_if_available(registry, plan, old),
            :ok <- resolve_file_fields(tx_conn, plan.entity, plan.fields) do
@@ -197,8 +202,8 @@ defmodule Rocket.Engine.NestedWrite do
     end
   end
 
-  @doc "Fetch a single record by ID."
-  def fetch_record(conn, entity, id) do
+  @doc "Fetch a single record by ID or slug."
+  def fetch_record(conn, entity, id_or_slug) do
     columns = Entity.field_names(entity)
 
     columns =
@@ -208,12 +213,124 @@ defmodule Rocket.Engine.NestedWrite do
         columns
       end
 
-    sql = "SELECT #{Enum.join(columns, ", ")} FROM #{entity.table} WHERE #{entity.primary_key.field} = $1"
-    sql = if entity.soft_delete, do: sql <> " AND deleted_at IS NULL", else: sql
+    soft_delete_clause = if entity.soft_delete, do: " AND deleted_at IS NULL", else: ""
+    id_str = to_string(id_or_slug)
+
+    # If entity has slug config and param doesn't look like PK type, try slug first
+    if entity.slug != nil && is_binary(id_or_slug) && !looks_like_pk?(entity, id_str) do
+      slug_sql = "SELECT #{Enum.join(columns, ", ")} FROM #{entity.table} WHERE #{entity.slug.field} = $1#{soft_delete_clause}"
+
+      case Store.query_row(conn, slug_sql, [id_str]) do
+        {:ok, row} ->
+          {:ok, Store.fix_booleans(row, entity)}
+
+        _ ->
+          # slug lookup failed, fall through to PK lookup
+          fetch_by_pk(conn, entity, columns, soft_delete_clause, id_or_slug)
+      end
+    else
+      fetch_by_pk(conn, entity, columns, soft_delete_clause, id_or_slug)
+    end
+  end
+
+  defp fetch_by_pk(conn, entity, columns, soft_delete_clause, id) do
+    sql = "SELECT #{Enum.join(columns, ", ")} FROM #{entity.table} WHERE #{entity.primary_key.field} = $1#{soft_delete_clause}"
 
     case Store.query_row(conn, sql, [id]) do
       {:ok, row} -> {:ok, Store.fix_booleans(row, entity)}
       err -> err
+    end
+  end
+
+  defp looks_like_pk?(entity, value) do
+    case entity.primary_key.type do
+      "uuid" -> Regex.match?(@uuid_regex, value)
+      t when t in ["int", "integer", "bigint"] -> Regex.match?(@int_regex, value)
+      _ -> false
+    end
+  end
+
+  @doc "Convert text to a URL-friendly slug."
+  def slugify(text) when is_binary(text) do
+    text
+    |> String.downcase()
+    |> String.normalize(:nfd)
+    |> String.replace(~r/[^\x00-\x7F]/, "")
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.replace(~r/^-+|-+$/, "")
+    |> String.replace(~r/-{2,}/, "-")
+  end
+
+  def slugify(_), do: ""
+
+  defp generate_unique_slug(conn, entity, base_slug, exclude_id \\ nil) do
+    slug_field = entity.slug.field
+    soft_delete_clause = if entity.soft_delete, do: " AND deleted_at IS NULL", else: ""
+    {exclude_clause, extra_params} =
+      if exclude_id != nil do
+        {" AND #{entity.primary_key.field} != $2", [exclude_id]}
+      else
+        {"", []}
+      end
+
+    check_sql = "SELECT 1 FROM #{entity.table} WHERE #{slug_field} = $1#{soft_delete_clause}#{exclude_clause} LIMIT 1"
+
+    case Store.query_rows(conn, check_sql, [base_slug | extra_params]) do
+      {:ok, []} -> base_slug
+      {:ok, _} -> try_slug_suffixes(conn, check_sql, base_slug, extra_params, 2)
+      _ -> base_slug
+    end
+  end
+
+  defp try_slug_suffixes(_conn, _sql, base_slug, _extra_params, n) when n > 100 do
+    "#{base_slug}-#{n}"
+  end
+
+  defp try_slug_suffixes(conn, check_sql, base_slug, extra_params, n) do
+    candidate = "#{base_slug}-#{n}"
+
+    case Store.query_rows(conn, check_sql, [candidate | extra_params]) do
+      {:ok, []} -> candidate
+      {:ok, _} -> try_slug_suffixes(conn, check_sql, base_slug, extra_params, n + 1)
+      _ -> candidate
+    end
+  end
+
+  defp auto_generate_slug(_conn, %{slug: nil}, fields, _is_create, _old, _existing_id), do: fields
+  defp auto_generate_slug(_conn, %{slug: %{source: nil}}, fields, _is_create, _old, _existing_id), do: fields
+  defp auto_generate_slug(_conn, %{slug: %{source: ""}}, fields, _is_create, _old, _existing_id), do: fields
+
+  defp auto_generate_slug(conn, entity, fields, is_create, old, existing_id) do
+    slug_cfg = entity.slug
+    slug_field = slug_cfg.field
+
+    # If slug is explicitly provided, skip auto-generation
+    slug_val = Map.get(fields, slug_field)
+    if slug_val != nil && slug_val != "" do
+      fields
+    else
+      source_val = Map.get(fields, slug_cfg.source)
+
+      cond do
+        source_val == nil || source_val == "" ->
+          fields
+
+        is_create ->
+          slug = generate_unique_slug(conn, entity, slugify(to_string(source_val)))
+          Map.put(fields, slug_field, slug)
+
+        slug_cfg.regenerate_on_update ->
+          old_source = Map.get(old, slug_cfg.source, "")
+          if to_string(source_val) == to_string(old_source) do
+            fields
+          else
+            slug = generate_unique_slug(conn, entity, slugify(to_string(source_val)), existing_id)
+            Map.put(fields, slug_field, slug)
+          end
+
+        true ->
+          fields
+      end
     end
   end
 

@@ -25,6 +25,11 @@ function forSource(entityName: string): RelationDefinition[] {
   return parsed().filter((r) => r.source === entityName);
 }
 
+/** Get all relations where the given entity is the target (child with FK column). */
+function forTarget(entityName: string): RelationDefinition[] {
+  return parsed().filter((r) => r.target === entityName);
+}
+
 export function useRelations() {
-  return { relations, loading, load, parsed, forSource };
+  return { relations, loading, load, parsed, forSource, forTarget };
 }

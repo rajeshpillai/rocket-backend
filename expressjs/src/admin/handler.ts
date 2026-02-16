@@ -3,8 +3,8 @@ import type { Store } from "../store/postgres.js";
 import { queryRows, queryRow, exec } from "../store/postgres.js";
 import type { Registry } from "../metadata/registry.js";
 import type { Migrator } from "../store/migrator.js";
-import type { Entity, Relation } from "../metadata/types.js";
-import { hasField, isManyToMany } from "../metadata/types.js";
+import type { Entity, Relation, Field } from "../metadata/types.js";
+import { hasField, getField, isManyToMany } from "../metadata/types.js";
 import type { Rule } from "../metadata/rule.js";
 import type { StateMachine } from "../metadata/state-machine.js";
 import { normalizeDefinition } from "../metadata/state-machine.js";
@@ -1778,6 +1778,22 @@ function validateEntity(e: Entity): string | null {
   if (!e.primary_key?.field) return "primary key field is required";
   if (!hasField(e, e.primary_key.field))
     return `primary key field ${e.primary_key.field} not found in fields`;
+
+  // Validate slug config if present
+  if (e.slug) {
+    const slugField = getField(e, e.slug.field);
+    if (!slugField)
+      return `slug field "${e.slug.field}" not found in fields`;
+    if (slugField.type !== "string" && slugField.type !== "text")
+      return `slug field "${e.slug.field}" must be of type string or text`;
+    if (!slugField.unique)
+      return `slug field "${e.slug.field}" must have unique: true`;
+    if (e.slug.source) {
+      if (!hasField(e, e.slug.source))
+        return `slug source field "${e.slug.source}" not found in fields`;
+    }
+  }
+
   return null;
 }
 

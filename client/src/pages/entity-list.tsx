@@ -460,8 +460,10 @@ export default function EntityListPage() {
             sortDir={sortDir()}
             onSort={handleSort}
             onRowClick={(row) => {
-              const pk = entityDef()!.primary_key.field;
-              navigate(`/data/${params.entity}/${row[pk]}`);
+              const def = entityDef()!;
+              const slugField = (def as any).slug?.field;
+              const id = (slugField && row[slugField]) || row[def.primary_key.field];
+              navigate(`/data/${params.entity}/${id}`);
             }}
             emptyMessage={`No ${params.entity} records found`}
           />
@@ -492,6 +494,7 @@ export default function EntityListPage() {
               isNew={isNewRecord()}
               fkFields={fkFields()}
               formConfig={uiConfig()?.form}
+              slugConfig={(entityDef() as any)?.slug}
             />
             <div class="form-actions">
               <button

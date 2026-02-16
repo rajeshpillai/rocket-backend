@@ -83,7 +83,7 @@ export default function PostLandingPage() {
   }
 
   function handleCardClick(record: Record<string, unknown>) {
-    const id = record.id ?? record.slug;
+    const id = record.slug ?? record.id;
     if (id) {
       navigate(`/pages/post/${id}`);
     }

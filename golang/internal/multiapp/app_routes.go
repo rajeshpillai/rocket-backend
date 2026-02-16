@@ -135,6 +135,7 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	wf.Get("/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.GetInstance }))
 	wf.Post("/:id/approve", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.Approve }))
 	wf.Post("/:id/reject", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.Reject }))
+	wf.Delete("/:id", dispatch(func(ac *AppContext) fiber.Handler { return ac.WorkflowHandler.Delete }))
 
 	// File routes (auth required)
 	files := protected.Group("/_files")

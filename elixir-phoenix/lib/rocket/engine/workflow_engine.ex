@@ -91,6 +91,10 @@ defmodule Rocket.Engine.WorkflowEngine do
     PostgresWorkflowStore.load_instance(conn, id)
   end
 
+  def delete_workflow_instance(conn, id) do
+    PostgresWorkflowStore.delete_instance(conn, id)
+  end
+
   # ── Internal: context building ──
 
   defp default_context(conn, registry) do
@@ -276,7 +280,12 @@ defmodule Rocket.Engine.WorkflowEngine do
   defp step_field(_, _), do: nil
 
   defp build_workflow_context(mappings, record, record_id) when is_map(mappings) do
-    envelope = %{"trigger" => %{"record_id" => record_id, "record" => record}}
+    # Allow shorthand: "record.field" as alias for "trigger.record.field"
+    envelope = %{
+      "trigger" => %{"record_id" => record_id, "record" => record},
+      "record" => record,
+      "record_id" => record_id
+    }
 
     Map.new(mappings, fn {key, path} ->
       value = resolve_context_path(envelope, path)

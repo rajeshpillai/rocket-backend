@@ -35,6 +35,7 @@ Stored in the `_entities` table. Each row holds the full JSON definition of one 
 | `table` | string | yes | Actual Postgres table name |
 | `primary_key` | object | yes | PK configuration (see below) |
 | `soft_delete` | bool | no | Default `true`. If true, deletes set `deleted_at` instead of removing rows |
+| `slug` | object | no | Slug configuration for human-readable URLs (see below) |
 | `fields` | array | yes | List of field definitions |
 
 ### Primary Key Configuration
@@ -53,6 +54,29 @@ Stored in the `_entities` table. Each row holds the full JSON definition of one 
 ```json
 { "fields": ["tenant_id", "order_id"], "generated": false }
 ```
+
+### Slug Configuration
+
+Optional. Enables human-readable URLs for entity records (e.g., `/posts/my-first-post` instead of `/posts/550e8400-...`).
+
+```json
+{ "field": "slug", "source": "title", "regenerate_on_update": false }
+```
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `field` | string | yes | Name of the slug field. Must exist in `fields`, must be `unique: true`, must be type `string` or `text` |
+| `source` | string | no | Auto-generate slug from this field (e.g., `"title"` → `my-first-post`). If omitted, slug must be provided manually |
+| `regenerate_on_update` | bool | no | Default `false`. If `true`, slug is re-generated when the source field changes on update |
+
+**How it works:**
+- On **create**: if `source` is set and slug is not provided, the engine auto-generates a slug from the source value (lowercase, hyphens, accent-stripped)
+- On **update**: slug only changes if `regenerate_on_update: true` and the source field changed (or if slug is explicitly provided)
+- **Duplicate handling**: appends `-2`, `-3`, etc. for uniqueness
+- **Record lookup**: `GET /:entity/:idOrSlug` — if the param doesn't look like the PK type (UUID/int), the engine tries slug lookup first, then falls back to PK
+- **Backward compatible**: UUID-based access always works regardless of slug configuration
+
+**Admin UI**: Toggle "Enable Slug" in entity settings → select slug field + source field.
 
 ## Field Definition
 

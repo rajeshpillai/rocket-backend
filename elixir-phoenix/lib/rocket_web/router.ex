@@ -163,6 +163,7 @@ defmodule RocketWeb.Router do
     get "/:id", WorkflowController, :get_instance
     post "/:id/approve", WorkflowController, :approve
     post "/:id/reject", WorkflowController, :reject
+    delete "/:id", WorkflowController, :delete_instance
   end
 
   # File endpoints — require app resolver + dual auth

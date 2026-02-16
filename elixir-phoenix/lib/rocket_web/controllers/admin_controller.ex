@@ -1574,6 +1574,31 @@ defmodule RocketWeb.AdminController do
     errs = if(entity.name == "" || entity.name == nil, do: errs ++ [%{field: "name", rule: "required", message: "name is required"}], else: errs)
     errs = if(entity.fields == [], do: errs ++ [%{field: "fields", rule: "required", message: "at least one field is required"}], else: errs)
 
+    # Validate slug config if present
+    errs =
+      if entity.slug != nil do
+        slug_field = Entity.get_field(entity, entity.slug.field)
+
+        cond do
+          slug_field == nil ->
+            errs ++ [%{field: "slug.field", rule: "invalid", message: "slug field \"#{entity.slug.field}\" not found in fields"}]
+
+          slug_field.type not in ["string", "text"] ->
+            errs ++ [%{field: "slug.field", rule: "invalid", message: "slug field \"#{entity.slug.field}\" must be of type string or text"}]
+
+          !slug_field.unique ->
+            errs ++ [%{field: "slug.field", rule: "invalid", message: "slug field \"#{entity.slug.field}\" must have unique: true"}]
+
+          entity.slug.source != nil && entity.slug.source != "" && !Entity.has_field?(entity, entity.slug.source) ->
+            errs ++ [%{field: "slug.source", rule: "invalid", message: "slug source field \"#{entity.slug.source}\" not found in fields"}]
+
+          true ->
+            errs
+        end
+      else
+        errs
+      end
+
     if errs != [] do
       {:error, AppError.validation_failed(errs)}
     else

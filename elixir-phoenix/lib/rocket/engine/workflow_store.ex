@@ -9,6 +9,7 @@ defmodule Rocket.Engine.WorkflowStore do
   @callback persist_instance(conn :: term(), instance :: map()) :: :ok | {:error, term()}
   @callback list_pending(conn :: term()) :: {:ok, list(map())} | {:error, term()}
   @callback find_timed_out(conn :: term()) :: {:ok, list(map())} | {:error, term()}
+  @callback delete_instance(conn :: term(), id :: String.t()) :: :ok | {:error, term()}
 end
 
 defmodule Rocket.Engine.PostgresWorkflowStore do
@@ -58,6 +59,14 @@ defmodule Rocket.Engine.PostgresWorkflowStore do
   def find_timed_out(conn) do
     Store.query_rows(conn,
       "SELECT id, workflow_id, workflow_name, status, current_step, current_step_deadline, context, history, created_at, updated_at FROM _workflow_instances WHERE status = 'running' AND current_step_deadline IS NOT NULL AND current_step_deadline < NOW()")
+  end
+
+  @impl true
+  def delete_instance(conn, id) do
+    case Store.exec(conn, "DELETE FROM _workflow_instances WHERE id = $1", [id]) do
+      {:ok, _} -> :ok
+      {:error, err} -> {:error, err}
+    end
   end
 
   defp parse_instance_row(row) do

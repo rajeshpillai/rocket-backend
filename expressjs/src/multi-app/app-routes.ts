@@ -140,6 +140,7 @@ export function registerAppRoutes(
   wfRouter.get("/:id", dispatch((ac) => ac.workflowHandler.getInstance));
   wfRouter.post("/:id/approve", dispatch((ac) => ac.workflowHandler.approveInstance));
   wfRouter.post("/:id/reject", dispatch((ac) => ac.workflowHandler.rejectInstance));
+  wfRouter.delete("/:id", dispatch((ac) => ac.workflowHandler.deleteInstance));
   app.use("/api/:app/_workflows", resolverMW, appAuthMW, instrMW, wfRouter);
 
   // File routes (auth required, upload uses multer)

@@ -45,11 +45,18 @@ export interface PrimaryKey {
   generated: boolean;
 }
 
+export interface SlugConfig {
+  field: string;
+  source?: string;
+  regenerate_on_update?: boolean;
+}
+
 export interface EntityDefinition {
   name: string;
   table: string;
   primary_key: PrimaryKey;
   soft_delete: boolean;
+  slug?: SlugConfig;
   fields: Field[];
 }
 

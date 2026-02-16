@@ -113,6 +113,9 @@ export async function executeWritePlan(
       throw validationError(smErrs);
     }
 
+    // Auto-generate slug if configured
+    await autoGenerateSlug(client, plan.entity, plan.fields, plan.isCreate, old, plan.id);
+
     // Resolve file fields: UUID string → JSONB metadata object
     await resolveFileFields(client, plan.entity, plan.fields);
 
@@ -174,22 +177,109 @@ export async function executeWritePlan(
 export async function fetchRecord(
   q: Queryable,
   entity: Entity,
-  id: any,
+  idOrSlug: any,
 ): Promise<Record<string, any>> {
   const columns = fieldNames(entity);
   if (entity.soft_delete && !getField(entity, "deleted_at")) {
     columns.push("deleted_at");
   }
 
-  let sql = `SELECT ${columns.join(", ")} FROM ${entity.table} WHERE ${entity.primary_key.field} = $1`;
-  if (entity.soft_delete) {
-    sql += " AND deleted_at IS NULL";
+  const softDeleteClause = entity.soft_delete ? " AND deleted_at IS NULL" : "";
+
+  // If entity has a slug config and the param doesn't look like the PK type, try slug first
+  if (entity.slug && typeof idOrSlug === "string" && !looksLikePK(entity, idOrSlug)) {
+    const slugSql = `SELECT ${columns.join(", ")} FROM ${entity.table} WHERE ${entity.slug.field} = $1${softDeleteClause}`;
+    try {
+      return await queryRow(q, slugSql, [idOrSlug]);
+    } catch {
+      // slug lookup failed, fall through to PK lookup
+    }
   }
 
-  return queryRow(q, sql, [id]);
+  // Default: look up by primary key
+  const sql = `SELECT ${columns.join(", ")} FROM ${entity.table} WHERE ${entity.primary_key.field} = $1${softDeleteClause}`;
+  return queryRow(q, sql, [idOrSlug]);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INT_RE = /^\d+$/;
+
+function looksLikePK(entity: Entity, value: string): boolean {
+  const pkType = entity.primary_key.type;
+  if (pkType === "uuid") return UUID_RE.test(value);
+  if (pkType === "int" || pkType === "integer" || pkType === "bigint") return INT_RE.test(value);
+  return false; // string PKs — can't distinguish, always try slug first
+}
+
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[^a-z0-9]+/g, "-")     // non-alphanumeric → hyphen
+    .replace(/^-+|-+$/g, "")         // trim leading/trailing hyphens
+    .replace(/-{2,}/g, "-");          // collapse multiple hyphens
+}
+
+export async function generateUniqueSlug(
+  q: Queryable,
+  entity: Entity,
+  baseSlug: string,
+  excludeId?: any,
+): Promise<string> {
+  const slugField = entity.slug!.field;
+  const softDeleteClause = entity.soft_delete ? " AND deleted_at IS NULL" : "";
+  const excludeClause = excludeId != null ? ` AND ${entity.primary_key.field} != $2` : "";
+  const params: any[] = [baseSlug];
+  if (excludeId != null) params.push(excludeId);
+
+  const checkSql = `SELECT 1 FROM ${entity.table} WHERE ${slugField} = $1${softDeleteClause}${excludeClause} LIMIT 1`;
+  const rows = await queryRows(q, checkSql, params);
+  if (rows.length === 0) return baseSlug;
+
+  // Append incrementing suffix
+  for (let i = 2; i <= 100; i++) {
+    const candidate = `${baseSlug}-${i}`;
+    params[0] = candidate;
+    const dupeRows = await queryRows(q, checkSql, params);
+    if (dupeRows.length === 0) return candidate;
+  }
+
+  // Fallback: append random suffix
+  const suffix = Math.random().toString(36).substring(2, 8);
+  return `${baseSlug}-${suffix}`;
+}
+
+async function autoGenerateSlug(
+  q: Queryable,
+  entity: Entity,
+  fields: Record<string, any>,
+  isCreate: boolean,
+  old: Record<string, any>,
+  existingId: any,
+): Promise<void> {
+  const slugCfg = entity.slug;
+  if (!slugCfg || !slugCfg.source) return;
+
+  const slugField = slugCfg.field;
+  const sourceField = slugCfg.source;
+
+  // If slug is explicitly provided in the payload, skip auto-generation
+  if (fields[slugField] != null && fields[slugField] !== "") return;
+
+  if (isCreate) {
+    // On create: generate from source field
+    const sourceValue = fields[sourceField];
+    if (sourceValue == null || sourceValue === "") return;
+    fields[slugField] = await generateUniqueSlug(q, entity, slugify(String(sourceValue)));
+  } else if (slugCfg.regenerate_on_update) {
+    // On update: regenerate only if source field changed
+    const sourceValue = fields[sourceField];
+    if (sourceValue == null || sourceValue === "") return;
+    if (sourceValue === old[sourceField]) return; // source didn't change
+    fields[slugField] = await generateUniqueSlug(q, entity, slugify(String(sourceValue)), existingId);
+  }
+}
 
 /**
  * For each file-type field whose value is a UUID string, resolve it to

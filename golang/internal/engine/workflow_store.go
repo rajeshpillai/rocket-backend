@@ -17,6 +17,7 @@ type WorkflowStore interface {
 	PersistInstance(ctx context.Context, q store.Querier, dialect store.Dialect, instance *metadata.WorkflowInstance) error
 	ListPending(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error)
 	FindTimedOut(ctx context.Context, q store.Querier, dialect store.Dialect) ([]*metadata.WorkflowInstance, error)
+	DeleteInstance(ctx context.Context, q store.Querier, dialect store.Dialect, id string) error
 }
 
 // WorkflowInstanceData is the data needed to create a new workflow instance.
@@ -142,6 +143,16 @@ func (s *PgWorkflowStore) FindTimedOut(ctx context.Context, q store.Querier, dia
 		instances = append(instances, inst)
 	}
 	return instances, nil
+}
+
+func (s *PgWorkflowStore) DeleteInstance(ctx context.Context, q store.Querier, dialect store.Dialect, id string) error {
+	pb := dialect.NewParamBuilder()
+	_, err := store.Exec(ctx, q,
+		fmt.Sprintf(`DELETE FROM _workflow_instances WHERE id = %s`, pb.Add(id)), pb.Params()...)
+	if err != nil {
+		return fmt.Errorf("delete workflow instance: %w", err)
+	}
+	return nil
 }
 
 // ParseWorkflowInstanceRow parses a database row into a WorkflowInstance.

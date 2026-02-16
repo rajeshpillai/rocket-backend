@@ -21,6 +21,7 @@ export interface WorkflowStore {
   persistInstance(q: Queryable, instance: WorkflowInstance): Promise<void>;
   listPending(q: Queryable): Promise<WorkflowInstance[]>;
   findTimedOut(q: Queryable): Promise<WorkflowInstance[]>;
+  deleteInstance(q: Queryable, id: string): Promise<void>;
 }
 
 /**
@@ -91,6 +92,10 @@ export class PostgresWorkflowStore implements WorkflowStore {
        WHERE status = 'running' AND current_step_deadline IS NOT NULL AND current_step_deadline < NOW()`,
     );
     return (rows ?? []).map(parseWorkflowInstanceRow);
+  }
+
+  async deleteInstance(q: Queryable, id: string): Promise<void> {
+    await exec(q, `DELETE FROM _workflow_instances WHERE id = $1`, [id]);
   }
 }
 
