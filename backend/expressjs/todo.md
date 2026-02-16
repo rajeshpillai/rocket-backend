@@ -1,131 +1,133 @@
-# Rocket Backend — Go (Fiber) Implementation
+# Rocket Backend — Express.js Implementation
 
 ## Phase 0: Foundation [DONE]
-- [x] Scaffolding (go.mod, app.yaml, config loader)
-- [x] Metadata types (field, entity, relation, registry)
-- [x] Database layer (postgres store, bootstrap, migrator, loader)
+- [x] Scaffolding (package.json, tsconfig, app.yaml, config loader)
+- [x] Metadata types (Field, Entity, Relation, PrimaryKey interfaces + utilities)
+- [x] Registry (in-memory metadata cache)
+- [x] Database layer (pg Pool, queryRows/queryRow/exec, bootstrap, migrator, loader)
 - [x] Query builder (filters, sorting, pagination, soft-delete)
 - [x] Writer + nested writes (diff/replace/append modes)
 - [x] HTTP handlers (CRUD, admin API, dynamic routing, includes)
-- [x] Entry point (main.go)
+- [x] Entry point (index.ts)
 
 ## Phase 1: Validation Rules [DONE]
 - [x] `_rules` system table + bootstrap DDL
 - [x] Rule metadata types + loader into registry
 - [x] Admin API for rule CRUD (`/api/_admin/rules`)
 - [x] Field rules engine (min, max, min_length, max_length, pattern)
-- [x] Expression rules engine (expr-lang/expr compilation + evaluation)
+- [x] Expression rules engine (Function constructor with `with(env)` evaluation)
 - [x] Computed fields (expression that sets a value before write)
 - [x] Rule evaluation wired into write pipeline (`before_write` hook)
 - [x] Unique constraint violations return 409 CONFLICT
 
 ## Phase 2: State Machines [DONE]
 - [x] `_state_machines` system table + bootstrap DDL
-- [x] State machine metadata types (StateMachine, Transition, TransitionAction, TransitionFrom)
-- [x] Custom JSON marshal/unmarshal for `from` field (string or array)
-- [x] Loader + registry integration (GetStateMachinesForEntity, LoadStateMachines)
+- [x] State machine metadata types (StateMachine, Transition, TransitionAction)
+- [x] `normalizeDefinition()` for `from` field (string or array → always array)
+- [x] Loader + registry integration (getStateMachinesForEntity, loadStateMachines)
 - [x] Admin API for state machine CRUD (`/api/_admin/state-machines`)
 - [x] Transition validation (from/to state matching, array `from` support)
-- [x] Guard expressions (expr-lang/expr, true = allowed, false = blocked)
-- [x] Transition actions: `set_field` (with `"now"` = timestamp), webhook/create_record/send_event (stubs)
+- [x] Guard expressions (Function constructor with `with(env)`, true = allowed, false = blocked)
+- [x] Transition actions: `set_field` (with `"now"` = ISO timestamp), webhook/create_record/send_event (stubs)
 - [x] Roles array stored but not enforced (until Auth phase)
 - [x] State machine evaluation wired into write pipeline (after rules, before SQL)
-- [x] Unit tests (10) + integration tests (enforcement + CRUD)
+- [x] Integration tests (5 enforcement + 6 CRUD)
 
 ## Phase 3: Workflows [DONE]
 - [x] `_workflows` + `_workflow_instances` system tables + bootstrap DDL
-- [x] Workflow metadata types (Workflow, WorkflowStep, StepGoto with custom JSON marshal)
-- [x] Registry integration (workflowsByTrigger, workflowsByName, GetWorkflowsForTrigger, GetWorkflow)
+- [x] Workflow metadata types (interfaces, parseStepGoto, normalizeWorkflowSteps)
+- [x] Registry integration (workflowsByTrigger, workflowsByName, getWorkflowsForTrigger, getWorkflow)
 - [x] Loader (loadWorkflows from _workflows table)
 - [x] Admin API for workflow CRUD (`/api/_admin/workflows`) with validation
-- [x] Workflow execution engine (TriggerWorkflows, advanceWorkflow, executeStep)
-- [x] Step types: action (set_field UPDATE), condition (expr-lang/expr), approval (pause + deadline)
-- [x] Post-commit workflow trigger hook in nested_write.go
+- [x] Workflow execution engine (triggerWorkflows, advanceWorkflow, executeStep)
+- [x] Step types: action (set_field UPDATE), condition (Function + with(env)), approval (pause + deadline)
+- [x] Post-commit workflow trigger hook in nested-write.ts
 - [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`, `DELETE /:id`)
-- [x] Background timeout scheduler (60s goroutine ticker)
-- [x] Unit tests (8 metadata + engine tests) + integration tests (11 tests: CRUD, trigger, approval, rejection, condition branching)
+- [x] Background timeout scheduler (60s setInterval)
+- [x] Integration tests (7 new workflow tests: CRUD, trigger, approval, rejection, condition branching)
 
 ## Phase 4: Auth & Permissions [DONE]
 - [x] `_users`, `_refresh_tokens`, `_permissions` system tables + bootstrap DDL
 - [x] JWT secret in config (`jwt_secret` field in app.yaml)
-- [x] Auth types (UserContext in metadata package to avoid import cycle)
-- [x] JWT helpers (HS256 access tokens, opaque UUID refresh tokens, bcrypt password hashing)
+- [x] Auth types (UserContext, TokenPair, Claims) + JWT helpers (jsonwebtoken) + bcrypt (bcryptjs)
 - [x] Seed admin user on first boot (`admin@localhost` / `changeme` with `["admin"]` role)
 - [x] Auth handler (login, refresh with rotation, logout) at `/api/auth/*`
-- [x] Auth middleware (JWT validation, sets `c.Locals("user")`)
-- [x] Admin-only middleware (checks `user.Roles` contains `"admin"`)
+- [x] Auth middleware (JWT validation, sets `req.user` via Express Request type augmentation)
+- [x] Admin-only middleware (checks `req.user.roles` contains `"admin"`)
 - [x] Permission types (Permission, PermissionCondition) + registry + loader
-- [x] Permission engine (CheckPermission, GetReadFilters) — whitelist model, admin bypass
+- [x] Permission engine (checkPermission, getReadFilters) — whitelist model, admin bypass
 - [x] Permission checks in all 5 CRUD handlers (list, getById, create, update, delete)
 - [x] Row-level read filtering (permission conditions injected as WHERE clauses)
 - [x] Write permission conditions (fetch current record, check against conditions)
 - [x] User admin CRUD (`/api/_admin/users`) — password hashed, never returned
 - [x] Permission admin CRUD (`/api/_admin/permissions`)
-- [x] Auth routes wired before middleware in main.go
+- [x] Auth routes wired before middleware in index.ts
+- [x] Route registration functions accept variadic middleware (`...middleware: RequestHandler[]`)
 - [x] Integration tests (11 new: login/refresh/logout, invalid credentials, middleware rejection, admin bypass, permission grants/denies, row-level filtering, write conditions, user CRUD, permission CRUD, disabled user)
 
 ## Phase 5: Webhooks [DONE]
 - [x] `_webhooks` + `_webhook_logs` system tables + bootstrap DDL
-- [x] Webhook metadata types (Webhook, WebhookRetry)
-- [x] Registry integration (webhooksByEntityHook, GetWebhooksForEntityHook, LoadWebhooks)
-- [x] Loader (loadWebhooks from _webhooks table, JSONB headers/retry parsing)
+- [x] Webhook metadata types (Webhook, WebhookRetry interfaces)
+- [x] Registry integration (webhooksByEntityHook, getWebhooksForEntityHook, loadWebhooks)
+- [x] Loader (loadWebhooks from _webhooks table)
 - [x] Admin API for webhook CRUD (`/api/_admin/webhooks`) with validation
 - [x] Admin API for webhook logs (`/api/_admin/webhook-logs`) with filters (?webhook_id, ?status, ?entity)
 - [x] Manual retry endpoint (`POST /api/_admin/webhook-logs/:id/retry`)
 - [x] Webhook dispatch engine (buildPayload, computeChanges, resolveHeaders, evaluateCondition, dispatch)
-- [x] Async webhooks: fire after commit in goroutine, log to `_webhook_logs`, retry on failure
-- [x] Sync webhooks: fire inside transaction before commit, non-2xx causes rollback
-- [x] Header template resolution (`{{env.VAR_NAME}}` → os env values)
-- [x] Condition expressions (expr-lang/expr, same env as rules: record, old, changes, action, entity, user)
+- [x] Async webhooks: fire after commit in background, log to `_webhook_logs`, retry on failure
+- [x] Sync webhooks: fire inside transaction before commit, non-2xx throws error for rollback
+- [x] Header template resolution (`{{env.VAR_NAME}}` → process.env values)
+- [x] Condition expressions (Function constructor with `with(env)`, same env as rules)
 - [x] Webhook payload (event, entity, action, record, old, changes, user, timestamp, idempotency_key)
-- [x] Integration into write flow: `before_write` sync + `after_write` async in ExecuteWritePlan
-- [x] Integration into delete flow: `before_delete` sync + `after_delete` async in Delete handler
+- [x] Integration into write flow: `before_write` sync + `after_write` async in executeWritePlan
+- [x] Integration into delete flow: `before_delete` sync + `after_delete` async in delete handler
 - [x] User context passed through WritePlan for webhook payloads
-- [x] Background retry scheduler (30s goroutine ticker, exponential backoff: 30s × 2^attempt)
-- [x] State machine webhook stub replaced with real DispatchWebhookDirect (fire-and-forget)
-- [x] Workflow webhook stub replaced with real DispatchWebhookDirect (synchronous, step waits)
+- [x] Background retry scheduler (30s setInterval, exponential backoff: 30s × 2^attempt)
+- [x] State machine webhook stub replaced with real dispatchWebhookDirect (fire-and-forget)
+- [x] Workflow webhook stub replaced with real dispatchWebhookDirect (synchronous, step waits)
 
 ## Phase 6: Multi-App (Database-per-App) [DONE]
-- [x] Config: `platform_jwt_secret` and `app_pool_size` in config struct + app.yaml
-- [x] Store: `NewWithPoolSize()`, `ConnStringForDB()`, `CreateDatabase()`, `DropDatabase()`, `isValidDBName()`
+- [x] Config: `platform_jwt_secret` and `app_pool_size` in Config interface + app.yaml
+- [x] Store: `connectWithPoolSize()`, `connectToDB()`, `createDatabase()`, `dropDatabase()`
 - [x] Platform bootstrap: `_apps`, `_platform_users`, `_platform_refresh_tokens` tables + seed platform admin
-- [x] AppContext struct (Store, Registry, Migrator, EngineHandler, AdminHandler, AuthHandler, WorkflowHandler)
-- [x] AppManager (Get/Create/Delete/List/LoadAll/AllContexts/Close) with lazy initialization
-- [x] Platform handler (Login/Refresh/Logout against platform users, ListApps/GetApp/CreateApp/DeleteApp)
-- [x] App resolver middleware (extracts `:app`, looks up AppContext)
+- [x] AppContext interface (store, registry, migrator, engineHandler, adminHandler, authHandler, workflowHandler)
+- [x] AppManager class (get/create/delete/list/loadAll/allContexts/close) with Promise-based concurrency guard
+- [x] Platform handler (login/refresh/logout against platform users, listApps/getApp/createApp/deleteApp)
+- [x] App resolver middleware (extracts `:app`, looks up AppContext, sets `req.appCtx`)
 - [x] App auth middleware (tries app JWT secret, falls back to platform JWT)
 - [x] Platform auth middleware (platform JWT only)
-- [x] App-scoped route registration (dispatch pattern delegates to per-app handlers)
+- [x] App-scoped route registration (dispatch pattern delegates to per-app handlers, mergeParams routers)
 - [x] Route restructure: management DB bootstrap → AppManager → platform routes → app-scoped routes
 - [x] Multi-app scheduler (iterates all AppContexts for workflow timeouts + webhook retries)
-- [x] Exported `ProcessWorkflowTimeouts()` and `ProcessWebhookRetries()` for multi-app scheduler
+- [x] Exported `processWorkflowTimeouts()` and `processWebhookRetries()` for multi-app scheduler
 
 ## Phase 7: File Uploads [DONE]
-- [x] Config: `StorageConfig` struct (Driver, LocalPath, MaxFileSize) in config.go + app.yaml
-- [x] Storage interface (`storage/storage.go`): `FileStorage` with Save/Open/Delete methods
-- [x] Local storage implementation (`storage/local.go`): disk-based, `{basePath}/{appName}/{fileID}/{filename}`
+- [x] Config: `StorageConfig` interface (driver, local_path, max_file_size) in config/index.ts + app.yaml
+- [x] Storage interface (`storage/storage.ts`): `FileStorage` with save/open/delete methods
+- [x] Local storage implementation (`storage/local.ts`): disk-based, `{basePath}/{appName}/{fileID}/{filename}`
 - [x] `_files` system table added to bootstrap DDL
-- [x] File handler (`engine/file_handler.go`): Upload, Serve, Delete, List endpoints
-- [x] `file` field type maps to JSONB in `PostgresType()` (metadata/field.go)
-- [x] Write pipeline: `resolveFileFields()` in nested_write.go — UUID → full JSONB metadata `{id, filename, size, mime_type}`
-- [x] AppContext: added `FileHandler`, `fileStorage`, `maxFileSize`; FileHandler built in `BuildHandlers()`
+- [x] File handler (`engine/file-handler.ts`): upload, serve, delete, list endpoints
+- [x] `file` field type maps to JSONB in `postgresType()` (metadata/types.ts)
+- [x] Write pipeline: `resolveFileFields()` in nested-write.ts — UUID → full JSONB metadata `{id, filename, size, mime_type}`
+- [x] AppContext: added `fileHandler: FileHandler`
 - [x] AppManager: accepts `FileStorage` + `maxFileSize`, passes to AppContext construction
-- [x] Route registration: file routes under `/_files` (upload, serve, delete, list) in app_routes.go
-- [x] Entry point: `LocalStorage` created from config, passed to `NewAppManager`
+- [x] Route registration: file routes under `/_files` with multer middleware in app-routes.ts
+- [x] Entry point: `LocalStorage` created from config, passed to `AppManager`
+- [x] Dependencies: added `multer` + `@types/multer`
 
 ## Schema Export/Import [DONE]
-- [x] `Export` method in admin handler — queries all 7 metadata tables, returns clean JSON (no IDs/timestamps)
-- [x] `Import` method in admin handler — dependency-ordered import with idempotent dedup per table
-- [x] Routes wired in both standalone (`admin/handler.go`) and multiapp (`app_routes.go`)
+- [x] `export` method in AdminHandler — queries all 7 metadata tables, returns clean JSON (no IDs/timestamps)
+- [x] `import` method in AdminHandler — dependency-ordered import with idempotent dedup per table
+- [x] Routes wired in both standalone (`admin/handler.ts`) and multiapp (`app-routes.ts`)
 
 ---
 
 ## Phase 8: Instrumentation & Events [DONE]
 - [x] `_events` system table (id UUID, trace_id UUID, span_id UUID, parent_span_id UUID, event_type TEXT, source TEXT, component TEXT, action TEXT, entity TEXT, record_id TEXT, user_id UUID, duration_ms DOUBLE PRECISION, status TEXT, metadata JSONB, created_at TIMESTAMPTZ)
 - [x] Indexes: trace_id, entity+created_at DESC, created_at DESC, event_type+source
-- [x] Instrumenter interface: `StartSpan(ctx, source, component, action) → (ctx, Span)`, `EmitBusinessEvent(ctx, action, entity, recordID, metadata)`
-- [x] Span type: `End()`, `SetStatus()`, `SetMetadata()`, `TraceID()`, `SpanID()`
-- [x] Trace ID propagation via `context.Context` — generate UUID per request or accept `X-Trace-ID` header
+- [x] Instrumenter interface: `startSpan(source, component, action) → Span`, `emitBusinessEvent(action, entity, recordID, metadata)`
+- [x] Span type: `end()`, `setStatus()`, `setMetadata()`, `traceId`, `spanId`
+- [x] Trace ID propagation via `AsyncLocalStorage` — generate UUID per request or accept `X-Trace-ID` header
 - [x] Auto-instrumented system events:
   - [x] HTTP middleware: request.start, request.end (method, path, status, latency)
   - [x] Auth middleware: auth.validate, auth.login, auth.denied
@@ -136,7 +138,7 @@
   - [x] Webhook dispatch: webhook.match, webhook.dispatch, webhook.success, webhook.fail, webhook.circuit_open
   - [x] Workflow engine: workflow.trigger, workflow.advance, workflow.approve, workflow.reject, workflow.timeout
   - [x] File storage: file.upload, file.serve, file.delete
-- [x] Fire-and-forget event writes via async write buffer (batch flush, `synchronous_commit = off`)
+- [x] Fire-and-forget event writes via async write buffer (batch flush with setInterval)
 - [x] Business event API:
   - [x] `POST /api/:app/_events` — emit custom business events (entity, action, metadata)
   - [x] `GET /api/:app/_events` — query events (?source, ?entity, ?trace_id, ?user_id, ?status, ?from, ?to, page, per_page)
@@ -161,7 +163,7 @@
 - [ ] Sensitive field masking (password fields, PII) in audit entries
 - [ ] Admin UI: Audit log viewer page with filters and record timeline view
 
-## Phase 10: Email Providers & Templates (see [docs/email-providers.md](../docs/email-providers.md))
+## Phase 10: Email Providers & Templates (see [docs/email-providers.md](../../docs/email-providers.md))
 - [ ] `_email_providers` system table (id, name UNIQUE, provider, config JSONB, priority, active, created_at, updated_at)
 - [ ] `_email_templates` system table (id, key UNIQUE, subject, body_html, body_text, active, created_at, updated_at)
 - [ ] `_email_logs` system table (id, provider_id FK, template_key, to_email, subject, status, provider_response JSONB, error, attempt, created_at)
@@ -182,7 +184,7 @@
 - [ ] Admin UI: Email Templates page (edit subject/body, variable reference, preview)
 - [ ] Admin UI: Email Logs page (delivery status, filters)
 
-## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](../docs/api-connectors.md))
+## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](../../docs/api-connectors.md))
 - [ ] `_api_connectors` system table (name, base_url, auth_type, auth_config JSONB, default_headers JSONB, timeout_ms, retry JSONB, active)
 - [ ] Auth types: `none`, `bearer`, `basic`, `api_key`, `custom_header` with `{{env.VAR}}` secret resolution
 - [ ] Connector CRUD admin API (`/api/_admin/api-connectors`) + test endpoint
@@ -259,10 +261,10 @@
 ---
 
 ## Entity Slugs [DONE]
-- [x] `SlugConfig` struct (Field, Source, RegenerateOnUpdate) + `Slug *SlugConfig` on Entity
+- [x] `SlugConfig` interface (field, source, regenerate_on_update) + `slug?` on Entity type
 - [x] `slugify()` utility + auto-generate slug from source field on create
 - [x] Conflict handling: append `-2`, `-3`, etc. on unique violation
-- [x] Slug-based record lookup in `FetchRecord`: if ID doesn't match PK type, try slug field first
+- [x] Slug-based record lookup in `fetchRecord`: if ID doesn't match PK type, try slug field first
 - [x] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
 - [x] Workflow context shorthand aliases (`record.*` alongside `trigger.record.*`)
 
@@ -276,11 +278,14 @@
 - [x] Route registration (multi-app + standalone)
 
 ## AI Schema Generator [DONE]
-- [x] `AIConfig` struct (BaseURL, APIKey, Model) — config via env vars or app.yaml
-- [x] `AIProvider` — OpenAI-compatible chat completions client using `net/http`
-- [x] `BuildSystemPrompt()` — full Rocket schema spec (reuse same prompt as Express)
-- [x] `AIHandler` — `Status` (GET) and `Generate` (POST) handlers
-- [x] Wiring: AIConfig in config, aiHandler in AppContext, routes in app-routes, platform-level `/ai/status`
+- [x] `AIConfig` interface (baseUrl, apiKey, model) — config via `process.env` + dotenv
+- [x] `AIProvider` class — OpenAI-compatible chat completions client using native `fetch()`
+- [x] `buildSystemPrompt()` — full Rocket schema spec (entities, fields, relations, rules, state machines, permissions, UI configs with pages/dashboard, sample data)
+- [x] `AIHandler` — `status` (GET) and `generate` (POST) endpoints with asyncHandler
+- [x] Wiring: `AIConfig` in config, `aiHandler` in AppContext, routes in app-routes, platform-level `/ai/status`
+- [x] Admin UI: `api/ai.ts` client, `ai-schema-generator.tsx` page (prompt → preview → apply)
+- [x] Two modes: new app (create + generate) and existing app (extend)
+- [x] Sidebar: AI Generate visible without app selected; "Create with AI" on Apps List
 
 ---
 

@@ -117,7 +117,7 @@
 - [ ] Sensitive field masking (password fields, PII) in audit entries
 - [ ] Admin UI: Audit log viewer page with filters and record timeline view
 
-## Phase 10: Email Providers & Templates (see [docs/email-providers.md](../docs/email-providers.md))
+## Phase 10: Email Providers & Templates (see [docs/email-providers.md](../../docs/email-providers.md))
 - [ ] `_email_providers` system table (id, name UNIQUE, provider, config JSONB, priority, active, created_at, updated_at)
 - [ ] `_email_templates` system table (id, key UNIQUE, subject, body_html, body_text, active, created_at, updated_at)
 - [ ] `_email_logs` system table (id, provider_id FK, template_key, to_email, subject, status, provider_response JSONB, error, attempt, created_at)
@@ -138,7 +138,7 @@
 - [ ] Admin UI: Email Templates page (edit subject/body, variable reference, preview)
 - [ ] Admin UI: Email Logs page (delivery status, filters)
 
-## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](../docs/api-connectors.md))
+## Phase 11: API Connectors & Workflow Actions (see [docs/api-connectors.md](../../docs/api-connectors.md))
 - [ ] `_api_connectors` system table (name, base_url, auth_type, auth_config JSONB, default_headers JSONB, timeout_ms, retry JSONB, active)
 - [ ] Auth types: `none`, `bearer`, `basic`, `api_key`, `custom_header` with `{{env.VAR}}` secret resolution
 - [ ] Connector CRUD admin API (`/_admin/api-connectors`) + test endpoint

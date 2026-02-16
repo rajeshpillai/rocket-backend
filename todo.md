@@ -1,6 +1,6 @@
 # Rocket Backend — Feature Roadmap
 
-This is the canonical feature roadmap for the Rocket metadata-driven backend engine. Backend-specific `todo.md` files (`golang/todo.md`, `expressjs/todo.md`, `elixir-phoenix/todo.md`) track per-language implementation status.
+This is the canonical feature roadmap for the Rocket metadata-driven backend engine. Backend-specific `todo.md` files (`backend/golang/todo.md`, `backend/expressjs/todo.md`, `backend/elixir-phoenix/todo.md`) track per-language implementation status.
 
 ---
 

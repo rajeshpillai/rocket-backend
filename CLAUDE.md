@@ -10,9 +10,9 @@ All implementations share the same API contracts and must produce identical resp
 
 | Language | Directory | Framework | DB Driver | DB Adapters |
 |----------|-----------|-----------|-----------|-------------|
-| Go | `golang/` | Fiber v2 | pgx v5 | Postgres, SQLite |
-| TypeScript | `expressjs/` | Express 4 | pg (node-postgres) | Postgres, SQLite |
-| Elixir | `elixir-phoenix/` | Phoenix | Postgrex / Exqlite | Postgres, SQLite |
+| Go | `backend/golang/` | Fiber v2 | pgx v5 | Postgres, SQLite |
+| TypeScript | `backend/expressjs/` | Express 4 | pg (node-postgres) | Postgres, SQLite |
+| Elixir | `backend/elixir-phoenix/` | Phoenix | Postgrex / Exqlite | Postgres, SQLite |
 
 **Admin UI:** `admin/` — SolidJS + Vite + Tailwind
 
@@ -39,18 +39,21 @@ rocket-backend/
 │   ├── pages/                   # Feature pages
 │   ├── stores/                  # SolidJS reactive stores
 │   └── types/                   # TypeScript interfaces
-├── golang/                      # Go backend
-│   ├── todo.md                  # Go-specific implementation status
-│   ├── app.yaml                 # Config
-│   └── internal/{config,metadata,store,engine,storage,auth,admin,multiapp}/
-├── expressjs/                   # Express backend
-│   ├── todo.md                  # Express-specific implementation status
-│   ├── app.yaml                 # Config
-│   └── src/{config,metadata,store,engine,storage,auth,admin,multiapp}/
-└── elixir-phoenix/              # Elixir backend
-    ├── todo.md                  # Elixir-specific implementation status
-    ├── config/                  # Config
-    └── lib/rocket/{metadata,store,engine,storage,auth}/
+├── backend/                     # All backend implementations
+│   ├── golang/                  # Go backend
+│   │   ├── todo.md              # Go-specific implementation status
+│   │   ├── app.yaml             # Config
+│   │   └── internal/{config,metadata,store,engine,storage,auth,admin,multiapp,ai}/
+│   ├── expressjs/               # Express backend
+│   │   ├── todo.md              # Express-specific implementation status
+│   │   ├── app.yaml             # Config
+│   │   └── src/{config,metadata,store,engine,storage,auth,admin,multiapp,ai}/
+│   ├── elixir-phoenix/          # Elixir backend
+│   │   ├── todo.md              # Elixir-specific implementation status
+│   │   ├── config/              # Config
+│   │   └── lib/rocket/{metadata,store,engine,storage,auth,ai}/
+│   ├── java-spring/             # Java Spring backend (planned)
+│   └── dotnet/                  # .NET backend (planned)
 ```
 
 Each backend follows the same module structure: `config` → `store` → `metadata` → `engine` → `auth` → `admin` → `multiapp`.
@@ -147,13 +150,13 @@ Codes: `UNKNOWN_ENTITY` (404), `NOT_FOUND` (404), `VALIDATION_FAILED` (422), `UN
 ## Running
 
 ```bash
-docker compose up -d                          # Postgres
+docker compose up -d                                      # Postgres
 
-cd golang && go run ./cmd/server/             # Go (port 8080)
-cd expressjs && npx tsx src/index.ts          # Express (port 8080)
-cd elixir-phoenix && mix phx.server           # Elixir (port 4000)
+cd backend/golang && go run ./cmd/server/                 # Go (port 8080)
+cd backend/expressjs && npx tsx src/index.ts              # Express (port 8080)
+cd backend/elixir-phoenix && mix phx.server               # Elixir (port 4000)
 
-cd admin && npm run dev                       # Admin UI (port 5173, proxies to 8080)
+cd admin && npm run dev                                   # Admin UI (port 5173, proxies to 8080)
 ```
 
 Default credentials: `platform@localhost / changeme` (platform), `admin@localhost / changeme` (per-app)
@@ -165,7 +168,7 @@ Default credentials: `platform@localhost / changeme` (platform), `admin@localhos
 - Go: `snake_case.go`, `pgx` directly, `fmt.Errorf` wrapping, context threading
 - TypeScript: strict mode, ESM, `pg` directly, async/await
 - Elixir: Phoenix conventions, pattern matching, GenServer for background tasks
-- **Feature workflow:** root `todo.md` is updated first (source of truth for all features/changes), then backend-specific `todo.md` files are updated as each implementation progresses
+- **Feature workflow:** root `todo.md` is updated first (source of truth for all features/changes), then backend-specific `todo.md` files (`backend/*/todo.md`) are updated as each implementation progresses
 - Each backend `todo.md` tracks implementation status only — feature definitions live in root `todo.md`
 - Docs in `docs/` are shared and language-agnostic
 - After implementing a backend feature, update the admin UI in `admin/` to expose it
