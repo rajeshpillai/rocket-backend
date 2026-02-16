@@ -163,6 +163,10 @@ Create permissions for each entity and action. Admin role should have all permis
   parts.push(`
 ## UI Config Schema
 
+Each UI config has an entity, scope, and a config object with these optional sections:
+
+### Admin UI sections: list, detail, form, sidebar
+
 {
   "entity": "entity_name",
   "scope": "default",
@@ -190,13 +194,90 @@ Create permissions for each entity and action. Admin role should have all permis
       "readonly_fields": ["created_at", "updated_at"]
     },
     "sidebar": {
+      "icon": "box",
       "label": "Entity Names",
       "group": "GroupName"
     }
   }
 }
 
-Create a UI config for each entity. Group related entities under the same sidebar group.`);
+### Client/public pages: pages.landing, pages.detail
+
+For entities that should have public-facing pages (blogs, tickets, products, etc.), add a "pages" section:
+
+{
+  "entity": "post",
+  "scope": "default",
+  "config": {
+    "sidebar": { "icon": "file-text", "label": "Posts", "group": "Content" },
+    "list": { "title": "Posts", "columns": ["title", "status", "created_at"], "default_sort": "-created_at", "per_page": 20 },
+    "form": { "field_overrides": { "body": { "widget": "textarea", "rows": 12 } }, "hidden_fields": ["deleted_at"], "readonly_fields": ["created_at", "updated_at"] },
+    "pages": {
+      "landing": {
+        "route": "/pages/post",
+        "title": "Blog",
+        "subtitle": "Latest articles",
+        "layout": "card-grid",
+        "data": {
+          "include": "post_author,post_tags",
+          "filter": { "status": "published" },
+          "sort": "-created_at",
+          "per_page": 12
+        },
+        "card": {
+          "title": "title",
+          "excerpt": "body",
+          "date": "created_at",
+          "image": "cover_image",
+          "author": { "relation": "post_author", "name_field": "name" },
+          "tags": { "relation": "post_tags", "name_field": "name", "display": "pill" },
+          "click_action": "navigate_detail"
+        }
+      },
+      "detail": {
+        "route": "/pages/post/:id",
+        "layout": "article",
+        "data": { "include": "post_author,post_comments,post_tags" },
+        "sections": [
+          { "type": "hero", "image": "cover_image", "title": "title", "show_meta": true },
+          { "type": "meta", "author": { "relation": "post_author", "name_field": "name" }, "date": "created_at", "tags": { "relation": "post_tags", "name_field": "name" } },
+          { "type": "content", "field": "body", "format": "markdown" },
+          { "type": "comments", "relation": "post_comments", "title": "Comments", "allow_submit": true, "sort": "created_at" }
+        ]
+      }
+    }
+  }
+}
+
+Landing page layouts: "card-grid" or "list".
+Detail page section types: "hero" (header image), "meta" (author/date/tags), "content" (body text), "comments" (conversation thread).
+Card fields reference entity field names. Author/tags reference relation names.
+Only add pages config for entities that make sense as public-facing content (articles, products, tickets, etc.).
+
+### Dashboard config (entity: "_app")
+
+Generate ONE special UI config with entity "_app" for the app dashboard:
+
+{
+  "entity": "_app",
+  "scope": "default",
+  "config": {
+    "dashboard": {
+      "title": "Dashboard",
+      "subtitle": "Application overview",
+      "widgets": [
+        { "type": "stat", "title": "Total Products", "entity": "product", "color": "blue" },
+        { "type": "stat", "title": "Active Orders", "entity": "order", "filter": { "status": "active" }, "color": "green" },
+        { "type": "recent", "title": "Latest Orders", "entity": "order", "sort": "-created_at", "limit": 5, "columns": ["id", "status", "created_at"] }
+      ]
+    }
+  }
+}
+
+Widget types: "stat" (shows count), "recent" (shows table of recent records).
+Colors: "blue", "green", "purple", "yellow".
+
+Create a UI config for each entity (admin + optional pages). Group related entities under the same sidebar group. Always generate the _app dashboard config.`);
 
   // --- Sample data ---
   parts.push(`
@@ -303,12 +384,52 @@ For many_to_many relations, include join table entries:
   "webhooks": [],
   "ui_configs": [
     {
+      "entity": "category",
+      "scope": "default",
+      "config": {
+        "list": { "title": "Categories", "columns": ["name", "description", "created_at"], "default_sort": "name", "per_page": 20 },
+        "form": { "hidden_fields": ["deleted_at"], "readonly_fields": ["created_at", "updated_at"] },
+        "sidebar": { "icon": "folder", "label": "Categories", "group": "Catalog" }
+      }
+    },
+    {
       "entity": "product",
       "scope": "default",
       "config": {
-        "list": { "title": "Products", "columns": ["name", "price", "status", "created_at"], "default_sort": "-created_at", "per_page": 20 },
-        "form": { "hidden_fields": ["deleted_at"], "readonly_fields": ["created_at", "updated_at"] },
-        "sidebar": { "label": "Products", "group": "Catalog" }
+        "list": { "title": "Products", "columns": ["name", "price", "status", "created_at"], "default_sort": "-created_at", "per_page": 20, "searchable_fields": ["name"] },
+        "form": { "field_overrides": { "description": { "widget": "textarea", "rows": 6 } }, "hidden_fields": ["deleted_at"], "readonly_fields": ["created_at", "updated_at"] },
+        "sidebar": { "icon": "box", "label": "Products", "group": "Catalog" },
+        "pages": {
+          "landing": {
+            "route": "/pages/product",
+            "title": "Products",
+            "layout": "card-grid",
+            "data": { "include": "category_products", "filter": { "status": "active" }, "sort": "-created_at", "per_page": 12 },
+            "card": { "title": "name", "excerpt": "description", "date": "created_at", "click_action": "navigate_detail" }
+          },
+          "detail": {
+            "route": "/pages/product/:id",
+            "layout": "article",
+            "data": { "include": "category_products" },
+            "sections": [
+              { "type": "content", "field": "description", "format": "text" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "entity": "_app",
+      "scope": "default",
+      "config": {
+        "dashboard": {
+          "title": "Catalog Dashboard",
+          "widgets": [
+            { "type": "stat", "title": "Categories", "entity": "category", "color": "blue" },
+            { "type": "stat", "title": "Active Products", "entity": "product", "filter": { "status": "active" }, "color": "green" },
+            { "type": "recent", "title": "Latest Products", "entity": "product", "sort": "-created_at", "limit": 5, "columns": ["name", "price", "status", "created_at"] }
+          ]
+        }
       }
     }
   ],
@@ -339,9 +460,10 @@ Do NOT regenerate them. You may create relations that reference them.`);
 
 1. Generate a complete, realistic schema based on the user's description.
 2. Include entities, relations, rules (field validations), state machines (for entities with status/state fields), permissions, and UI configs.
-3. Generate sample data for all entities (3-5 records each, using table names as keys).
-4. Ensure all foreign keys reference valid entity fields and sample data UUIDs match.
-5. Return ONLY valid JSON. No markdown, no explanation, no code fences.`);
+3. For UI configs: include admin sections (list, form, sidebar) for every entity, public pages config for content-facing entities, and one "_app" dashboard config with stat/recent widgets.
+4. Generate sample data for all entities (3-5 records each, using table names as keys).
+5. Ensure all foreign keys reference valid entity fields and sample data UUIDs match.
+6. Return ONLY valid JSON. No markdown, no explanation, no code fences.`);
 
   return parts.join("\n");
 }
