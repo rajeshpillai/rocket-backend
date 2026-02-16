@@ -114,6 +114,19 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [x] Example configs: `examples/frontend/` — ui-configs-cms, ui-configs-helpdesk
 - [x] Docs: `docs/client-ui.md`, `client/docs/ui-metadata.md`
 
+## AI Schema Generator ✅
+- [x] OpenAI-compatible AI provider client (works with OpenAI, Groq, Together, Ollama, Gemini, etc.)
+- [x] Config via env vars: `ROCKET_AI_BASE_URL`, `ROCKET_AI_API_KEY`, `ROCKET_AI_MODEL`
+- [x] System prompt with full Rocket schema spec (entities, fields, relations, rules, state machines, permissions, UI configs with pages/dashboard, sample data)
+- [x] Backend endpoints: `GET /_admin/ai/status`, `POST /_admin/ai/generate`, `GET /_platform/ai/status`
+- [x] Two-step UX: Generate (preview JSON) → Apply (uses existing import endpoint)
+- [x] Admin UI: AI Schema Generator page — prompt → preview → apply
+- [x] New app mode: create app + generate schema in one flow (no app selection needed)
+- [x] Existing app mode: generate additional schema for selected app
+- [x] Example prompt chips (E-commerce, Blog/CMS, Project Management, Helpdesk)
+- [x] Tabbed preview (Entities, Relations, Rules, State Machines, Permissions, UI Configs, Sample Data, Raw JSON)
+- [x] Editable raw JSON before applying; "Create with AI" button on Apps List page
+
 ---
 
 ## Phase 8: Instrumentation & Events ✅

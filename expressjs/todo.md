@@ -277,6 +277,16 @@
 - [x] Transaction safety for user creation + invite acceptance
 - [x] Route registration (multi-app + standalone)
 
+## AI Schema Generator [DONE]
+- [x] `AIConfig` interface (baseUrl, apiKey, model) — config via `process.env` + dotenv
+- [x] `AIProvider` class — OpenAI-compatible chat completions client using native `fetch()`
+- [x] `buildSystemPrompt()` — full Rocket schema spec (entities, fields, relations, rules, state machines, permissions, UI configs with pages/dashboard, sample data)
+- [x] `AIHandler` — `status` (GET) and `generate` (POST) endpoints with asyncHandler
+- [x] Wiring: `AIConfig` in config, `aiHandler` in AppContext, routes in app-routes, platform-level `/ai/status`
+- [x] Admin UI: `api/ai.ts` client, `ai-schema-generator.tsx` page (prompt → preview → apply)
+- [x] Two modes: new app (create + generate) and existing app (extend)
+- [x] Sidebar: AI Generate visible without app selected; "Create with AI" on Apps List
+
 ---
 
 ## Nice to Have
