@@ -1,12 +1,12 @@
 .env
 # Go
-golang/server
-golang/*.exe
+backend/golang/server
+backend/golang/*.exe
 
 # Node.js
-expressjs/node_modules/
-expressjs/dist/
-expressjs/.env
+backend/expressjs/node_modules/
+backend/expressjs/dist/
+backend/expressjs/.env
 
 # Admin UI
 admin/node_modules/
@@ -25,8 +25,8 @@ client/.vite/
 *.swo
 
 # SQLite data files
-golang/data/
-elixir-phoenix/data/
+backend/golang/data/
+backend/elixir-phoenix/data/
 
 # File uploads
 uploads/
