@@ -8,6 +8,7 @@ import type { WorkflowHandler } from "../engine/workflow-handler.js";
 import type { FileHandler } from "../engine/file-handler.js";
 import type { EventHandler } from "../instrument/handler.js";
 import type { EventBuffer } from "../instrument/buffer.js";
+import type { AIHandler } from "../ai/handler.js";
 
 export interface AppContext {
   name: string;
@@ -23,6 +24,7 @@ export interface AppContext {
   fileHandler: FileHandler;
   eventHandler: EventHandler;
   eventBuffer: EventBuffer | null;
+  aiHandler: AIHandler | null;
 }
 
 export interface AppInfo {

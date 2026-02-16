@@ -23,13 +23,14 @@ import { EventStatsPage } from "./pages/event-stats";
 import { Dashboard } from "./pages/dashboard";
 import { ApiPlayground } from "./pages/api-playground";
 import { ERD } from "./pages/erd";
+import { AISchemaGenerator } from "./pages/ai-schema-generator";
 import { HelpIndex } from "./pages/help-docs/help-index";
 import { HelpTopicPage } from "./pages/help-docs/help-layout";
 import { isAuthenticated } from "./stores/auth";
 import { selectedApp } from "./stores/app";
 import { ToastContainer } from "./components/toast";
 
-const APP_FREE_PATHS = ["/admin/login", "/admin/apps", "/admin/", "/admin"];
+const APP_FREE_PATHS = ["/admin/login", "/admin/apps", "/admin/ai-generate", "/admin/", "/admin"];
 
 function AppRoot(props: ParentProps) {
   const location = useLocation();
@@ -92,6 +93,7 @@ export function App() {
       <Route path="/events/trace/:traceId" component={TraceWaterfall} />
       <Route path="/events/stats" component={EventStatsPage} />
       <Route path="/playground" component={ApiPlayground} />
+      <Route path="/ai-generate" component={AISchemaGenerator} />
       <Route path="/help" component={HelpIndex} />
       <Route path="/help/:topic" component={HelpTopicPage} />
     </Router>

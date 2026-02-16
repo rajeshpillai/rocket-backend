@@ -31,11 +31,18 @@ export interface InstrumentationConfig {
   flush_interval_ms: number;
 }
 
+export interface AIConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 export interface Config {
   server: ServerConfig;
   database: DatabaseConfig;
   storage: StorageConfig;
   instrumentation: InstrumentationConfig;
+  ai: AIConfig;
   jwt_secret: string;
   platform_jwt_secret: string;
   app_pool_size: number;
@@ -82,6 +89,11 @@ export function loadConfig(): Config {
       sampling_rate: instrumentation.sampling_rate ?? 1.0,
       buffer_size: instrumentation.buffer_size ?? 500,
       flush_interval_ms: instrumentation.flush_interval_ms ?? 100,
+    },
+    ai: {
+      baseUrl: (process.env.ROCKET_AI_BASE_URL as string) || "",
+      apiKey: (process.env.ROCKET_AI_API_KEY as string) || "",
+      model: (process.env.ROCKET_AI_MODEL as string) || "",
     },
     database: {
       driver: database.driver ?? "postgres",

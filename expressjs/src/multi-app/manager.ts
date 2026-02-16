@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { DatabaseConfig, InstrumentationConfig } from "../config/index.js";
+import type { DatabaseConfig, InstrumentationConfig, AIConfig } from "../config/index.js";
 import { Store, queryRows, queryRow, getDialect } from "../store/postgres.js";
 import { bootstrap } from "../store/bootstrap.js";
 import { Migrator } from "../store/migrator.js";
@@ -13,6 +13,8 @@ import { FileHandler } from "../engine/file-handler.js";
 import type { FileStorage } from "../storage/storage.js";
 import { EventBuffer } from "../instrument/buffer.js";
 import { EventHandler } from "../instrument/handler.js";
+import { createAIProvider } from "../ai/provider.js";
+import { AIHandler } from "../ai/handler.js";
 import type { AppContext, AppInfo } from "./context.js";
 
 export class AppManager {
@@ -24,14 +26,16 @@ export class AppManager {
   private fileStorage: FileStorage;
   private maxFileSize: number;
   private instrConfig: InstrumentationConfig;
+  private aiConfig: AIConfig;
 
-  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number, fileStorage: FileStorage, maxFileSize: number, instrConfig: InstrumentationConfig) {
+  constructor(mgmtStore: Store, dbConfig: DatabaseConfig, appPoolSize: number, fileStorage: FileStorage, maxFileSize: number, instrConfig: InstrumentationConfig, aiConfig: AIConfig) {
     this.mgmtStore = mgmtStore;
     this.dbConfig = dbConfig;
     this.poolSize = appPoolSize;
     this.fileStorage = fileStorage;
     this.maxFileSize = maxFileSize;
     this.instrConfig = instrConfig;
+    this.aiConfig = aiConfig;
   }
 
   async get(appName: string): Promise<AppContext | null> {
@@ -85,6 +89,7 @@ export class AppManager {
     const eventBuffer = this.instrConfig.enabled
       ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
       : null;
+    const aiProvider = createAIProvider(this.aiConfig.baseUrl, this.aiConfig.apiKey, this.aiConfig.model);
     const ac: AppContext = {
       name,
       dbName,
@@ -99,6 +104,7 @@ export class AppManager {
       fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
       eventHandler: new EventHandler(appStore.pool),
       eventBuffer,
+      aiHandler: aiProvider ? new AIHandler(aiProvider, registry) : null,
     };
 
     this.apps.set(name, ac);
@@ -191,6 +197,7 @@ export class AppManager {
         const eventBuffer = this.instrConfig.enabled
           ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
           : null;
+        const aiProvider = createAIProvider(this.aiConfig.baseUrl, this.aiConfig.apiKey, this.aiConfig.model);
         const ac: AppContext = {
           name,
           dbName,
@@ -205,6 +212,7 @@ export class AppManager {
           fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, name),
           eventHandler: new EventHandler(appStore.pool),
           eventBuffer,
+          aiHandler: aiProvider ? new AIHandler(aiProvider, registry) : null,
         };
 
         this.apps.set(name, ac);
@@ -255,6 +263,7 @@ export class AppManager {
     const eventBuffer = this.instrConfig.enabled
       ? new EventBuffer(appStore.pool, this.instrConfig.buffer_size, this.instrConfig.flush_interval_ms)
       : null;
+    const aiProvider = createAIProvider(this.aiConfig.baseUrl, this.aiConfig.apiKey, this.aiConfig.model);
     const ac: AppContext = {
       name: appName,
       dbName: dbName as string,
@@ -269,6 +278,7 @@ export class AppManager {
       fileHandler: new FileHandler(appStore, this.fileStorage, this.maxFileSize, appName),
       eventHandler: new EventHandler(appStore.pool),
       eventBuffer,
+      aiHandler: aiProvider ? new AIHandler(aiProvider, registry) : null,
     };
 
     this.apps.set(appName, ac);

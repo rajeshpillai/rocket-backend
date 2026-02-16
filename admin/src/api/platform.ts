@@ -84,3 +84,13 @@ export function deleteApp(name: string) {
     method: "DELETE",
   });
 }
+
+// AI status (platform-level, no app needed)
+export interface AIStatus {
+  configured: boolean;
+  model: string;
+}
+
+export function getAIStatusPlatform() {
+  return request<ApiResponse<AIStatus>>("/ai/status");
+}

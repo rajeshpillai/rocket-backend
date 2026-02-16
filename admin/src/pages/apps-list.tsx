@@ -84,9 +84,14 @@ export function AppsList() {
     <div>
       <div class="page-header">
         <h2 class="page-title">Apps</h2>
-        <button class="btn-primary" onClick={() => setShowCreate(true)}>
-          Create App
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button class="btn-secondary" onClick={() => navigate("/ai-generate")}>
+            Create with AI
+          </button>
+          <button class="btn-primary" onClick={() => setShowCreate(true)}>
+            Create App
+          </button>
+        </div>
       </div>
 
       <Show when={showCreate()}>

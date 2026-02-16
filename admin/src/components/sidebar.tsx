@@ -16,6 +16,7 @@ const navItems = [
   { href: "/workflow-monitor", label: "Workflow Monitor", icon: "\u25B6" },
   { href: "/data", label: "Data Browser", icon: "\u25A4" },
   { href: "/playground", label: "API Playground", icon: "\u25B7" },
+  { href: "/ai-generate", label: "AI Generate", icon: "\u2726" },
   { href: "/users", label: "Users", icon: "\uD83D\uDC64" },
   { href: "/invites", label: "Invites", icon: "\u2709" },
   { href: "/permissions", label: "Permissions", icon: "\uD83D\uDD12" },
@@ -24,6 +25,10 @@ const navItems = [
   { href: "/ui-configs", label: "UI Configs", icon: "\uD83C\uDFA8" },
   { href: "/events", label: "Events", icon: "\u26A1" },
   { href: "/events/stats", label: "Event Stats", icon: "\uD83D\uDCCA" },
+];
+
+const globalItems = [
+  { href: "/ai-generate", label: "AI Generate", icon: "\u2726" },
 ];
 
 export const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
@@ -144,10 +149,28 @@ export function Sidebar() {
           </nav>
         </Show>
 
-        <Show when={!selectedApp() && !sidebarCollapsed()}>
-          <div style={{ padding: "1rem 0.75rem", color: "var(--text-muted, #888)" }}>
-            Select an app to manage its resources.
-          </div>
+        <Show when={!selectedApp()}>
+          <nav class="sidebar-nav">
+            <For each={globalItems}>
+              {(item) => (
+                <A
+                  href={item.href}
+                  class={`nav-link ${isActive(item.href) ? "nav-link-active" : ""}`}
+                  title={sidebarCollapsed() ? item.label : undefined}
+                >
+                  <span>{item.icon}</span>
+                  <Show when={!sidebarCollapsed()}>
+                    <span>{item.label}</span>
+                  </Show>
+                </A>
+              )}
+            </For>
+          </nav>
+          <Show when={!sidebarCollapsed()}>
+            <div style={{ padding: "0.5rem 0.75rem", color: "var(--text-muted, #888)", "font-size": "0.8rem" }}>
+              Select an app to manage its resources.
+            </div>
+          </Show>
         </Show>
 
       </div>

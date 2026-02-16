@@ -8,6 +8,7 @@ import {
   generateRefreshToken,
   REFRESH_TOKEN_TTL,
 } from "../auth/auth.js";
+import type { AIConfig } from "../config/index.js";
 import type { AppManager } from "./manager.js";
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
@@ -28,11 +29,13 @@ export class PlatformHandler {
   private store: Store;
   private jwtSecret: string;
   private manager: AppManager;
+  private aiConfig: AIConfig;
 
-  constructor(store: Store, jwtSecret: string, manager: AppManager) {
+  constructor(store: Store, jwtSecret: string, manager: AppManager, aiConfig: AIConfig) {
     this.store = store;
     this.jwtSecret = jwtSecret;
     this.manager = manager;
+    this.aiConfig = aiConfig;
   }
 
   // --- Auth endpoints (platform users) ---
@@ -168,6 +171,13 @@ export class PlatformHandler {
     }
   });
 
+  // --- AI status (platform-level, no app needed) ---
+
+  aiStatus = (_req: Request, res: Response) => {
+    const configured = !!(this.aiConfig.baseUrl && this.aiConfig.apiKey);
+    res.json({ data: { configured, model: configured ? this.aiConfig.model : "" } });
+  };
+
   // --- helpers ---
 
   private async generateTokenPair(userID: string, roles: string[]) {
@@ -210,5 +220,6 @@ export function registerPlatformRoutes(
   adminRouter.post("/apps", handler.createApp);
   adminRouter.get("/apps/:name", handler.getApp);
   adminRouter.delete("/apps/:name", handler.deleteApp);
+  adminRouter.get("/ai/status", handler.aiStatus);
   app.use("/api/_platform", platformAuthMW, adminRouter);
 }

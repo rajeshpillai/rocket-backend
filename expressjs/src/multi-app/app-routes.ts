@@ -126,6 +126,26 @@ export function registerAppRoutes(
   adminRouter.get("/export", dispatch((ac) => ac.adminHandler.export));
   adminRouter.post("/import", dispatch((ac) => ac.adminHandler.import));
 
+  // AI Schema Generator
+  adminRouter.get("/ai/status", (req: Request, res: Response, next: NextFunction) => {
+    const ac = req.appCtx;
+    if (!ac) return next(new AppError("INTERNAL_ERROR", 500, "App context not found"));
+    if (!ac.aiHandler) {
+      return res.json({ data: { configured: false, model: "" } });
+    }
+    ac.aiHandler.status(req, res, next);
+  });
+  adminRouter.post("/ai/generate", (req: Request, res: Response, next: NextFunction) => {
+    const ac = req.appCtx;
+    if (!ac) return next(new AppError("INTERNAL_ERROR", 500, "App context not found"));
+    if (!ac.aiHandler) {
+      return res.status(501).json({
+        error: { code: "NOT_CONFIGURED", message: "AI not configured. Set ROCKET_AI_BASE_URL, ROCKET_AI_API_KEY, and ROCKET_AI_MODEL environment variables." },
+      });
+    }
+    ac.aiHandler.generate(req, res, next);
+  });
+
   app.use("/api/:app/_admin", resolverMW, appAuthMW, instrMW, adminMW, adminRouter);
 
   // UI config read routes (auth required, no admin)

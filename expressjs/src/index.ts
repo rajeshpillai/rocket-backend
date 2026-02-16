@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import morgan from "morgan";
 import { loadConfig } from "./config/index.js";
@@ -33,7 +34,10 @@ async function main() {
   const fileStorage = new LocalStorage(cfg.storage.local_path);
 
   // 5. Create AppManager and load all existing apps
-  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size, fileStorage, cfg.storage.max_file_size, cfg.instrumentation);
+  const manager = new AppManager(mgmtStore, cfg.database, cfg.app_pool_size, fileStorage, cfg.storage.max_file_size, cfg.instrumentation, cfg.ai);
+  if (cfg.ai.baseUrl && cfg.ai.apiKey) {
+    console.log(`AI provider configured (model: ${cfg.ai.model})`);
+  }
   try {
     await manager.loadAll();
   } catch (err) {
@@ -55,7 +59,7 @@ async function main() {
   });
 
   // 7. Platform routes (auth + app CRUD)
-  const platformHandler = new PlatformHandler(mgmtStore, cfg.platform_jwt_secret, manager);
+  const platformHandler = new PlatformHandler(mgmtStore, cfg.platform_jwt_secret, manager, cfg.ai);
   const platformAuthMW = platformAuthMiddleware(cfg.platform_jwt_secret);
   registerPlatformRoutes(app, platformHandler, platformAuthMW);
 
