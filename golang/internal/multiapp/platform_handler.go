@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"rocket-backend/internal/auth"
+	"rocket-backend/internal/config"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/metadata"
 	"rocket-backend/internal/store"
@@ -18,13 +19,14 @@ var validAppNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 
 // PlatformHandler handles platform management endpoints.
 type PlatformHandler struct {
-	store     *store.Store
+	store    *store.Store
 	jwtSecret string
 	manager   *AppManager
+	aiConfig  config.AIConfig
 }
 
-func NewPlatformHandler(s *store.Store, jwtSecret string, mgr *AppManager) *PlatformHandler {
-	return &PlatformHandler{store: s, jwtSecret: jwtSecret, manager: mgr}
+func NewPlatformHandler(s *store.Store, jwtSecret string, mgr *AppManager, aiCfg config.AIConfig) *PlatformHandler {
+	return &PlatformHandler{store: s, jwtSecret: jwtSecret, manager: mgr, aiConfig: aiCfg}
 }
 
 // RegisterPlatformRoutes registers all platform routes.
@@ -41,6 +43,7 @@ func RegisterPlatformRoutes(app *fiber.App, h *PlatformHandler, platformAuthMW f
 	pAdmin.Post("/apps", h.CreateApp)
 	pAdmin.Get("/apps/:name", h.GetApp)
 	pAdmin.Delete("/apps/:name", h.DeleteApp)
+	pAdmin.Get("/ai/status", h.AIStatus)
 }
 
 // --- Auth endpoints (platform users) ---
@@ -160,6 +163,22 @@ func (h *PlatformHandler) Logout(c *fiber.Ctx) error {
 		pb.Params()...)
 
 	return c.JSON(fiber.Map{"message": "Logged out"})
+}
+
+// --- AI Status ---
+
+func (h *PlatformHandler) AIStatus(c *fiber.Ctx) error {
+	configured := h.aiConfig.Configured()
+	model := ""
+	if configured {
+		model = h.aiConfig.Model
+	}
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"configured": configured,
+			"model":      model,
+		},
+	})
 }
 
 // --- App CRUD ---

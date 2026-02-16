@@ -12,6 +12,10 @@ defmodule Rocket.Application do
     cfg = Rocket.Config.load()
     Application.put_env(:rocket, :instrumentation_config, cfg.instrumentation)
 
+    # Initialize AI provider (if configured)
+    ai_provider = Rocket.AI.Provider.new(cfg.ai.base_url, cfg.ai.api_key, cfg.ai.model)
+    Application.put_env(:rocket, :ai_provider, ai_provider)
+
     # Set up dialect based on driver
     driver = cfg.database.driver || "postgres"
     dialect = Rocket.Store.Dialect.new(driver)

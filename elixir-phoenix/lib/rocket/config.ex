@@ -8,8 +8,13 @@ defmodule Rocket.Config do
     :app_pool_size,
     :storage,
     :database,
-    :instrumentation
+    :instrumentation,
+    :ai
   ]
+
+  defmodule AI do
+    defstruct base_url: "", api_key: "", model: ""
+  end
 
   defmodule Database do
     defstruct [:host, :port, :user, :password, :name, :pool_size, driver: "postgres", data_dir: "./data"]
@@ -47,6 +52,7 @@ defmodule Rocket.Config do
     storage = yaml["storage"] || %{}
     server = yaml["server"] || %{}
     instr = yaml["instrumentation"] || %{}
+    ai_cfg = yaml["ai"] || %{}
 
     %__MODULE__{
       server_port: server["port"] || 8080,
@@ -74,6 +80,11 @@ defmodule Rocket.Config do
         sampling_rate: instr["sampling_rate"] || 1.0,
         buffer_size: instr["buffer_size"] || 500,
         flush_interval_ms: instr["flush_interval_ms"] || 100
+      },
+      ai: %AI{
+        base_url: ai_cfg["base_url"] || System.get_env("ROCKET_AI_BASE_URL") || "",
+        api_key: ai_cfg["api_key"] || System.get_env("ROCKET_AI_API_KEY") || "",
+        model: ai_cfg["model"] || System.get_env("ROCKET_AI_MODEL") || ""
       }
     }
   end

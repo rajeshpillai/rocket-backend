@@ -2,6 +2,7 @@ package multiapp
 
 import (
 	"rocket-backend/internal/admin"
+	"rocket-backend/internal/ai"
 	"rocket-backend/internal/auth"
 	"rocket-backend/internal/engine"
 	"rocket-backend/internal/instrument"
@@ -26,11 +27,15 @@ type AppContext struct {
 	WorkflowHandler *engine.WorkflowHandler
 	FileHandler     *engine.FileHandler
 	EventHandler    *instrument.EventHandler
+	AIHandler       *ai.Handler
 	EventBuffer     *instrument.EventBuffer
 
 	// Injected by manager for building FileHandler
 	fileStorage storage.FileStorage
 	maxFileSize int64
+
+	// Injected by manager for building AIHandler
+	aiProvider *ai.Provider
 }
 
 // BuildHandlers creates all handler instances for this app context.
@@ -44,6 +49,9 @@ func (ac *AppContext) BuildHandlers() {
 		ac.FileHandler = engine.NewFileHandler(ac.Store, ac.fileStorage, ac.maxFileSize, ac.Name)
 	}
 	ac.EventHandler = instrument.NewEventHandler(ac.Store.DB, ac.Store.Dialect)
+	if ac.aiProvider != nil {
+		ac.AIHandler = ai.NewHandler(ac.aiProvider, ac.Registry)
+	}
 }
 
 // AppInfo is a summary of an app returned by List.

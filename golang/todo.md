@@ -275,12 +275,12 @@
 - [x] Transaction safety for user creation + invite acceptance
 - [x] Route registration (multi-app + standalone)
 
-## AI Schema Generator
-- [ ] `AIConfig` struct (BaseURL, APIKey, Model) — config via env vars or app.yaml
-- [ ] `AIProvider` — OpenAI-compatible chat completions client using `net/http`
-- [ ] `BuildSystemPrompt()` — full Rocket schema spec (reuse same prompt as Express)
-- [ ] `AIHandler` — `Status` (GET) and `Generate` (POST) handlers
-- [ ] Wiring: AIConfig in config, aiHandler in AppContext, routes in app-routes, platform-level `/ai/status`
+## AI Schema Generator [DONE]
+- [x] `AIConfig` struct (BaseURL, APIKey, Model) — config via env vars or app.yaml
+- [x] `AIProvider` — OpenAI-compatible chat completions client using `net/http`
+- [x] `BuildSystemPrompt()` — full Rocket schema spec (reuse same prompt as Express)
+- [x] `AIHandler` — `Status` (GET) and `Generate` (POST) handlers
+- [x] Wiring: AIConfig in config, aiHandler in AppContext, routes in app-routes, platform-level `/ai/status`
 
 ---
 

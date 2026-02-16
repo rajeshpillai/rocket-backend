@@ -8,6 +8,7 @@ import (
 	"log"
 	"sync"
 
+	"rocket-backend/internal/ai"
 	"rocket-backend/internal/config"
 	"rocket-backend/internal/instrument"
 	"rocket-backend/internal/metadata"
@@ -25,10 +26,11 @@ type AppManager struct {
 	fileStorage storage.FileStorage
 	maxFileSize int64
 	instrConfig config.InstrumentationConfig
+	aiProvider  *ai.Provider
 }
 
 // NewAppManager creates an AppManager backed by the management database.
-func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int, fs storage.FileStorage, maxFileSize int64, instrCfg config.InstrumentationConfig) *AppManager {
+func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolSize int, fs storage.FileStorage, maxFileSize int64, instrCfg config.InstrumentationConfig, aiCfg config.AIConfig) *AppManager {
 	return &AppManager{
 		apps:        make(map[string]*AppContext),
 		mgmtStore:   mgmtStore,
@@ -37,6 +39,7 @@ func NewAppManager(mgmtStore *store.Store, dbCfg config.DatabaseConfig, appPoolS
 		fileStorage: fs,
 		maxFileSize: maxFileSize,
 		instrConfig: instrCfg,
+		aiProvider:  ai.NewProvider(aiCfg.BaseURL, aiCfg.APIKey, aiCfg.Model),
 	}
 }
 
@@ -110,6 +113,7 @@ func (m *AppManager) Create(ctx context.Context, name, displayName, dbDriver str
 		Registry:    reg,
 		fileStorage: m.fileStorage,
 		maxFileSize: m.maxFileSize,
+		aiProvider:  m.aiProvider,
 	}
 	if m.instrConfig.Enabled {
 		ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
@@ -262,6 +266,7 @@ func (m *AppManager) LoadAll(ctx context.Context) error {
 			Registry:    reg,
 			fileStorage: m.fileStorage,
 			maxFileSize: m.maxFileSize,
+			aiProvider:  m.aiProvider,
 		}
 		if m.instrConfig.Enabled {
 			ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)
@@ -343,6 +348,7 @@ func (m *AppManager) initApp(ctx context.Context, appName string) (*AppContext, 
 		Registry:    reg,
 		fileStorage: m.fileStorage,
 		maxFileSize: m.maxFileSize,
+		aiProvider:  m.aiProvider,
 	}
 	if m.instrConfig.Enabled {
 		ac.EventBuffer = instrument.NewEventBuffer(appStore.DB, appStore.Dialect, m.instrConfig.BufferSize, m.instrConfig.FlushIntervalMs)

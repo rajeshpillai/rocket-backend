@@ -8,6 +8,16 @@ import (
 	"rocket-backend/internal/instrument"
 )
 
+// aiNotConfigured returns a JSON response indicating AI is not configured.
+var aiNotConfigured fiber.Handler = func(c *fiber.Ctx) error {
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"configured": false,
+			"model":      "",
+		},
+	})
+}
+
 // dispatch returns a Fiber handler that extracts the AppContext from the request
 // and delegates to the handler function returned by fn.
 func dispatch(fn func(*AppContext) fiber.Handler) fiber.Handler {
@@ -123,6 +133,20 @@ func RegisterAppRoutes(app *fiber.App, manager *AppManager, platformJWTSecret st
 	// Export/Import
 	adm.Get("/export", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Export }))
 	adm.Post("/import", dispatch(func(ac *AppContext) fiber.Handler { return ac.AdminHandler.Import }))
+
+	// AI Schema Generator
+	adm.Get("/ai/status", dispatch(func(ac *AppContext) fiber.Handler {
+		if ac.AIHandler == nil {
+			return aiNotConfigured
+		}
+		return ac.AIHandler.Status
+	}))
+	adm.Post("/ai/generate", dispatch(func(ac *AppContext) fiber.Handler {
+		if ac.AIHandler == nil {
+			return aiNotConfigured
+		}
+		return ac.AIHandler.Generate
+	}))
 
 	// UI config read routes (auth required, no admin)
 	ui := protected.Group("/_ui")

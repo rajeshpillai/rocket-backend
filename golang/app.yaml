@@ -10,6 +10,12 @@ storage:
   local_path: ./uploads
   max_file_size: 10485760
 
+# AI Schema Generator (or use env vars: ROCKET_AI_BASE_URL, ROCKET_AI_API_KEY, ROCKET_AI_MODEL)
+# ai:
+#   base_url: https://api.openai.com/v1
+#   api_key: sk-your-key-here
+#   model: gpt-4o
+
 database:
   driver: postgres       # "postgres" or "sqlite"
   host: localhost

@@ -14,11 +14,22 @@ type InstrumentationConfig struct {
 	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
 }
 
+type AIConfig struct {
+	BaseURL string `mapstructure:"base_url"`
+	APIKey  string `mapstructure:"api_key"`
+	Model   string `mapstructure:"model"`
+}
+
+func (a AIConfig) Configured() bool {
+	return a.BaseURL != "" && a.APIKey != "" && a.Model != ""
+}
+
 type Config struct {
 	Server            ServerConfig          `mapstructure:"server"`
 	Database          DatabaseConfig        `mapstructure:"database"`
 	Storage           StorageConfig         `mapstructure:"storage"`
 	Instrumentation   InstrumentationConfig `mapstructure:"instrumentation"`
+	AI                AIConfig              `mapstructure:"ai"`
 	JWTSecret         string                `mapstructure:"jwt_secret"`
 	PlatformJWTSecret string                `mapstructure:"platform_jwt_secret"`
 	AppPoolSize       int                   `mapstructure:"app_pool_size"`
@@ -90,6 +101,11 @@ func Load() (*Config, error) {
 	viper.SetDefault("instrumentation.flush_interval_ms", 100)
 
 	viper.AutomaticEnv()
+
+	// Bind AI config env vars (ROCKET_AI_BASE_URL, ROCKET_AI_API_KEY, ROCKET_AI_MODEL)
+	_ = viper.BindEnv("ai.base_url", "ROCKET_AI_BASE_URL")
+	_ = viper.BindEnv("ai.api_key", "ROCKET_AI_API_KEY")
+	_ = viper.BindEnv("ai.model", "ROCKET_AI_MODEL")
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("read config: %w", err)

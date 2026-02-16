@@ -45,7 +45,7 @@ func main() {
 	fileStorage := storage.NewLocalStorage(cfg.Storage.LocalPath)
 
 	// 5. Create AppManager and load all existing apps
-	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize, fileStorage, cfg.Storage.MaxFileSize, cfg.Instrumentation)
+	manager := multiapp.NewAppManager(mgmtStore, cfg.Database, cfg.AppPoolSize, fileStorage, cfg.Storage.MaxFileSize, cfg.Instrumentation, cfg.AI)
 	defer manager.Close()
 
 	if err := manager.LoadAll(ctx); err != nil {
@@ -69,7 +69,7 @@ func main() {
 	})
 
 	// 7. Platform routes (auth + app CRUD)
-	platformHandler := multiapp.NewPlatformHandler(mgmtStore, cfg.PlatformJWTSecret, manager)
+	platformHandler := multiapp.NewPlatformHandler(mgmtStore, cfg.PlatformJWTSecret, manager, cfg.AI)
 	platformAuthMW := multiapp.PlatformAuthMiddleware(cfg.PlatformJWTSecret)
 	multiapp.RegisterPlatformRoutes(app, platformHandler, platformAuthMW)
 

@@ -236,12 +236,12 @@
 - [x] Reserved `_app` entity for dashboard/app-level UI config
 - [x] Admin UI: UI Config list page with import/export
 
-## AI Schema Generator
-- [ ] `AIConfig` struct (base_url, api_key, model) — config via env vars or config/runtime.exs
-- [ ] `AIProvider` module — OpenAI-compatible chat completions client using `Req`
-- [ ] `build_system_prompt/1` — full Rocket schema spec (reuse same prompt as Express)
-- [ ] `AIController` — `status` (GET) and `generate` (POST) actions
-- [ ] Wiring: AIConfig in config, ai_controller in router, platform-level `/ai/status`
+## AI Schema Generator [DONE]
+- [x] `AIConfig` struct (base_url, api_key, model) — config via env vars or app.yaml
+- [x] `AIProvider` module — OpenAI-compatible chat completions client using `Req`
+- [x] `build_system_prompt/1` — full Rocket schema spec (reuse same prompt as Express)
+- [x] `AIController` — `status` (GET) and `generate` (POST) actions
+- [x] Wiring: AIConfig in config, ai_controller in router, platform-level `/ai/status`
 
 ---
 

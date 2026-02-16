@@ -101,6 +101,18 @@ defmodule RocketWeb.PlatformController do
     json(conn, %{message: "Logged out"})
   end
 
+  # ── AI Status ──
+
+  def ai_status(conn, _params) do
+    provider = Application.get_env(:rocket, :ai_provider)
+
+    if provider do
+      json(conn, %{data: %{configured: true, model: provider.model}})
+    else
+      json(conn, %{data: %{configured: false, model: ""}})
+    end
+  end
+
   # ── App CRUD ──
 
   def list_apps(conn, _params) do

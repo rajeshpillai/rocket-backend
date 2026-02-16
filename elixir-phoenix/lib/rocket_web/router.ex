@@ -50,6 +50,8 @@ defmodule RocketWeb.Router do
     post "/apps", PlatformController, :create_app
     get "/apps/:name", PlatformController, :get_app
     delete "/apps/:name", PlatformController, :delete_app
+
+    get "/ai/status", PlatformController, :ai_status
   end
 
   # ── App-scoped routes ──
@@ -145,6 +147,10 @@ defmodule RocketWeb.Router do
     # Export/Import
     get "/export", AdminController, :export
     post "/import", AdminController, :import_schema
+
+    # AI Schema Generator
+    get "/ai/status", AIController, :status
+    post "/ai/generate", AIController, :generate
   end
 
   # UI config read routes — require app resolver + dual auth (no admin)
