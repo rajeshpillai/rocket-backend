@@ -45,7 +45,7 @@
 - [ ] Step types: action, condition, approval
 - [ ] Action types: set_field (UPDATE), webhook (HTTP), stubs
 - [ ] Workflow instance management (create, update, query pending)
-- [ ] Runtime endpoints (pending, detail, approve, reject)
+- [ ] Runtime endpoints (pending, detail, approve, reject, delete)
 - [ ] Background timeout scheduler (@Scheduled, 60s interval)
 - [ ] Post-commit trigger hook on state field changes
 
@@ -100,6 +100,13 @@
 - [ ] Export all metadata as JSON (strip IDs/timestamps)
 - [ ] Import with dependency-ordered insert + idempotent dedup
 - [ ] Sample data support
+
+## Entity Slugs
+- [ ] `SlugConfig` type (field, source, regenerate_on_update) + `slug` property on Entity
+- [ ] Auto-generate slug from source field on create (slugify: lowercase, hyphens, dedup)
+- [ ] Conflict handling: append `-2`, `-3`, etc. on unique violation
+- [ ] Slug-based record lookup in `getById`: if ID doesn't match PK type, try slug field first
+- [ ] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
 
 ## UI Configs
 - [ ] `_ui_configs` system table + bootstrap

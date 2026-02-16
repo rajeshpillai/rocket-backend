@@ -42,7 +42,7 @@
 - [x] Workflow execution engine (triggerWorkflows, advanceWorkflow, executeStep)
 - [x] Step types: action (set_field UPDATE), condition (Function + with(env)), approval (pause + deadline)
 - [x] Post-commit workflow trigger hook in nested-write.ts
-- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`)
+- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`, `DELETE /:id`)
 - [x] Background timeout scheduler (60s setInterval)
 - [x] Integration tests (7 new workflow tests: CRUD, trigger, approval, rejection, condition branching)
 
@@ -259,6 +259,14 @@
 - [ ] Admin UI: Bulk import page (CSV/JSON upload with field mapping)
 
 ---
+
+## Entity Slugs [DONE]
+- [x] `SlugConfig` interface (field, source, regenerate_on_update) + `slug?` on Entity type
+- [x] `slugify()` utility + auto-generate slug from source field on create
+- [x] Conflict handling: append `-2`, `-3`, etc. on unique violation
+- [x] Slug-based record lookup in `fetchRecord`: if ID doesn't match PK type, try slug field first
+- [x] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
+- [x] Workflow context shorthand aliases (`record.*` alongside `trigger.record.*`)
 
 ## User Invites (done)
 - [x] `_invites` system table (DDL in both Postgres and SQLite dialects)

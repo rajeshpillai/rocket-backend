@@ -41,7 +41,7 @@
 - [x] Workflow execution engine (TriggerWorkflows, advanceWorkflow, executeStep)
 - [x] Step types: action (set_field UPDATE), condition (expr-lang/expr), approval (pause + deadline)
 - [x] Post-commit workflow trigger hook in nested_write.go
-- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`)
+- [x] Runtime HTTP endpoints (`/api/_workflows/pending`, `/:id`, `/:id/approve`, `/:id/reject`, `DELETE /:id`)
 - [x] Background timeout scheduler (60s goroutine ticker)
 - [x] Unit tests (8 metadata + engine tests) + integration tests (11 tests: CRUD, trigger, approval, rejection, condition branching)
 
@@ -257,6 +257,14 @@
 - [ ] Admin UI: Bulk import page (CSV/JSON upload with field mapping)
 
 ---
+
+## Entity Slugs [DONE]
+- [x] `SlugConfig` struct (Field, Source, RegenerateOnUpdate) + `Slug *SlugConfig` on Entity
+- [x] `slugify()` utility + auto-generate slug from source field on create
+- [x] Conflict handling: append `-2`, `-3`, etc. on unique violation
+- [x] Slug-based record lookup in `FetchRecord`: if ID doesn't match PK type, try slug field first
+- [x] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
+- [x] Workflow context shorthand aliases (`record.*` alongside `trigger.record.*`)
 
 ## User Invites (done)
 - [x] `_invites` system table (DDL in both Postgres and SQLite dialects)

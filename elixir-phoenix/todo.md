@@ -33,7 +33,7 @@
 ## Phase 3: Workflows ✅
 - [x] Workflow/WorkflowStep structs
 - [x] Execution engine: trigger → start instance → execute steps (action/condition/approval)
-- [x] Runtime controller: pending/get/approve/reject endpoints
+- [x] Runtime controller: pending/get/approve/reject/delete endpoints
 - [x] Background timeout scheduler (GenServer, 60s tick)
 - [x] Post-commit trigger hook in nested_write.ex (fires on state field changes)
 
@@ -213,6 +213,14 @@
 - [ ] Admin UI: Bulk import page (CSV/JSON upload with field mapping)
 
 ---
+
+## Entity Slugs ✅
+- [x] `slug` config on entity type (field, source, regenerate_on_update)
+- [x] `slugify/1` utility + auto-generate slug from source field on create
+- [x] Conflict handling: append `-2`, `-3`, etc. on unique violation
+- [x] Slug-based record lookup in `fetch_record`: if ID doesn't match PK type, try slug field first
+- [x] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
+- [x] Workflow context shorthand aliases (`record.*` alongside `trigger.record.*`)
 
 ## User Invites (done)
 - [x] `_invites` system table (DDL in both Postgres and SQLite dialects)

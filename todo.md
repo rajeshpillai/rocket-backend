@@ -37,7 +37,7 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [x] Condition branching with expressions (`on_true`/`on_false`)
 - [x] Approval with timeout and deadline scheduling (`on_approve`/`on_reject`/`on_timeout`)
 - [x] Post-commit trigger on state field changes
-- [x] Runtime endpoints: pending list, instance detail, approve, reject
+- [x] Runtime endpoints: pending list, instance detail, approve, reject, delete
 - [x] Background timeout scheduler
 
 ## Phase 4: Auth & Permissions ✅
@@ -86,6 +86,16 @@ This is the canonical feature roadmap for the Rocket metadata-driven backend eng
 - [x] Bulk invite endpoint (`POST /_admin/invites/bulk`) — shared roles, skip & report
 - [x] Public accept-invite endpoint (token + password → user creation + auto-login)
 - [x] Validation: duplicate email, pending invite, expired token, already accepted
+
+## Entity Slugs ✅
+- [x] Optional `slug` config on entity definition (`field`, `source`, `regenerate_on_update`)
+- [x] Auto-generate slugs from source field on create (e.g., "My First Post" → `my-first-post`)
+- [x] Conflict handling: append `-2`, `-3`, etc. on unique violation
+- [x] Slug-based record lookup: `GET /:entity/:slug` resolves by slug field when ID doesn't match PK type
+- [x] Backward compatible: UUID/integer PK lookups still work
+- [x] Validation on entity save: slug field must exist, be unique, be string type; source field must exist
+- [x] Admin UI: Slug settings section in entity editor (toggle + field selects + regenerate toggle)
+- [x] Client app: prefer slug over ID in public landing page URLs
 
 ## Client App & UI Configs ✅
 - [x] SolidJS client app (`client/`) — separate from admin panel
