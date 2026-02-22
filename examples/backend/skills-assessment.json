@@ -1,0 +1,1200 @@
+{
+  "version": 1,
+  "exported_at": "2026-02-21T00:00:00Z",
+  "entities": [
+    {
+      "name": "skill_category",
+      "table": "skill_categories",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true, "unique": true },
+        { "name": "description", "type": "text" },
+        { "name": "sort_order", "type": "integer", "default": 0 },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    },
+    {
+      "name": "question",
+      "table": "questions",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "body", "type": "text", "required": true },
+        { "name": "option_a", "type": "string", "required": true },
+        { "name": "option_b", "type": "string", "required": true },
+        { "name": "option_c", "type": "string" },
+        { "name": "option_d", "type": "string" },
+        { "name": "correct_answer", "type": "string", "required": true, "enum": ["a", "b", "c", "d"] },
+        { "name": "explanation", "type": "text" },
+        { "name": "difficulty", "type": "string", "enum": ["easy", "medium", "hard"], "default": "medium" },
+        { "name": "points", "type": "integer", "default": 1 },
+        { "name": "category_id", "type": "uuid", "required": true },
+        { "name": "created_by", "type": "uuid" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "assessment",
+      "table": "assessments",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": true,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "title", "type": "string", "required": true },
+        { "name": "description", "type": "text" },
+        { "name": "time_limit_minutes", "type": "integer", "default": 60 },
+        { "name": "passing_score", "type": "integer", "default": 70 },
+        { "name": "total_points", "type": "integer", "default": 0 },
+        { "name": "shuffle_questions", "type": "boolean", "default": false },
+        { "name": "show_results", "type": "boolean", "default": true },
+        { "name": "status", "type": "string", "default": "draft" },
+        { "name": "created_by", "type": "uuid" },
+        { "name": "published_at", "type": "timestamp" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" },
+        { "name": "deleted_at", "type": "timestamp" }
+      ]
+    },
+    {
+      "name": "assessment_question",
+      "table": "assessment_questions",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "assessment_id", "type": "uuid", "required": true },
+        { "name": "question_id", "type": "uuid", "required": true },
+        { "name": "sort_order", "type": "integer", "default": 0 },
+        { "name": "points_override", "type": "integer" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    },
+    {
+      "name": "candidate",
+      "table": "candidates",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": true, "unique": true },
+        { "name": "phone", "type": "string" },
+        { "name": "source", "type": "string", "enum": ["internal", "external"], "default": "external" },
+        { "name": "notes", "type": "text" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "invitation",
+      "table": "invitations",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "assessment_id", "type": "uuid", "required": true },
+        { "name": "candidate_id", "type": "uuid", "required": true },
+        { "name": "token", "type": "string", "required": true, "unique": true },
+        { "name": "status", "type": "string", "default": "pending" },
+        { "name": "message", "type": "text" },
+        { "name": "sent_at", "type": "timestamp" },
+        { "name": "accepted_at", "type": "timestamp" },
+        { "name": "expires_at", "type": "timestamp", "required": true },
+        { "name": "created_by", "type": "uuid" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "attempt",
+      "table": "attempts",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "assessment_id", "type": "uuid", "required": true },
+        { "name": "candidate_id", "type": "uuid", "required": true },
+        { "name": "invitation_id", "type": "uuid" },
+        { "name": "status", "type": "string", "default": "in_progress" },
+        { "name": "started_at", "type": "timestamp", "required": true },
+        { "name": "submitted_at", "type": "timestamp" },
+        { "name": "time_spent_seconds", "type": "integer" },
+        { "name": "score", "type": "integer", "default": 0 },
+        { "name": "total_points", "type": "integer", "default": 0 },
+        { "name": "percentage", "type": "integer", "default": 0 },
+        { "name": "passed", "type": "boolean", "default": false },
+        { "name": "created_at", "type": "timestamp", "auto": "create" },
+        { "name": "updated_at", "type": "timestamp", "auto": "update" }
+      ]
+    },
+    {
+      "name": "answer",
+      "table": "answers",
+      "primary_key": { "field": "id", "type": "uuid", "generated": true },
+      "soft_delete": false,
+      "fields": [
+        { "name": "id", "type": "uuid", "required": true },
+        { "name": "attempt_id", "type": "uuid", "required": true },
+        { "name": "question_id", "type": "uuid", "required": true },
+        { "name": "selected_option", "type": "string", "enum": ["a", "b", "c", "d"] },
+        { "name": "is_correct", "type": "boolean", "default": false },
+        { "name": "points_awarded", "type": "integer", "default": 0 },
+        { "name": "answered_at", "type": "timestamp" },
+        { "name": "created_at", "type": "timestamp", "auto": "create" }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "category_questions",
+      "type": "one_to_many",
+      "source": "skill_category",
+      "target": "question",
+      "source_key": "id",
+      "target_key": "category_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "assessment_assessment_questions",
+      "type": "one_to_many",
+      "source": "assessment",
+      "target": "assessment_question",
+      "source_key": "id",
+      "target_key": "assessment_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "question_assessment_questions",
+      "type": "one_to_many",
+      "source": "question",
+      "target": "assessment_question",
+      "source_key": "id",
+      "target_key": "question_id",
+      "ownership": "none",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "assessment_invitations",
+      "type": "one_to_many",
+      "source": "assessment",
+      "target": "invitation",
+      "source_key": "id",
+      "target_key": "assessment_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "candidate_invitations",
+      "type": "one_to_many",
+      "source": "candidate",
+      "target": "invitation",
+      "source_key": "id",
+      "target_key": "candidate_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "assessment_attempts",
+      "type": "one_to_many",
+      "source": "assessment",
+      "target": "attempt",
+      "source_key": "id",
+      "target_key": "assessment_id",
+      "ownership": "source",
+      "on_delete": "restrict"
+    },
+    {
+      "name": "candidate_attempts",
+      "type": "one_to_many",
+      "source": "candidate",
+      "target": "attempt",
+      "source_key": "id",
+      "target_key": "candidate_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "invitation_attempts",
+      "type": "one_to_many",
+      "source": "invitation",
+      "target": "attempt",
+      "source_key": "id",
+      "target_key": "invitation_id",
+      "ownership": "none",
+      "on_delete": "set_null"
+    },
+    {
+      "name": "attempt_answers",
+      "type": "one_to_many",
+      "source": "attempt",
+      "target": "answer",
+      "source_key": "id",
+      "target_key": "attempt_id",
+      "ownership": "source",
+      "on_delete": "cascade"
+    },
+    {
+      "name": "question_answers",
+      "type": "one_to_many",
+      "source": "question",
+      "target": "answer",
+      "source_key": "id",
+      "target_key": "question_id",
+      "ownership": "none",
+      "on_delete": "restrict"
+    }
+  ],
+  "rules": [
+    {
+      "entity": "question",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "title",
+        "operator": "min_length",
+        "value": 5,
+        "message": "Question title must be at least 5 characters"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "question",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "body",
+        "operator": "min_length",
+        "value": 10,
+        "message": "Question body must be at least 10 characters"
+      },
+      "priority": 1,
+      "active": true
+    },
+    {
+      "entity": "question",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "points",
+        "operator": "min",
+        "value": 1,
+        "message": "Points must be at least 1"
+      },
+      "priority": 2,
+      "active": true
+    },
+    {
+      "entity": "assessment",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "title",
+        "operator": "min_length",
+        "value": 3,
+        "message": "Assessment title must be at least 3 characters"
+      },
+      "priority": 0,
+      "active": true
+    },
+    {
+      "entity": "assessment",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "time_limit_minutes",
+        "operator": "min",
+        "value": 5,
+        "message": "Time limit must be at least 5 minutes"
+      },
+      "priority": 1,
+      "active": true
+    },
+    {
+      "entity": "assessment",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "passing_score",
+        "operator": "min",
+        "value": 1,
+        "message": "Passing score must be at least 1%"
+      },
+      "priority": 2,
+      "active": true
+    },
+    {
+      "entity": "assessment",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "passing_score",
+        "operator": "max",
+        "value": 100,
+        "message": "Passing score cannot exceed 100%"
+      },
+      "priority": 3,
+      "active": true
+    },
+    {
+      "entity": "candidate",
+      "hook": "before_write",
+      "type": "field",
+      "definition": {
+        "field": "email",
+        "operator": "pattern",
+        "value": "^[^@]+@[^@]+\\.[^@]+$",
+        "message": "Invalid email format"
+      },
+      "priority": 0,
+      "active": true
+    }
+  ],
+  "state_machines": [
+    {
+      "entity": "assessment",
+      "field": "status",
+      "definition": {
+        "initial": "draft",
+        "transitions": [
+          {
+            "from": "draft",
+            "to": "published",
+            "roles": ["examiner", "admin"],
+            "actions": [
+              { "type": "set_field", "field": "published_at", "value": "now" }
+            ]
+          },
+          { "from": "published", "to": "archived", "roles": ["examiner", "admin"], "actions": [] },
+          { "from": "archived", "to": "draft", "roles": ["admin"], "actions": [] }
+        ]
+      },
+      "active": true
+    },
+    {
+      "entity": "invitation",
+      "field": "status",
+      "definition": {
+        "initial": "pending",
+        "transitions": [
+          {
+            "from": "pending",
+            "to": "sent",
+            "actions": [
+              { "type": "set_field", "field": "sent_at", "value": "now" }
+            ]
+          },
+          {
+            "from": ["pending", "sent"],
+            "to": "accepted",
+            "actions": [
+              { "type": "set_field", "field": "accepted_at", "value": "now" }
+            ]
+          },
+          { "from": ["pending", "sent"], "to": "expired", "actions": [] },
+          { "from": ["pending", "sent"], "to": "revoked", "roles": ["examiner", "admin"], "actions": [] }
+        ]
+      },
+      "active": true
+    },
+    {
+      "entity": "attempt",
+      "field": "status",
+      "definition": {
+        "initial": "in_progress",
+        "transitions": [
+          {
+            "from": "in_progress",
+            "to": "submitted",
+            "actions": [
+              { "type": "set_field", "field": "submitted_at", "value": "now" }
+            ]
+          },
+          { "from": "in_progress", "to": "timed_out", "actions": [
+              { "type": "set_field", "field": "submitted_at", "value": "now" }
+            ]
+          },
+          { "from": ["submitted", "timed_out"], "to": "graded", "actions": [] }
+        ]
+      },
+      "active": true
+    }
+  ],
+  "workflows": [
+    {
+      "name": "grade_assessment_on_submit",
+      "trigger": {
+        "type": "state_change",
+        "entity": "attempt",
+        "field": "status",
+        "to": "submitted"
+      },
+      "context": {
+        "record_id": "record.id",
+        "assessment_id": "record.assessment_id",
+        "candidate_id": "record.candidate_id"
+      },
+      "steps": [
+        {
+          "id": "auto_grade",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "attempt",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "graded"
+            }
+          ],
+          "then": { "goto": "end" }
+        }
+      ],
+      "active": true
+    },
+    {
+      "name": "notify_on_assessment_publish",
+      "trigger": {
+        "type": "state_change",
+        "entity": "assessment",
+        "field": "status",
+        "to": "published"
+      },
+      "context": {
+        "record_id": "record.id",
+        "title": "record.title"
+      },
+      "steps": [
+        {
+          "id": "admin_review",
+          "type": "approval",
+          "assignee": { "type": "role", "role": "admin" },
+          "timeout": "24h",
+          "on_approve": { "goto": "end" },
+          "on_reject": { "goto": "revert_to_draft" },
+          "on_timeout": { "goto": "end" }
+        },
+        {
+          "id": "revert_to_draft",
+          "type": "action",
+          "actions": [
+            {
+              "type": "set_field",
+              "entity": "assessment",
+              "record_id": "context.record_id",
+              "field": "status",
+              "value": "draft"
+            }
+          ],
+          "then": { "goto": "end" }
+        }
+      ],
+      "active": true
+    }
+  ],
+  "permissions": [
+    {
+      "entity": "skill_category",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "skill_category",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "skill_category",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "question",
+      "action": "read",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "question",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "question",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "question",
+      "action": "delete",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment",
+      "action": "delete",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment_question",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment_question",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment_question",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "assessment_question",
+      "action": "delete",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "candidate",
+      "action": "read",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "candidate",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "candidate",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "invitation",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "invitation",
+      "action": "create",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "invitation",
+      "action": "update",
+      "roles": ["examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "attempt",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "attempt",
+      "action": "create",
+      "roles": ["candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "attempt",
+      "action": "update",
+      "roles": ["candidate", "examiner"],
+      "conditions": []
+    },
+    {
+      "entity": "answer",
+      "action": "read",
+      "roles": ["examiner", "candidate"],
+      "conditions": []
+    },
+    {
+      "entity": "answer",
+      "action": "create",
+      "roles": ["candidate"],
+      "conditions": []
+    }
+  ],
+  "webhooks": [
+    {
+      "entity": "attempt",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/assessment-submitted",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-assessment" },
+      "condition": "record.status === 'submitted'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "attempt",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/assessment-graded",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-assessment" },
+      "condition": "record.status === 'graded'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    },
+    {
+      "entity": "invitation",
+      "hook": "after_write",
+      "url": "https://hooks.example.com/invitation-sent",
+      "method": "POST",
+      "headers": { "X-Source": "rocket-assessment" },
+      "condition": "action === 'create'",
+      "async": true,
+      "retry": { "max_attempts": 3, "backoff": "exponential" },
+      "active": true
+    }
+  ],
+  "sample_data": {
+    "_users": [
+      {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "email": "admin@localhost",
+        "password": "changeme",
+        "name": "Platform Admin",
+        "role": "admin",
+        "active": true
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000010",
+        "email": "rachel.examiner@company.com",
+        "password": "examiner123",
+        "name": "Rachel Torres",
+        "role": "examiner",
+        "active": true
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000011",
+        "email": "dan.examiner@company.com",
+        "password": "examiner123",
+        "name": "Dan Mitchell",
+        "role": "examiner",
+        "active": true
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "email": "alice.kumar@gmail.com",
+        "password": "candidate123",
+        "name": "Alice Kumar",
+        "role": "candidate",
+        "active": true,
+        "_candidate_id": "40000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000102",
+        "email": "marcus.chen@outlook.com",
+        "password": "candidate123",
+        "name": "Marcus Chen",
+        "role": "candidate",
+        "active": true,
+        "_candidate_id": "40000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000103",
+        "email": "sophia.r@company.com",
+        "password": "candidate123",
+        "name": "Sophia Rodriguez",
+        "role": "candidate",
+        "active": true,
+        "_candidate_id": "40000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000104",
+        "email": "james.okafor@protonmail.com",
+        "password": "candidate123",
+        "name": "James Okafor",
+        "role": "candidate",
+        "active": true,
+        "_candidate_id": "40000000-0000-0000-0000-000000000004"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000105",
+        "email": "priya.nair@company.com",
+        "password": "candidate123",
+        "name": "Priya Nair",
+        "role": "candidate",
+        "active": true,
+        "_candidate_id": "40000000-0000-0000-0000-000000000005"
+      }
+    ],
+    "skill_category": [
+      { "id": "10000000-0000-0000-0000-000000000001", "name": "JavaScript", "description": "Core JavaScript fundamentals including ES6+, closures, async patterns, and DOM manipulation", "sort_order": 1 },
+      { "id": "10000000-0000-0000-0000-000000000002", "name": "Python", "description": "Python programming including data structures, OOP, and standard library", "sort_order": 2 },
+      { "id": "10000000-0000-0000-0000-000000000003", "name": "SQL & Databases", "description": "SQL queries, database design, indexing, and optimization", "sort_order": 3 },
+      { "id": "10000000-0000-0000-0000-000000000004", "name": "System Design", "description": "Architecture patterns, scalability, distributed systems, and infrastructure", "sort_order": 4 },
+      { "id": "10000000-0000-0000-0000-000000000005", "name": "DevOps", "description": "CI/CD, containers, cloud services, and infrastructure-as-code", "sort_order": 5 }
+    ],
+    "question": [
+      {
+        "id": "20000000-0000-0000-0000-000000000001",
+        "title": "JavaScript Closures",
+        "body": "What will the following code output?\n\nfunction outer() {\n  let count = 0;\n  return function() {\n    return ++count;\n  };\n}\nconst fn = outer();\nconsole.log(fn(), fn(), fn());",
+        "option_a": "1 1 1",
+        "option_b": "0 1 2",
+        "option_c": "1 2 3",
+        "option_d": "undefined undefined undefined",
+        "correct_answer": "c",
+        "explanation": "The inner function forms a closure over the 'count' variable. Each call to fn() increments and returns count, so the outputs are 1, 2, 3.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000002",
+        "title": "Promise.all Behavior",
+        "body": "What happens when one of the promises passed to Promise.all() rejects?",
+        "option_a": "It waits for all promises to settle, then returns an array of results and errors",
+        "option_b": "It immediately rejects with the reason of the first promise that rejects",
+        "option_c": "It ignores the rejected promise and resolves with the remaining results",
+        "option_d": "It throws a synchronous error",
+        "correct_answer": "b",
+        "explanation": "Promise.all() follows a fail-fast pattern — it rejects immediately when any of the input promises rejects, with the reason of the first rejection.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000003",
+        "title": "JavaScript typeof null",
+        "body": "What does typeof null return in JavaScript?",
+        "option_a": "\"null\"",
+        "option_b": "\"undefined\"",
+        "option_c": "\"object\"",
+        "option_d": "\"boolean\"",
+        "correct_answer": "c",
+        "explanation": "This is a well-known JavaScript quirk. typeof null returns 'object' due to a legacy bug in the original JavaScript implementation that was never fixed for backwards compatibility.",
+        "difficulty": "easy",
+        "points": 1,
+        "category_id": "10000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000004",
+        "title": "Event Loop Order",
+        "body": "What is the output order?\n\nconsole.log('A');\nsetTimeout(() => console.log('B'), 0);\nPromise.resolve().then(() => console.log('C'));\nconsole.log('D');",
+        "option_a": "A, B, C, D",
+        "option_b": "A, D, B, C",
+        "option_c": "A, D, C, B",
+        "option_d": "A, C, D, B",
+        "correct_answer": "c",
+        "explanation": "Synchronous code runs first (A, D), then microtasks like Promise callbacks (C), then macrotasks like setTimeout (B).",
+        "difficulty": "hard",
+        "points": 3,
+        "category_id": "10000000-0000-0000-0000-000000000001"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000005",
+        "title": "Python List Comprehension",
+        "body": "What does the following expression evaluate to?\n\n[x**2 for x in range(5) if x % 2 == 0]",
+        "option_a": "[0, 4, 16]",
+        "option_b": "[1, 9, 25]",
+        "option_c": "[0, 2, 4]",
+        "option_d": "[0, 1, 4, 9, 16]",
+        "correct_answer": "a",
+        "explanation": "range(5) produces 0,1,2,3,4. The filter keeps even numbers (0,2,4) and squares them to get [0, 4, 16].",
+        "difficulty": "easy",
+        "points": 1,
+        "category_id": "10000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000006",
+        "title": "Python Mutable Default Arguments",
+        "body": "What happens when you call add_item('apple') twice?\n\ndef add_item(item, lst=[]):\n    lst.append(item)\n    return lst",
+        "option_a": "Returns ['apple'] both times",
+        "option_b": "Returns ['apple'] first, then ['apple', 'apple']",
+        "option_c": "Raises a TypeError",
+        "option_d": "Returns [] both times",
+        "correct_answer": "b",
+        "explanation": "Mutable default arguments in Python are created once at function definition time and shared across all calls. The list accumulates items between calls.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000007",
+        "title": "Python GIL",
+        "body": "What is the Global Interpreter Lock (GIL) in CPython?",
+        "option_a": "A lock that prevents multiple Python programs from running simultaneously on the same machine",
+        "option_b": "A mutex that allows only one thread to execute Python bytecode at a time",
+        "option_c": "A mechanism to prevent race conditions in multi-process applications",
+        "option_d": "A security feature that restricts access to global variables",
+        "correct_answer": "b",
+        "explanation": "The GIL is a mutex in CPython that allows only one thread to execute Python bytecode at a time, even on multi-core systems. This simplifies memory management but limits CPU-bound parallelism in threads.",
+        "difficulty": "hard",
+        "points": 3,
+        "category_id": "10000000-0000-0000-0000-000000000002"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000008",
+        "title": "SQL JOIN Types",
+        "body": "Which JOIN type returns all rows from the left table and matching rows from the right table, with NULLs for non-matching right-side rows?",
+        "option_a": "INNER JOIN",
+        "option_b": "LEFT JOIN",
+        "option_c": "CROSS JOIN",
+        "option_d": "RIGHT JOIN",
+        "correct_answer": "b",
+        "explanation": "A LEFT JOIN (or LEFT OUTER JOIN) returns all rows from the left table regardless of whether there is a match in the right table. Non-matching right-side columns are filled with NULL.",
+        "difficulty": "easy",
+        "points": 1,
+        "category_id": "10000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000009",
+        "title": "Database Indexing",
+        "body": "Which index type is most efficient for queries with exact equality conditions on a column with many distinct values?",
+        "option_a": "Bitmap index",
+        "option_b": "B-tree index",
+        "option_c": "Full-text index",
+        "option_d": "Hash index",
+        "correct_answer": "d",
+        "explanation": "Hash indexes provide O(1) lookup time for exact equality queries, making them the most efficient choice for high-cardinality equality conditions. However, they do not support range queries.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000010",
+        "title": "SQL Window Functions",
+        "body": "What does ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) do?",
+        "option_a": "Returns the total number of rows in each department",
+        "option_b": "Assigns a unique sequential number within each department, ordered by salary descending",
+        "option_c": "Returns the rank of each employee, with gaps for ties",
+        "option_d": "Calculates the running total of salaries within each department",
+        "correct_answer": "b",
+        "explanation": "ROW_NUMBER() assigns a unique sequential integer starting from 1 within each partition (department), ordered by salary in descending order. Unlike RANK(), it never produces gaps or ties.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000003"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000011",
+        "title": "CAP Theorem",
+        "body": "According to the CAP theorem, a distributed system can guarantee at most how many of the three properties (Consistency, Availability, Partition tolerance) simultaneously?",
+        "option_a": "All three",
+        "option_b": "Two out of three",
+        "option_c": "One out of three",
+        "option_d": "It depends on the database engine",
+        "correct_answer": "b",
+        "explanation": "The CAP theorem states that in the presence of a network partition, a distributed system must choose between consistency and availability. You can guarantee at most two of the three properties simultaneously.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000004"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000012",
+        "title": "Load Balancing Strategy",
+        "body": "Which load balancing algorithm is best suited for a system where backend servers have significantly different processing capacities?",
+        "option_a": "Round Robin",
+        "option_b": "Random",
+        "option_c": "Weighted Round Robin",
+        "option_d": "IP Hash",
+        "correct_answer": "c",
+        "explanation": "Weighted Round Robin assigns different weights to servers based on their capacity, sending more requests to more powerful servers. Plain Round Robin and Random treat all servers equally, which would overload weaker servers.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000004"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000013",
+        "title": "Docker vs Virtual Machines",
+        "body": "What is the key architectural difference between Docker containers and virtual machines?",
+        "option_a": "Containers include a full guest OS kernel; VMs share the host kernel",
+        "option_b": "Containers share the host OS kernel; VMs include a full guest OS with its own kernel",
+        "option_c": "There is no difference — Docker containers are just lightweight VMs",
+        "option_d": "Containers use hardware virtualization; VMs use OS-level virtualization",
+        "correct_answer": "b",
+        "explanation": "Docker containers share the host OS kernel and isolate processes using cgroups and namespaces (OS-level virtualization). VMs run a complete guest OS with its own kernel on top of a hypervisor (hardware virtualization).",
+        "difficulty": "easy",
+        "points": 1,
+        "category_id": "10000000-0000-0000-0000-000000000005"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000014",
+        "title": "CI/CD Pipeline Stages",
+        "body": "In a typical CI/CD pipeline, what is the correct order of stages?",
+        "option_a": "Deploy → Test → Build → Code Review",
+        "option_b": "Code Review → Build → Test → Deploy",
+        "option_c": "Build → Code Review → Deploy → Test",
+        "option_d": "Test → Build → Deploy → Code Review",
+        "correct_answer": "b",
+        "explanation": "The standard CI/CD pipeline flows: code review (PR/merge request) → build (compile/bundle) → test (unit, integration, e2e) → deploy (staging, then production).",
+        "difficulty": "easy",
+        "points": 1,
+        "category_id": "10000000-0000-0000-0000-000000000005"
+      },
+      {
+        "id": "20000000-0000-0000-0000-000000000015",
+        "title": "Kubernetes Pod vs Container",
+        "body": "What is the relationship between a Pod and a Container in Kubernetes?",
+        "option_a": "A Pod is a container — the terms are interchangeable",
+        "option_b": "A Pod is the smallest deployable unit that can contain one or more containers sharing network and storage",
+        "option_c": "A Container can contain multiple Pods",
+        "option_d": "A Pod is a group of Kubernetes nodes",
+        "correct_answer": "b",
+        "explanation": "A Pod is Kubernetes' smallest deployable unit. It wraps one or more containers that share the same network namespace (IP address, ports) and storage volumes, and are always co-located and co-scheduled.",
+        "difficulty": "medium",
+        "points": 2,
+        "category_id": "10000000-0000-0000-0000-000000000005"
+      }
+    ],
+    "assessment": [
+      {
+        "id": "30000000-0000-0000-0000-000000000001",
+        "title": "JavaScript Fundamentals Assessment",
+        "description": "Evaluate core JavaScript knowledge including closures, promises, event loop, and language quirks. Suitable for mid-level frontend and full-stack developer candidates.",
+        "time_limit_minutes": 30,
+        "passing_score": 60,
+        "total_points": 8,
+        "shuffle_questions": true,
+        "show_results": true,
+        "status": "published",
+        "published_at": "2026-02-01T09:00:00Z"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000002",
+        "title": "Python Developer Screening",
+        "description": "Covers Python fundamentals including list comprehensions, mutable defaults, and concurrency concepts. Designed for backend developer candidates.",
+        "time_limit_minutes": 25,
+        "passing_score": 65,
+        "total_points": 6,
+        "shuffle_questions": false,
+        "show_results": true,
+        "status": "published",
+        "published_at": "2026-02-05T10:00:00Z"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000003",
+        "title": "Full-Stack Engineer Assessment",
+        "description": "Comprehensive assessment covering JavaScript, SQL, system design, and DevOps. For senior full-stack engineer candidates.",
+        "time_limit_minutes": 60,
+        "passing_score": 70,
+        "total_points": 18,
+        "shuffle_questions": true,
+        "show_results": false,
+        "status": "published",
+        "published_at": "2026-02-10T08:00:00Z"
+      },
+      {
+        "id": "30000000-0000-0000-0000-000000000004",
+        "title": "DevOps & Cloud Infrastructure",
+        "description": "Assessment for DevOps engineer candidates covering containers, CI/CD, Kubernetes, and infrastructure concepts.",
+        "time_limit_minutes": 30,
+        "passing_score": 70,
+        "total_points": 4,
+        "shuffle_questions": false,
+        "show_results": true,
+        "status": "draft"
+      }
+    ],
+    "assessment_question": [
+      { "id": "35000000-0000-0000-0000-000000000001", "assessment_id": "30000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000001", "sort_order": 1 },
+      { "id": "35000000-0000-0000-0000-000000000002", "assessment_id": "30000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000002", "sort_order": 2 },
+      { "id": "35000000-0000-0000-0000-000000000003", "assessment_id": "30000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000003", "sort_order": 3 },
+      { "id": "35000000-0000-0000-0000-000000000004", "assessment_id": "30000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000004", "sort_order": 4 },
+      { "id": "35000000-0000-0000-0000-000000000005", "assessment_id": "30000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000005", "sort_order": 1 },
+      { "id": "35000000-0000-0000-0000-000000000006", "assessment_id": "30000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000006", "sort_order": 2 },
+      { "id": "35000000-0000-0000-0000-000000000007", "assessment_id": "30000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000007", "sort_order": 3 },
+      { "id": "35000000-0000-0000-0000-000000000008", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000001", "sort_order": 1 },
+      { "id": "35000000-0000-0000-0000-000000000009", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000004", "sort_order": 2 },
+      { "id": "35000000-0000-0000-0000-000000000010", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000008", "sort_order": 3 },
+      { "id": "35000000-0000-0000-0000-000000000011", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000009", "sort_order": 4 },
+      { "id": "35000000-0000-0000-0000-000000000012", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000010", "sort_order": 5 },
+      { "id": "35000000-0000-0000-0000-000000000013", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000011", "sort_order": 6 },
+      { "id": "35000000-0000-0000-0000-000000000014", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000012", "sort_order": 7 },
+      { "id": "35000000-0000-0000-0000-000000000015", "assessment_id": "30000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000013", "sort_order": 8 },
+      { "id": "35000000-0000-0000-0000-000000000016", "assessment_id": "30000000-0000-0000-0000-000000000004", "question_id": "20000000-0000-0000-0000-000000000013", "sort_order": 1 },
+      { "id": "35000000-0000-0000-0000-000000000017", "assessment_id": "30000000-0000-0000-0000-000000000004", "question_id": "20000000-0000-0000-0000-000000000014", "sort_order": 2 },
+      { "id": "35000000-0000-0000-0000-000000000018", "assessment_id": "30000000-0000-0000-0000-000000000004", "question_id": "20000000-0000-0000-0000-000000000015", "sort_order": 3 }
+    ],
+    "candidate": [
+      { "id": "40000000-0000-0000-0000-000000000001", "name": "Alice Kumar", "email": "alice.kumar@gmail.com", "phone": "+1-555-2001", "source": "external", "notes": "Referred by engineering team lead. 4 years experience in React/Node." },
+      { "id": "40000000-0000-0000-0000-000000000002", "name": "Marcus Chen", "email": "marcus.chen@outlook.com", "phone": "+1-555-2002", "source": "external", "notes": "Applied via careers page. Background in Python and data engineering." },
+      { "id": "40000000-0000-0000-0000-000000000003", "name": "Sophia Rodriguez", "email": "sophia.r@company.com", "phone": "+1-555-2003", "source": "internal", "notes": "Internal transfer candidate from QA to engineering. Looking to assess coding skills." },
+      { "id": "40000000-0000-0000-0000-000000000004", "name": "James Okafor", "email": "james.okafor@protonmail.com", "phone": "+44-555-2004", "source": "external", "notes": "Senior candidate from London. 7 years full-stack experience." },
+      { "id": "40000000-0000-0000-0000-000000000005", "name": "Priya Nair", "email": "priya.nair@company.com", "source": "internal", "notes": "Junior developer up for promotion review. Needs to pass Python screening." }
+    ],
+    "invitation": [
+      {
+        "id": "50000000-0000-0000-0000-000000000001",
+        "assessment_id": "30000000-0000-0000-0000-000000000001",
+        "candidate_id": "40000000-0000-0000-0000-000000000001",
+        "token": "inv-a1b2c3d4-js-alice",
+        "status": "accepted",
+        "message": "Hi Alice, please complete this JavaScript assessment within the next 7 days. Good luck!",
+        "sent_at": "2026-02-10T09:00:00Z",
+        "accepted_at": "2026-02-10T14:30:00Z",
+        "expires_at": "2026-02-17T23:59:59Z"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000002",
+        "assessment_id": "30000000-0000-0000-0000-000000000002",
+        "candidate_id": "40000000-0000-0000-0000-000000000002",
+        "token": "inv-e5f6g7h8-py-marcus",
+        "status": "sent",
+        "message": "Hi Marcus, we'd like you to complete this Python screening. You have 5 days.",
+        "sent_at": "2026-02-18T10:00:00Z",
+        "expires_at": "2026-02-23T23:59:59Z"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000003",
+        "assessment_id": "30000000-0000-0000-0000-000000000001",
+        "candidate_id": "40000000-0000-0000-0000-000000000003",
+        "token": "inv-i9j0k1l2-js-sophia",
+        "status": "accepted",
+        "message": "Hi Sophia, as part of your transfer assessment, please complete this JavaScript fundamentals test.",
+        "sent_at": "2026-02-08T11:00:00Z",
+        "accepted_at": "2026-02-08T15:00:00Z",
+        "expires_at": "2026-02-15T23:59:59Z"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000004",
+        "assessment_id": "30000000-0000-0000-0000-000000000003",
+        "candidate_id": "40000000-0000-0000-0000-000000000004",
+        "token": "inv-m3n4o5p6-fs-james",
+        "status": "sent",
+        "message": "Hi James, please complete our full-stack assessment at your convenience. The link is valid for 10 days.",
+        "sent_at": "2026-02-19T08:00:00Z",
+        "expires_at": "2026-03-01T23:59:59Z"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000005",
+        "assessment_id": "30000000-0000-0000-0000-000000000002",
+        "candidate_id": "40000000-0000-0000-0000-000000000005",
+        "token": "inv-q7r8s9t0-py-priya",
+        "status": "accepted",
+        "message": "Hi Priya, please complete the Python screening as part of your promotion review.",
+        "sent_at": "2026-02-12T09:00:00Z",
+        "accepted_at": "2026-02-12T10:15:00Z",
+        "expires_at": "2026-02-19T23:59:59Z"
+      },
+      {
+        "id": "50000000-0000-0000-0000-000000000006",
+        "assessment_id": "30000000-0000-0000-0000-000000000001",
+        "candidate_id": "40000000-0000-0000-0000-000000000004",
+        "token": "inv-u1v2w3x4-js-james",
+        "status": "expired",
+        "message": "Hi James, please start with this JavaScript assessment.",
+        "sent_at": "2026-01-20T08:00:00Z",
+        "expires_at": "2026-01-27T23:59:59Z"
+      }
+    ],
+    "attempt": [
+      {
+        "id": "60000000-0000-0000-0000-000000000001",
+        "assessment_id": "30000000-0000-0000-0000-000000000001",
+        "candidate_id": "40000000-0000-0000-0000-000000000001",
+        "invitation_id": "50000000-0000-0000-0000-000000000001",
+        "status": "graded",
+        "started_at": "2026-02-10T14:35:00Z",
+        "submitted_at": "2026-02-10T15:02:00Z",
+        "time_spent_seconds": 1620,
+        "score": 7,
+        "total_points": 8,
+        "percentage": 88,
+        "passed": true
+      },
+      {
+        "id": "60000000-0000-0000-0000-000000000002",
+        "assessment_id": "30000000-0000-0000-0000-000000000001",
+        "candidate_id": "40000000-0000-0000-0000-000000000003",
+        "invitation_id": "50000000-0000-0000-0000-000000000003",
+        "status": "graded",
+        "started_at": "2026-02-08T15:10:00Z",
+        "submitted_at": "2026-02-08T15:38:00Z",
+        "time_spent_seconds": 1680,
+        "score": 4,
+        "total_points": 8,
+        "percentage": 50,
+        "passed": false
+      },
+      {
+        "id": "60000000-0000-0000-0000-000000000003",
+        "assessment_id": "30000000-0000-0000-0000-000000000002",
+        "candidate_id": "40000000-0000-0000-0000-000000000005",
+        "invitation_id": "50000000-0000-0000-0000-000000000005",
+        "status": "graded",
+        "started_at": "2026-02-12T10:20:00Z",
+        "submitted_at": "2026-02-12T10:40:00Z",
+        "time_spent_seconds": 1200,
+        "score": 6,
+        "total_points": 6,
+        "percentage": 100,
+        "passed": true
+      },
+      {
+        "id": "60000000-0000-0000-0000-000000000004",
+        "assessment_id": "30000000-0000-0000-0000-000000000002",
+        "candidate_id": "40000000-0000-0000-0000-000000000002",
+        "invitation_id": "50000000-0000-0000-0000-000000000002",
+        "status": "in_progress",
+        "started_at": "2026-02-21T09:00:00Z",
+        "score": 0,
+        "total_points": 6,
+        "percentage": 0,
+        "passed": false
+      }
+    ],
+    "answer": [
+      { "id": "70000000-0000-0000-0000-000000000001", "attempt_id": "60000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000001", "selected_option": "c", "is_correct": true, "points_awarded": 2, "answered_at": "2026-02-10T14:42:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000002", "attempt_id": "60000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000002", "selected_option": "b", "is_correct": true, "points_awarded": 2, "answered_at": "2026-02-10T14:48:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000003", "attempt_id": "60000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000003", "selected_option": "c", "is_correct": true, "points_awarded": 1, "answered_at": "2026-02-10T14:50:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000004", "attempt_id": "60000000-0000-0000-0000-000000000001", "question_id": "20000000-0000-0000-0000-000000000004", "selected_option": "b", "is_correct": false, "points_awarded": 0, "answered_at": "2026-02-10T15:00:00Z" },
+
+      { "id": "70000000-0000-0000-0000-000000000005", "attempt_id": "60000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000001", "selected_option": "b", "is_correct": false, "points_awarded": 0, "answered_at": "2026-02-08T15:18:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000006", "attempt_id": "60000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000002", "selected_option": "b", "is_correct": true, "points_awarded": 2, "answered_at": "2026-02-08T15:24:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000007", "attempt_id": "60000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000003", "selected_option": "c", "is_correct": true, "points_awarded": 1, "answered_at": "2026-02-08T15:28:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000008", "attempt_id": "60000000-0000-0000-0000-000000000002", "question_id": "20000000-0000-0000-0000-000000000004", "selected_option": "b", "is_correct": false, "points_awarded": 0, "answered_at": "2026-02-08T15:36:00Z" },
+
+      { "id": "70000000-0000-0000-0000-000000000009", "attempt_id": "60000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000005", "selected_option": "a", "is_correct": true, "points_awarded": 1, "answered_at": "2026-02-12T10:25:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000010", "attempt_id": "60000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000006", "selected_option": "b", "is_correct": true, "points_awarded": 2, "answered_at": "2026-02-12T10:30:00Z" },
+      { "id": "70000000-0000-0000-0000-000000000011", "attempt_id": "60000000-0000-0000-0000-000000000003", "question_id": "20000000-0000-0000-0000-000000000007", "selected_option": "b", "is_correct": true, "points_awarded": 3, "answered_at": "2026-02-12T10:38:00Z" }
+    ]
+  }
+}

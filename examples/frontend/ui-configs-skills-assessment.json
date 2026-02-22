@@ -1,0 +1,1154 @@
+{
+  "version": 1,
+  "ui_configs": [
+    {
+      "entity": "_app",
+      "config": {
+        "dashboard": {
+          "title": "Skills Assessment",
+          "subtitle": "Manage assessments, questions, and track candidate performance",
+          "widgets": [
+            {
+              "type": "stat",
+              "title": "Published Assessments",
+              "entity": "assessment",
+              "filter": { "status": "published" },
+              "color": "blue"
+            },
+            {
+              "type": "stat",
+              "title": "Total Questions",
+              "entity": "question",
+              "color": "purple"
+            },
+            {
+              "type": "stat",
+              "title": "Pending Invitations",
+              "entity": "invitation",
+              "filter": { "status": "sent" },
+              "color": "yellow"
+            },
+            {
+              "type": "stat",
+              "title": "Completed Attempts",
+              "entity": "attempt",
+              "filter": { "status": "graded" },
+              "color": "green"
+            },
+            {
+              "type": "recent",
+              "title": "Latest Results",
+              "entity": "attempt",
+              "sort": "-submitted_at",
+              "limit": 5,
+              "columns": ["candidate_id", "assessment_id", "percentage", "passed", "submitted_at"]
+            },
+            {
+              "type": "recent",
+              "title": "Recent Invitations",
+              "entity": "invitation",
+              "sort": "-created_at",
+              "limit": 5,
+              "columns": ["candidate_id", "assessment_id", "status", "expires_at"]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "entity": "skill_category",
+      "config": {
+        "list": {
+          "title": "Skill Categories",
+          "columns": [
+            "name",
+            "description",
+            "sort_order",
+            "created_at"
+          ],
+          "default_sort": "sort_order",
+          "per_page": 25
+        },
+        "detail": {
+          "title": "Category"
+        },
+        "form": {
+          "field_overrides": {
+            "name": {
+              "label": "Category Name"
+            },
+            "description": {
+              "label": "Description",
+              "widget": "textarea",
+              "rows": 3,
+              "help": "Describes what topics this category covers"
+            },
+            "sort_order": {
+              "label": "Display Order",
+              "help": "Lower numbers appear first"
+            }
+          },
+          "readonly_fields": [
+            "created_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "folder",
+          "label": "Categories",
+          "group": "Question Bank"
+        }
+      }
+    },
+    {
+      "entity": "question",
+      "config": {
+        "list": {
+          "title": "Questions",
+          "columns": [
+            "title",
+            "difficulty",
+            "points",
+            "category_id",
+            "correct_answer",
+            "updated_at"
+          ],
+          "default_sort": "-updated_at",
+          "per_page": 25,
+          "searchable_fields": [
+            "title",
+            "body"
+          ]
+        },
+        "detail": {
+          "title": "Question",
+          "sections": [
+            {
+              "title": "Question",
+              "fields": [
+                "title",
+                "body"
+              ]
+            },
+            {
+              "title": "Answer Options",
+              "fields": [
+                "option_a",
+                "option_b",
+                "option_c",
+                "option_d",
+                "correct_answer"
+              ]
+            },
+            {
+              "title": "Metadata",
+              "fields": [
+                "explanation",
+                "difficulty",
+                "points",
+                "category_id"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "title": {
+              "label": "Question Title",
+              "help": "Short label for identification (e.g. 'JavaScript Closures')"
+            },
+            "body": {
+              "label": "Question Text",
+              "widget": "textarea",
+              "rows": 8,
+              "help": "The full question shown to candidates. Supports code blocks."
+            },
+            "option_a": {
+              "label": "Option A"
+            },
+            "option_b": {
+              "label": "Option B"
+            },
+            "option_c": {
+              "label": "Option C",
+              "help": "Optional — leave blank for true/false questions"
+            },
+            "option_d": {
+              "label": "Option D",
+              "help": "Optional — leave blank for 3-option questions"
+            },
+            "correct_answer": {
+              "label": "Correct Answer",
+              "help": "Which option (a, b, c, or d) is the correct answer"
+            },
+            "explanation": {
+              "label": "Explanation",
+              "widget": "textarea",
+              "rows": 4,
+              "help": "Shown to candidates after submission (if assessment allows showing results)"
+            },
+            "difficulty": {
+              "label": "Difficulty Level"
+            },
+            "points": {
+              "label": "Points",
+              "help": "Points awarded for a correct answer"
+            },
+            "category_id": {
+              "label": "Skill Category"
+            }
+          },
+          "hidden_fields": [
+            "deleted_at",
+            "created_by"
+          ],
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "help-circle",
+          "label": "Questions",
+          "group": "Question Bank"
+        }
+      }
+    },
+    {
+      "entity": "assessment",
+      "config": {
+        "list": {
+          "title": "Assessments",
+          "columns": [
+            "title",
+            "status",
+            "time_limit_minutes",
+            "passing_score",
+            "total_points",
+            "published_at"
+          ],
+          "default_sort": "-updated_at",
+          "per_page": 20,
+          "searchable_fields": [
+            "title",
+            "description"
+          ]
+        },
+        "detail": {
+          "title": "Assessment",
+          "sections": [
+            {
+              "title": "Overview",
+              "fields": [
+                "title",
+                "description"
+              ]
+            },
+            {
+              "title": "Settings",
+              "fields": [
+                "time_limit_minutes",
+                "passing_score",
+                "total_points",
+                "shuffle_questions",
+                "show_results"
+              ]
+            },
+            {
+              "title": "Status",
+              "fields": [
+                "status",
+                "published_at"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "title": {
+              "label": "Assessment Title"
+            },
+            "description": {
+              "label": "Description",
+              "widget": "textarea",
+              "rows": 4,
+              "help": "Visible to candidates before they start"
+            },
+            "time_limit_minutes": {
+              "label": "Time Limit (minutes)",
+              "help": "How long candidates have to complete the assessment"
+            },
+            "passing_score": {
+              "label": "Passing Score (%)",
+              "help": "Minimum percentage to pass (1–100)"
+            },
+            "total_points": {
+              "label": "Total Points",
+              "help": "Auto-calculated from assigned questions",
+              "readonly": true
+            },
+            "shuffle_questions": {
+              "label": "Shuffle Questions",
+              "help": "Randomize question order for each candidate"
+            },
+            "show_results": {
+              "label": "Show Results to Candidates",
+              "help": "Allow candidates to see correct answers and explanations after submission"
+            },
+            "status": {
+              "label": "Status",
+              "readonly": true,
+              "help": "Managed by the publish workflow"
+            },
+            "published_at": {
+              "label": "Published",
+              "readonly": true
+            }
+          },
+          "hidden_fields": [
+            "deleted_at",
+            "created_by"
+          ],
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "clipboard-list",
+          "label": "Assessments",
+          "group": "Assessments"
+        },
+        "pages": {
+          "landing": {
+            "route": "/pages/assessment",
+            "title": "My Assessments",
+            "subtitle": "View your assigned assessments and past results",
+            "layout": "custom",
+            "template": "candidate-dashboard",
+            "sections": [
+              {
+                "id": "pending",
+                "title": "Pending Assessments",
+                "subtitle": "Assessments awaiting your completion",
+                "empty_message": "No pending assessments. Check back later!",
+                "data": {
+                  "entity": "invitation",
+                  "include": "assessment_invitations",
+                  "filter": {
+                    "status": ["sent", "accepted"],
+                    "candidate_id": "$current_user.candidate_id"
+                  },
+                  "sort": "expires_at"
+                },
+                "card": {
+                  "layout": "horizontal",
+                  "title": {
+                    "relation": "assessment_invitations",
+                    "field": "title"
+                  },
+                  "description": {
+                    "relation": "assessment_invitations",
+                    "field": "description"
+                  },
+                  "badges": [
+                    {
+                      "field": "status",
+                      "colors": {
+                        "sent": "blue",
+                        "accepted": "green"
+                      }
+                    },
+                    {
+                      "label": "Time Limit",
+                      "relation": "assessment_invitations",
+                      "field": "time_limit_minutes",
+                      "suffix": " min",
+                      "color": "gray"
+                    }
+                  ],
+                  "meta": [
+                    {
+                      "label": "Expires",
+                      "field": "expires_at",
+                      "format": "relative"
+                    },
+                    {
+                      "label": "Passing Score",
+                      "relation": "assessment_invitations",
+                      "field": "passing_score",
+                      "suffix": "%"
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "label": "Start Assessment",
+                      "type": "primary",
+                      "action": "navigate",
+                      "route": "/pages/assessment/:assessment_id/take"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "completed",
+                "title": "Completed Assessments",
+                "subtitle": "Your past assessment results",
+                "empty_message": "No completed assessments yet.",
+                "data": {
+                  "entity": "attempt",
+                  "include": "assessment_attempts",
+                  "filter": {
+                    "status": "graded",
+                    "candidate_id": "$current_user.candidate_id"
+                  },
+                  "sort": "-submitted_at"
+                },
+                "card": {
+                  "layout": "horizontal",
+                  "title": {
+                    "relation": "assessment_attempts",
+                    "field": "title"
+                  },
+                  "badges": [
+                    {
+                      "field": "passed",
+                      "type": "boolean",
+                      "true_label": "Passed",
+                      "false_label": "Failed",
+                      "true_color": "green",
+                      "false_color": "red"
+                    }
+                  ],
+                  "stats": [
+                    {
+                      "label": "Score",
+                      "value": "score",
+                      "total": "total_points",
+                      "format": "fraction"
+                    },
+                    {
+                      "label": "Percentage",
+                      "value": "percentage",
+                      "suffix": "%",
+                      "color_thresholds": {
+                        "red": 40,
+                        "yellow": 60,
+                        "green": 80
+                      }
+                    },
+                    {
+                      "label": "Time Spent",
+                      "value": "time_spent_seconds",
+                      "format": "duration"
+                    }
+                  ],
+                  "meta": [
+                    {
+                      "label": "Completed",
+                      "field": "submitted_at",
+                      "format": "relative"
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "label": "View Results",
+                      "type": "secondary",
+                      "action": "navigate",
+                      "route": "/pages/attempt/:id/results"
+                    }
+                  ]
+                }
+              }
+            ],
+            "stats": [
+              {
+                "label": "Pending",
+                "entity": "invitation",
+                "filter": {
+                  "status": ["sent", "accepted"],
+                  "candidate_id": "$current_user.candidate_id"
+                },
+                "icon": "clock",
+                "color": "blue"
+              },
+              {
+                "label": "Completed",
+                "entity": "attempt",
+                "filter": {
+                  "status": "graded",
+                  "candidate_id": "$current_user.candidate_id"
+                },
+                "icon": "check-circle",
+                "color": "green"
+              },
+              {
+                "label": "Passed",
+                "entity": "attempt",
+                "filter": {
+                  "status": "graded",
+                  "passed": true,
+                  "candidate_id": "$current_user.candidate_id"
+                },
+                "icon": "award",
+                "color": "emerald"
+              }
+            ]
+          },
+          "detail": {
+            "route": "/pages/assessment/:id",
+            "layout": "custom",
+            "template": "assessment-overview",
+            "data": {
+              "include": "assessment_assessment_questions"
+            },
+            "sections": [
+              {
+                "type": "hero",
+                "title": "title",
+                "show_meta": true
+              },
+              {
+                "type": "content",
+                "field": "description",
+                "format": "text"
+              },
+              {
+                "type": "info-grid",
+                "title": "Assessment Details",
+                "items": [
+                  {
+                    "label": "Time Limit",
+                    "field": "time_limit_minutes",
+                    "suffix": " minutes",
+                    "icon": "clock"
+                  },
+                  {
+                    "label": "Questions",
+                    "relation": "assessment_assessment_questions",
+                    "aggregate": "count",
+                    "icon": "list"
+                  },
+                  {
+                    "label": "Total Points",
+                    "field": "total_points",
+                    "icon": "star"
+                  },
+                  {
+                    "label": "Passing Score",
+                    "field": "passing_score",
+                    "suffix": "%",
+                    "icon": "target"
+                  }
+                ]
+              },
+              {
+                "type": "actions",
+                "actions": [
+                  {
+                    "label": "Begin Assessment",
+                    "type": "primary",
+                    "size": "large",
+                    "action": "navigate",
+                    "route": "/pages/assessment/:id/take",
+                    "confirm": {
+                      "title": "Start Assessment?",
+                      "message": "Once you begin, the timer starts and cannot be paused. Make sure you have a stable internet connection and enough time to complete.",
+                      "confirm_label": "Start Now",
+                      "cancel_label": "Not Yet"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "take": {
+            "route": "/pages/assessment/:id/take",
+            "layout": "custom",
+            "template": "assessment-take",
+            "data": {
+              "include": "assessment_assessment_questions"
+            },
+            "config": {
+              "show_timer": true,
+              "show_progress": true,
+              "show_question_nav": true,
+              "allow_skip": true,
+              "allow_review": true,
+              "auto_submit_on_timeout": true,
+              "confirm_submit": {
+                "title": "Submit Assessment?",
+                "message": "You are about to submit your assessment. You will not be able to change your answers after submission.",
+                "show_unanswered_count": true,
+                "confirm_label": "Submit",
+                "cancel_label": "Review Answers"
+              },
+              "question_layout": {
+                "show_question_number": true,
+                "show_points": true,
+                "show_difficulty": false,
+                "option_style": "card",
+                "selected_color": "blue"
+              }
+            }
+          },
+          "results": {
+            "route": "/pages/attempt/:id/results",
+            "layout": "custom",
+            "template": "assessment-results",
+            "data": {
+              "entity": "attempt",
+              "include": "assessment_attempts,attempt_answers"
+            },
+            "sections": [
+              {
+                "type": "score-hero",
+                "title": {
+                  "relation": "assessment_attempts",
+                  "field": "title"
+                },
+                "score": "percentage",
+                "passed": "passed",
+                "pass_message": "Congratulations! You passed the assessment.",
+                "fail_message": "Unfortunately, you did not meet the passing score.",
+                "stats": [
+                  {
+                    "label": "Score",
+                    "value": "score",
+                    "total": "total_points"
+                  },
+                  {
+                    "label": "Percentage",
+                    "value": "percentage",
+                    "suffix": "%"
+                  },
+                  {
+                    "label": "Time Spent",
+                    "value": "time_spent_seconds",
+                    "format": "duration"
+                  },
+                  {
+                    "label": "Passing Score",
+                    "relation": "assessment_attempts",
+                    "field": "passing_score",
+                    "suffix": "%"
+                  }
+                ]
+              },
+              {
+                "type": "answer-breakdown",
+                "title": "Question Breakdown",
+                "condition": "assessment.show_results === true",
+                "relation": "attempt_answers",
+                "include": "question_answers",
+                "display": {
+                  "show_correct_answer": true,
+                  "show_explanation": true,
+                  "show_points": true,
+                  "correct_color": "green",
+                  "incorrect_color": "red",
+                  "skipped_color": "gray"
+                }
+              },
+              {
+                "type": "actions",
+                "actions": [
+                  {
+                    "label": "Back to Dashboard",
+                    "type": "secondary",
+                    "action": "navigate",
+                    "route": "/pages/assessment"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "entity": "assessment_question",
+      "config": {
+        "list": {
+          "title": "Assessment Questions",
+          "columns": [
+            "assessment_id",
+            "question_id",
+            "sort_order",
+            "points_override"
+          ],
+          "default_sort": "sort_order",
+          "per_page": 50
+        },
+        "detail": {
+          "title": "Assessment Question"
+        },
+        "form": {
+          "field_overrides": {
+            "assessment_id": {
+              "label": "Assessment"
+            },
+            "question_id": {
+              "label": "Question"
+            },
+            "sort_order": {
+              "label": "Order",
+              "help": "Display position within the assessment"
+            },
+            "points_override": {
+              "label": "Points Override",
+              "help": "Leave blank to use the question's default points"
+            }
+          },
+          "readonly_fields": [
+            "created_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "link",
+          "label": "Question Mapping",
+          "group": "Assessments"
+        }
+      }
+    },
+    {
+      "entity": "candidate",
+      "config": {
+        "list": {
+          "title": "Candidates",
+          "columns": [
+            "name",
+            "email",
+            "source",
+            "phone",
+            "created_at"
+          ],
+          "default_sort": "-created_at",
+          "per_page": 25,
+          "searchable_fields": [
+            "name",
+            "email"
+          ]
+        },
+        "detail": {
+          "title": "Candidate Profile",
+          "sections": [
+            {
+              "title": "Contact",
+              "fields": [
+                "name",
+                "email",
+                "phone"
+              ]
+            },
+            {
+              "title": "Details",
+              "fields": [
+                "source",
+                "notes"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "name": {
+              "label": "Full Name"
+            },
+            "email": {
+              "label": "Email Address"
+            },
+            "phone": {
+              "label": "Phone Number"
+            },
+            "source": {
+              "label": "Source",
+              "help": "Internal = existing employee, External = outside candidate"
+            },
+            "notes": {
+              "label": "Notes",
+              "widget": "textarea",
+              "rows": 4,
+              "help": "Internal notes about this candidate (not visible to candidate)"
+            }
+          },
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "users",
+          "label": "Candidates",
+          "group": "People"
+        }
+      }
+    },
+    {
+      "entity": "invitation",
+      "config": {
+        "list": {
+          "title": "Invitations",
+          "columns": [
+            "candidate_id",
+            "assessment_id",
+            "status",
+            "sent_at",
+            "expires_at"
+          ],
+          "default_sort": "-created_at",
+          "per_page": 25
+        },
+        "detail": {
+          "title": "Invitation",
+          "sections": [
+            {
+              "title": "Assignment",
+              "fields": [
+                "candidate_id",
+                "assessment_id",
+                "token"
+              ]
+            },
+            {
+              "title": "Status & Timing",
+              "fields": [
+                "status",
+                "sent_at",
+                "accepted_at",
+                "expires_at"
+              ]
+            },
+            {
+              "title": "Message",
+              "fields": [
+                "message"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "candidate_id": {
+              "label": "Candidate"
+            },
+            "assessment_id": {
+              "label": "Assessment"
+            },
+            "token": {
+              "label": "Invite Token",
+              "readonly": true,
+              "help": "Auto-generated unique link identifier"
+            },
+            "status": {
+              "label": "Status",
+              "readonly": true,
+              "help": "Managed by the invitation lifecycle"
+            },
+            "message": {
+              "label": "Personal Message",
+              "widget": "textarea",
+              "rows": 4,
+              "help": "Included in the invitation email to the candidate"
+            },
+            "expires_at": {
+              "label": "Expiry Date",
+              "help": "Invitation link becomes invalid after this date"
+            },
+            "sent_at": {
+              "label": "Sent",
+              "readonly": true
+            },
+            "accepted_at": {
+              "label": "Accepted",
+              "readonly": true
+            }
+          },
+          "hidden_fields": [
+            "created_by"
+          ],
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "mail",
+          "label": "Invitations",
+          "group": "People"
+        }
+      }
+    },
+    {
+      "entity": "attempt",
+      "config": {
+        "list": {
+          "title": "Assessment Attempts",
+          "columns": [
+            "candidate_id",
+            "assessment_id",
+            "status",
+            "score",
+            "percentage",
+            "passed",
+            "submitted_at"
+          ],
+          "default_sort": "-submitted_at",
+          "per_page": 25
+        },
+        "detail": {
+          "title": "Attempt Details",
+          "sections": [
+            {
+              "title": "Candidate & Assessment",
+              "fields": [
+                "candidate_id",
+                "assessment_id",
+                "invitation_id"
+              ]
+            },
+            {
+              "title": "Results",
+              "fields": [
+                "status",
+                "score",
+                "total_points",
+                "percentage",
+                "passed"
+              ]
+            },
+            {
+              "title": "Timing",
+              "fields": [
+                "started_at",
+                "submitted_at",
+                "time_spent_seconds"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "candidate_id": {
+              "label": "Candidate"
+            },
+            "assessment_id": {
+              "label": "Assessment"
+            },
+            "invitation_id": {
+              "label": "Invitation"
+            },
+            "status": {
+              "label": "Status",
+              "readonly": true
+            },
+            "score": {
+              "label": "Score",
+              "readonly": true
+            },
+            "total_points": {
+              "label": "Total Points",
+              "readonly": true
+            },
+            "percentage": {
+              "label": "Percentage",
+              "readonly": true
+            },
+            "passed": {
+              "label": "Passed",
+              "readonly": true
+            },
+            "started_at": {
+              "label": "Started",
+              "readonly": true
+            },
+            "submitted_at": {
+              "label": "Submitted",
+              "readonly": true
+            },
+            "time_spent_seconds": {
+              "label": "Time Spent (seconds)",
+              "readonly": true
+            }
+          },
+          "readonly_fields": [
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "bar-chart",
+          "label": "Results",
+          "group": "Assessments"
+        },
+        "pages": {
+          "landing": {
+            "route": "/pages/results",
+            "title": "Results Dashboard",
+            "subtitle": "Overview of all assessment results and performance",
+            "layout": "custom",
+            "template": "results-dashboard",
+            "data": {
+              "include": "assessment_attempts,candidate_attempts",
+              "filter": {
+                "status": "graded"
+              },
+              "sort": "-submitted_at",
+              "per_page": 50
+            },
+            "stats": [
+              {
+                "label": "Total Attempts",
+                "aggregate": "count",
+                "icon": "hash",
+                "color": "blue"
+              },
+              {
+                "label": "Pass Rate",
+                "aggregate": "percentage",
+                "field": "passed",
+                "value": true,
+                "icon": "trending-up",
+                "color": "green"
+              },
+              {
+                "label": "Avg Score",
+                "aggregate": "average",
+                "field": "percentage",
+                "suffix": "%",
+                "icon": "bar-chart-2",
+                "color": "purple"
+              }
+            ],
+            "table": {
+              "columns": [
+                {
+                  "field": "candidate_id",
+                  "label": "Candidate",
+                  "relation": "candidate_attempts",
+                  "display_field": "name"
+                },
+                {
+                  "field": "assessment_id",
+                  "label": "Assessment",
+                  "relation": "assessment_attempts",
+                  "display_field": "title"
+                },
+                {
+                  "field": "score",
+                  "label": "Score",
+                  "format": "fraction",
+                  "total_field": "total_points"
+                },
+                {
+                  "field": "percentage",
+                  "label": "%",
+                  "suffix": "%",
+                  "color_thresholds": {
+                    "red": 40,
+                    "yellow": 60,
+                    "green": 80
+                  }
+                },
+                {
+                  "field": "passed",
+                  "label": "Result",
+                  "type": "boolean",
+                  "true_label": "Pass",
+                  "false_label": "Fail",
+                  "true_color": "green",
+                  "false_color": "red"
+                },
+                {
+                  "field": "time_spent_seconds",
+                  "label": "Duration",
+                  "format": "duration"
+                },
+                {
+                  "field": "submitted_at",
+                  "label": "Date",
+                  "format": "relative"
+                }
+              ],
+              "row_click": {
+                "action": "navigate",
+                "route": "/pages/attempt/:id/results"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "entity": "answer",
+      "config": {
+        "list": {
+          "title": "Answers",
+          "columns": [
+            "attempt_id",
+            "question_id",
+            "selected_option",
+            "is_correct",
+            "points_awarded",
+            "answered_at"
+          ],
+          "default_sort": "answered_at",
+          "per_page": 50
+        },
+        "detail": {
+          "title": "Answer Detail",
+          "sections": [
+            {
+              "title": "Response",
+              "fields": [
+                "attempt_id",
+                "question_id",
+                "selected_option"
+              ]
+            },
+            {
+              "title": "Grading",
+              "fields": [
+                "is_correct",
+                "points_awarded",
+                "answered_at"
+              ]
+            }
+          ]
+        },
+        "form": {
+          "field_overrides": {
+            "attempt_id": {
+              "label": "Attempt"
+            },
+            "question_id": {
+              "label": "Question"
+            },
+            "selected_option": {
+              "label": "Selected Answer"
+            },
+            "is_correct": {
+              "label": "Correct",
+              "readonly": true
+            },
+            "points_awarded": {
+              "label": "Points",
+              "readonly": true
+            },
+            "answered_at": {
+              "label": "Answered At",
+              "readonly": true
+            }
+          },
+          "readonly_fields": [
+            "created_at"
+          ]
+        },
+        "sidebar": {
+          "icon": "check-square",
+          "label": "Answers",
+          "group": "Assessments"
+        }
+      }
+    }
+  ]
+}

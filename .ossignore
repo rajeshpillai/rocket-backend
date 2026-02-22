@@ -1,0 +1,16 @@
+# Claude / AI development tooling
+CLAUDE.md
+.claude/
+
+# Internal planning & tracking
+todo.md
+backend/golang/todo.md
+backend/expressjs/todo.md
+backend/elixir-phoenix/todo.md
+backend/dotnet/todo.md
+backend/java-spring/todo.md
+man-days.md
+
+# Publish tooling (not needed in OSS repo)
+scripts/
+.ossignore
