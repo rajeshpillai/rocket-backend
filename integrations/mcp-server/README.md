@@ -28,34 +28,32 @@ Three environment variables:
 
 ## Running
 
+Shell scripts are provided with sensible defaults (localhost:8080, platform@localhost / changeme). Override via environment variables if needed.
+
 ### Standalone (for testing)
 
 ```bash
-ROCKET_URL=http://localhost:8080 \
-ROCKET_EMAIL=platform@localhost \
-ROCKET_PASSWORD=changeme \
-  node dist/index.js
+./start.sh
+
+# or with custom credentials:
+ROCKET_URL=http://myhost:9090 ROCKET_EMAIL=admin@example.com ROCKET_PASSWORD=secret ./start.sh
 ```
 
 ### Development mode (no build step)
 
 ```bash
-ROCKET_URL=http://localhost:8080 \
-ROCKET_EMAIL=platform@localhost \
-ROCKET_PASSWORD=changeme \
-  npm run dev
+./dev.sh
 ```
+
+Uses `tsx` to run TypeScript directly — no `npm run build` needed. Useful during development.
 
 ### MCP Inspector (interactive testing)
 
 ```bash
-ROCKET_URL=http://localhost:8080 \
-ROCKET_EMAIL=platform@localhost \
-ROCKET_PASSWORD=changeme \
-  npx @modelcontextprotocol/inspector node dist/index.js
+./inspect.sh
 ```
 
-The inspector opens a browser UI where you can invoke each tool, read resources, and test prompts interactively.
+Auto-builds first, then opens the MCP Inspector — a browser UI where you can invoke each tool, read resources, and test prompts interactively.
 
 ## Client Configuration
 
