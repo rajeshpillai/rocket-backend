@@ -30,7 +30,8 @@ defmodule Rocket.MultiApp.AppManager do
 
     state = %{
       apps: %{},
-      db_config: db_config
+      db_config: db_config,
+      ready: false
     }
 
     {:ok, state, {:continue, :bootstrap_and_load}}
@@ -38,15 +39,27 @@ defmodule Rocket.MultiApp.AppManager do
 
   @impl true
   def handle_continue(:bootstrap_and_load, state) do
-    try do
-      PlatformBootstrap.bootstrap(Store.mgmt_conn())
-      state = load_all_apps(state)
-      {:noreply, state}
-    rescue
-      e ->
-        Logger.error("AppManager bootstrap failed: #{inspect(e)}")
-        {:noreply, state}
-    end
+    parent = self()
+
+    Task.start(fn ->
+      try do
+        PlatformBootstrap.bootstrap(Store.mgmt_conn())
+        send(parent, :bootstrap_done)
+      rescue
+        e ->
+          Logger.error("AppManager bootstrap failed: #{inspect(e)}")
+          send(parent, :bootstrap_done)
+      end
+    end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:bootstrap_done, state) do
+    state = load_all_apps(state)
+    Logger.info("AppManager bootstrap complete")
+    {:noreply, %{state | ready: true}}
   end
 
   @impl true
