@@ -8,6 +8,7 @@ A metadata-driven backend engine where entities, relations, and business logic a
 2. The engine auto-creates the Postgres table with correct columns, indexes, and constraints
 3. Five REST endpoints are instantly available: `GET/POST/PUT/DELETE /api/customer`
 4. Define relations between entities — nested writes, includes, and cascade deletes work automatically
+5. Optionally add validation rules, state machines, workflows, permissions, and webhooks — all as JSON metadata, no code required
 
 ## Features
 
