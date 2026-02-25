@@ -269,6 +269,31 @@ To update an existing app, just re-import — the import is **idempotent** (skip
 | **Content Management** | [content-management.json](examples/backend/content-management.json) | author, category, tag, post, comment, media | Many-to-many (post &harr; tags), editorial workflow (draft &rarr; review &rarr; published), slug pattern validation, file uploads, comment moderation |
 | **Employee Management** | [employee-management.json](examples/backend/employee-management.json) | department, employee, leave_request, document, attendance | Multi-step leave approval workflow (auto-approve &le;5 days, manager+HR for longer), employee status state machine, date validation rules, document file uploads |
 
+## Codebase Size
+
+Lines of actual code (excluding blanks and comments), as of Feb 2025:
+
+| Component | Files | Lines of Code |
+|-----------|-------|---------------|
+| Go (backend/golang) | 71 | 13,812 |
+| TypeScript (backend/expressjs) | 64 | 10,850 |
+| Elixir (backend/elixir-phoenix) | 85 | 10,079 |
+| Admin UI (admin/src) | 123 | 20,160 |
+| Client Demo (client/src) | 52 | 5,423 |
+| **Total** | **395** | **60,324** |
+
+## Integrations
+
+### MCP Server
+
+A [Model Context Protocol](https://modelcontextprotocol.io/) server that wraps Rocket's REST API, enabling AI assistants (Claude Code, Claude Desktop, Cursor, Windsurf) to manage backends through conversation. 21 tools covering app management, entity/relation CRUD, schema export/import, AI schema generation, and record operations.
+
+```
+AI Assistant ↔ stdio (JSON-RPC) ↔ MCP Server ↔ HTTP ↔ Rocket REST API ↔ Database
+```
+
+See [integrations/mcp-server/README.md](integrations/mcp-server/README.md) for setup, configuration, and the full tool reference.
+
 ## Roadmap
 
 - [x] Field validation rules (min, max, pattern)
