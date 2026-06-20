@@ -209,7 +209,7 @@ export function AISchemaGenerator() {
       <Show when={!aiConfigured()}>
         <div
           class="p-4 mb-4 rounded-lg border"
-          style="background: var(--color-warning-bg, #fef3cd); border-color: var(--color-warning-border, #ffc107);"
+          style="background: var(--color-warning-bg, #fef3cd); border-color: var(--color-warning-border, #ffc107); color: #92400e;"
         >
           <p class="text-sm font-medium mb-1">AI Provider Not Configured</p>
           <p class="text-sm" style="opacity: 0.8">
@@ -229,7 +229,7 @@ ROCKET_AI_MODEL=gpt-4o`}
       </Show>
 
       <Show when={error()}>
-        <div class="form-error-text mb-4 p-3 rounded-lg" style="background: var(--color-error-bg, #f8d7da);">
+        <div class="form-error-text mb-4 p-3 rounded-lg" style="background: var(--color-error-bg, #f8d7da); color: #991b1b;">
           {error()}
         </div>
       </Show>
@@ -435,7 +435,7 @@ ROCKET_AI_MODEL=gpt-4o`}
         <div class="flex flex-col gap-4">
           <div
             class="p-4 rounded-lg border"
-            style="background: var(--color-success-bg, #d4edda); border-color: var(--color-success-border, #28a745);"
+            style="background: var(--color-success-bg, #d4edda); border-color: var(--color-success-border, #28a745); color: #166534;"
           >
             <p class="text-sm font-medium mb-2">
               {importResult()!.message}
@@ -460,7 +460,7 @@ ROCKET_AI_MODEL=gpt-4o`}
           >
             <div
               class="p-4 rounded-lg border"
-              style="background: var(--color-error-bg, #f8d7da); border-color: var(--color-error-border, #dc3545);"
+              style="background: var(--color-error-bg, #f8d7da); border-color: var(--color-error-border, #dc3545); color: #991b1b;"
             >
               <p class="text-sm font-medium mb-2">
                 Some items had errors:
